@@ -12,7 +12,7 @@ export default function Home() {
           <h1 className="text-3xl font-semibold tracking-tight text-white sm:text-4xl">Login or register to continue</h1>
           <div className="flex flex-col items-center justify-center gap-4 sm:flex-row">
             <Link
-              href="/auth"
+              href="/auth/login"
               className="inline-flex min-w-[140px] items-center justify-center rounded-3xl bg-cyan-500 px-6 py-4 text-base font-semibold text-slate-950 transition hover:bg-cyan-400"
             >
               Login

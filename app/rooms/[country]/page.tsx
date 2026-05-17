@@ -12,7 +12,7 @@ type Country = {
   id: string;
   name: string;
   slug: string;
-  code: string;
+  code?: string | null;
   emoji: string | null;
 };
 

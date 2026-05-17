@@ -46,7 +46,7 @@ export async function loadFeedPosts(): Promise<{
 
   if ((realPosts ?? []).length > 0) {
     return {
-      posts: sanitizeFeedPosts((realPosts ?? []) as FeedPostRow[]),
+      posts: sanitizeFeedPosts((realPosts ?? []) as unknown as FeedPostRow[]),
       error: null,
       showingDemoGuide: false,
     };
@@ -65,7 +65,7 @@ export async function loadFeedPosts(): Promise<{
 
   if ((demoPosts ?? []).length > 0) {
     return {
-      posts: sanitizeFeedPosts((demoPosts ?? []) as FeedPostRow[]),
+      posts: sanitizeFeedPosts((demoPosts ?? []) as unknown as FeedPostRow[]),
       error: null,
       showingDemoGuide: true,
     };

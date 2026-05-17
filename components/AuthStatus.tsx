@@ -72,7 +72,7 @@ export default function AuthStatus() {
         <NavLink href="/chats" label="Chats" icon={<MessageCircle className={iconClass} strokeWidth={1.75} aria-hidden />} />
         <NavLink href="/search" label="Search" icon={<SearchIcon className={iconClass} strokeWidth={1.75} aria-hidden />} />
         <Link
-          href="/auth"
+          href="/auth/login"
           className="inline-flex items-center rounded-full bg-cyan-500 px-4 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300/60 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
         >
           Sign in

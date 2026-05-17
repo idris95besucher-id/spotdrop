@@ -67,7 +67,7 @@ export default function PostCommentsSection({
   const [posting, setPosting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [currentUserProfile, setCurrentUserProfile] = useState<{ username: string; avatar_url: string | null } | null>(null);
-  const commentsEndRef = useRef<HTMLDivElement>(null);
+  const commentsEndRef = useRef<HTMLLIElement>(null);
   const commentInputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {

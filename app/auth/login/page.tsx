@@ -11,8 +11,10 @@ import Shell from "@/components/Shell";
 export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [resetEmailSent, setResetEmailSent] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [sendingReset, setSendingReset] = useState(false);
   const router = useRouter();
 
   const redirectAfterLogin = async () => {
@@ -69,6 +71,38 @@ export default function LoginPage() {
     setLoading(false);
   };
 
+  const handleForgotPassword = async () => {
+    const trimmedEmail = email.trim();
+
+    if (!trimmedEmail) {
+      setError("Enter your email first, then request a reset link.");
+      return;
+    }
+
+    setSendingReset(true);
+    setResetEmailSent(false);
+    setError(null);
+
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(trimmedEmail, {
+        redirectTo: `${window.location.origin}/auth/reset-password`,
+      });
+
+      if (error) {
+        logAuthSessionError(error);
+        setError(error.message === "Load failed" ? AUTH_CONNECTION_ERROR_MESSAGE : error.message);
+        return;
+      }
+
+      setResetEmailSent(true);
+    } catch (resetError) {
+      logAuthSessionError(resetError);
+      setError(AUTH_CONNECTION_ERROR_MESSAGE);
+    } finally {
+      setSendingReset(false);
+    }
+  };
+
   return (
     <Shell showHeader={false}>
       <div className="mx-auto w-full max-w-xl space-y-8 rounded-3xl border border-white/10 bg-slate-900/90 p-8 shadow-xl shadow-black/40">
@@ -96,9 +130,22 @@ export default function LoginPage() {
               className="mt-2 w-full rounded-3xl border border-white/10 bg-slate-950 px-4 py-3 text-white outline-none transition focus:border-cyan-400"
             />
           </label>
+          <button
+            type="button"
+            onClick={handleForgotPassword}
+            disabled={sendingReset}
+            className="text-left text-sm font-semibold text-cyan-300 transition hover:text-cyan-200 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {sendingReset ? "Sending reset link..." : "Forgot password?"}
+          </button>
         </div>
 
         {error ? <p className="text-sm text-red-300">{error}</p> : null}
+        {resetEmailSent ? (
+          <p className="rounded-3xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">
+            Password reset link sent. Check your inbox and open the link on this device.
+          </p>
+        ) : null}
 
         <button
           type="button"
