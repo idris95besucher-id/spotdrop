@@ -1,4 +1,5 @@
 import type { PostMediaFields } from "@/lib/posts";
+import type { GuidePlace } from "@/lib/guidePlaces";
 
 export const DEMO_PROFILE_IDS = {
   spot_guide: "a1000001-0001-4000-8000-000000000001",
@@ -12,6 +13,8 @@ export type FeedPostProfile = {
   avatar_url?: string | null;
   is_private: boolean;
   is_demo: boolean;
+  is_ai_guide?: boolean | null;
+  is_official?: boolean | null;
 };
 
 export type FeedPostRow = PostMediaFields & {
@@ -21,6 +24,7 @@ export type FeedPostRow = PostMediaFields & {
   visibility?: "public" | "private";
   created_at: string;
   profiles: FeedPostProfile;
+  guide_places?: GuidePlace | GuidePlace[] | null;
 };
 
 const hoursAgo = (hours: number) => new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
@@ -40,6 +44,8 @@ export const CLIENT_DEMO_FEED_POSTS: FeedPostRow[] = [
       avatar_url: null,
       is_private: false,
       is_demo: true,
+      is_ai_guide: false,
+      is_official: false,
     },
   },
   {
@@ -54,6 +60,8 @@ export const CLIENT_DEMO_FEED_POSTS: FeedPostRow[] = [
       avatar_url: null,
       is_private: false,
       is_demo: true,
+      is_ai_guide: false,
+      is_official: false,
     },
   },
   {
@@ -69,6 +77,8 @@ export const CLIENT_DEMO_FEED_POSTS: FeedPostRow[] = [
       avatar_url: null,
       is_private: false,
       is_demo: true,
+      is_ai_guide: false,
+      is_official: false,
     },
   },
   {
@@ -83,6 +93,8 @@ export const CLIENT_DEMO_FEED_POSTS: FeedPostRow[] = [
       avatar_url: null,
       is_private: false,
       is_demo: true,
+      is_ai_guide: false,
+      is_official: false,
     },
   },
   {
@@ -95,6 +107,8 @@ export const CLIENT_DEMO_FEED_POSTS: FeedPostRow[] = [
       avatar_url: null,
       is_private: false,
       is_demo: true,
+      is_ai_guide: false,
+      is_official: false,
     },
   },
   {
@@ -107,11 +121,47 @@ export const CLIENT_DEMO_FEED_POSTS: FeedPostRow[] = [
       avatar_url: null,
       is_private: false,
       is_demo: true,
+      is_ai_guide: false,
+      is_official: false,
     },
   },
 ];
 
 export const FEED_POST_SELECT = `
+  id,
+  user_id,
+  content,
+  image_url,
+  video_url,
+  media_url,
+  media_type,
+  visibility,
+  created_at,
+  guide_places (
+    title,
+    location_name,
+    canton,
+    city,
+    description,
+    opening_hours,
+    price_info,
+    official_url,
+    read_more_text,
+    media_url,
+    media_type,
+    source_url
+  ),
+  profiles!inner (
+    username,
+    avatar_url,
+    is_private,
+    is_demo,
+    is_ai_guide,
+    is_official
+  )
+`;
+
+export const FEED_POST_SELECT_LEGACY = `
   id,
   user_id,
   content,

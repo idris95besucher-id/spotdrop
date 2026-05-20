@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
 import { UserRound } from "lucide-react";
+import OfficialAIGuideBadge from "@/components/OfficialAIGuideBadge";
 import Shell from "@/components/Shell";
 import { getCountryFlag } from "@/lib/countryFlags";
 import { publicProfileUsername, sanitizePublicProfiles } from "@/lib/publicProfile";
@@ -30,9 +31,12 @@ type SearchProfile = {
   city_id?: string | null;
   date_of_birth?: string | null;
   is_online?: boolean | null;
+  is_ai_guide?: boolean | null;
+  is_official?: boolean | null;
 };
 
-const PROFILE_SELECT = "id, username, avatar_url, country_slug, city_id, date_of_birth, is_online";
+const PROFILE_SELECT = "id, username, avatar_url, country_slug, city_id, date_of_birth, is_online, is_ai_guide, is_official";
+const PROFILE_SELECT_LEGACY = "id, username, avatar_url, country_slug, city_id, date_of_birth, is_online";
 
 function calculateAge(dateOfBirth: string | null | undefined) {
   if (!dateOfBirth) {
@@ -86,6 +90,12 @@ export default function SearchPage() {
       setLoading(true);
       setLoadError(null);
 
+      const profilesResult = await supabase.from("profiles").select(PROFILE_SELECT).order("username", { ascending: true });
+      const profilesWithFallback =
+        profilesResult.error?.code === "42703"
+          ? await supabase.from("profiles").select(PROFILE_SELECT_LEGACY).order("username", { ascending: true })
+          : profilesResult;
+
       const [
         { data: countriesData, error: countriesError },
         { data: citiesData, error: citiesError },
@@ -93,7 +103,7 @@ export default function SearchPage() {
       ] = await Promise.all([
         supabase.from("countries").select("id, name, slug, emoji").order("name", { ascending: true }),
         supabase.from("cities").select("id, name, country_id").order("name", { ascending: true }),
-        supabase.from("profiles").select(PROFILE_SELECT).order("username", { ascending: true }),
+        profilesWithFallback,
       ]);
 
       if (countriesError) {
@@ -255,6 +265,7 @@ export default function SearchPage() {
   const renderUserCard = (profile: SearchProfile) => {
     const country = countries.find((item) => item.slug === profile.country_slug) ?? null;
     const cityName = cityNameById.get(profile.city_id ?? "") ?? null;
+    const isOfficialAIGuide = Boolean(profile.is_ai_guide && profile.is_official);
     const location = country
       ? `${getCountryFlag(country.slug, country.emoji)} ${cityName ? `${cityName}, ` : ""}${country.name}`
       : cityName ?? null;
@@ -277,6 +288,7 @@ export default function SearchPage() {
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
               <h2 className="truncate text-lg font-semibold text-white">{publicProfileUsername(profile.username)}</h2>
+              {isOfficialAIGuide ? <OfficialAIGuideBadge /> : null}
               {profile.is_online ? (
                 <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2.5 py-1 text-xs font-medium text-emerald-300">
                   <span className="h-2 w-2 rounded-full bg-emerald-400" />

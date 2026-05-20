@@ -6,6 +6,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "seed:bern-guide": "node scripts/seed-bern-guide.mjs",
+    "seed:bern-discovery": "node scripts/seed-bern-discovery.mjs",
+    "seed:swiss-guide": "node scripts/seed-swiss-guide.mjs",
     "lint": "eslint"
   },
   "dependencies": {

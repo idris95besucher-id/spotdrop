@@ -14,7 +14,9 @@ import { ensureProfileRow } from "@/lib/profile";
 import { uploadAvatarImage } from "@/lib/profileMedia";
 import { logExactLoadError } from "@/lib/safeLoad";
 import { supabase } from "@/lib/supabaseClient";
+import { resolveProfileLocation, type ResolvedProfileLocation } from "@/lib/profileLocation";
 import CreatePostForm, { type CreatedProfilePost } from "@/components/CreatePostForm";
+import OfficialAIGuideBadge from "@/components/OfficialAIGuideBadge";
 import PostMediaLink from "@/components/PostMediaLink";
 import Shell from "@/components/Shell";
 
@@ -23,7 +25,10 @@ type ProfileData = {
   avatar_url?: string | null;
   bio?: string | null;
   country_slug?: string | null;
+  city_slug?: string | null;
   city_id?: string | null;
+  is_ai_guide?: boolean | null;
+  is_official?: boolean | null;
 };
 
 type ProfilePost = {
@@ -71,9 +76,19 @@ function formatPostTime(createdAt: string) {
   }).format(date);
 }
 
+function withTimeout<T>(promise: Promise<T>, message: string, timeoutMs = 6000): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) => {
+      window.setTimeout(() => reject(new Error(message)), timeoutMs);
+    }),
+  ]);
+}
+
 export default function ProfilePage() {
   const router = useRouter();
   const [profile, setProfile] = useState<ProfileData | null>(null);
+  const [location, setLocation] = useState<ResolvedProfileLocation>({ countryName: null, cityName: null });
   const [session, setSession] = useState<Session | null>(null);
   const [followers, setFollowers] = useState<FollowProfile[]>([]);
   const [friends, setFriends] = useState<FollowProfile[]>([]);
@@ -82,10 +97,11 @@ export default function ProfilePage() {
   const [loading, setLoading] = useState(true);
   const [loadingConnections, setLoadingConnections] = useState(true);
   const [loadingPosts, setLoadingPosts] = useState(true);
-  const [activeConnectionsTab, setActiveConnectionsTab] = useState<"followers" | "friends" | null>(null);
+  const [activeProfileSection, setActiveProfileSection] = useState<"posts" | "followers" | "friends" | null>(null);
   const [activeContentTab, setActiveContentTab] = useState<"posts" | "private">("posts");
   const [connectionsError, setConnectionsError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const avatarInputRef = useRef<HTMLInputElement>(null);
@@ -124,95 +140,165 @@ export default function ProfilePage() {
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
+    let profileSettled = false;
+
     const loadProfile = async () => {
-      const { session, error: sessionError } = await getSafeAuthSession();
+      setLoading(true);
+      setLoadingConnections(true);
+      setLoadingPosts(true);
+      setError(null);
+      setConnectionsError(null);
 
-      setSession(session);
+      const timeoutId = window.setTimeout(() => {
+        if (!profileSettled && !cancelled) {
+          console.error("Profile load timeout:", JSON.stringify({ page: "/profile" }, null, 2));
+          setError("Profile is taking too long to load. Please try again.");
+          setLoading(false);
+          setLoadingConnections(false);
+          setLoadingPosts(false);
+        }
+      }, 7000);
 
-      if (sessionError) {
-        setError(sessionError);
+      try {
+        const { session, error: sessionError } = await withTimeout(
+          getSafeAuthSession(),
+          "Profile session is taking too long to load. Please try again."
+        );
+
+        if (cancelled) {
+          return;
+        }
+
+        setSession(session);
+
+        if (sessionError) {
+          setError(sessionError);
+          return;
+        }
+
+        if (!session?.user) {
+          return;
+        }
+
+        const ensuredProfile = await withTimeout(
+          ensureProfileRow({ user: session.user }),
+          "Profile data is taking too long to load. Please try again."
+        );
+
+        if (cancelled) {
+          return;
+        }
+
+        if (ensuredProfile.error && !ensuredProfile.needsOnboarding) {
+          setError(ensuredProfile.error);
+        }
+
+        if (!ensuredProfile.profile?.username) {
+          setError("Complete your profile first.");
+          router.push("/onboarding");
+          return;
+        }
+
+        setProfile(ensuredProfile.profile);
         setLoading(false);
-        setLoadingConnections(false);
-        setLoadingPosts(false);
-        return;
+
+        void resolveProfileLocation(ensuredProfile.profile)
+          .then((nextLocation) => {
+            if (!cancelled) {
+              setLocation(nextLocation);
+            }
+          })
+          .catch((locationError) => {
+            console.error("Profile location load error:", JSON.stringify(locationError, null, 2));
+          });
+
+        const followConnectionsPromise = loadFollowConnections(session.user.id);
+
+        const postsPromise = Promise.all([
+          supabase
+            .from("posts")
+            .select("id, user_id, content, visibility, image_url, video_url, media_url, media_type, created_at, updated_at")
+            .eq("user_id", session.user.id)
+            .eq("visibility", "public")
+            .order("created_at", { ascending: false }),
+          supabase
+            .from("posts")
+            .select("id, user_id, content, visibility, image_url, video_url, media_url, media_type, created_at, updated_at")
+            .eq("user_id", session.user.id)
+            .eq("visibility", "private")
+            .order("created_at", { ascending: false }),
+        ]);
+
+        try {
+          const [
+            followConnectionsResult,
+            [{ data: publicPostRows, error: publicPostsError }, { data: privatePostRows, error: privatePostsError }],
+          ] = await withTimeout(
+            Promise.all([followConnectionsPromise, postsPromise]),
+            "Profile posts are taking too long to load. Showing profile without posts."
+          );
+
+          if (cancelled) {
+            return;
+          }
+
+          if (publicPostsError || privatePostsError) {
+            console.error("Profile posts load error:", JSON.stringify(publicPostsError ?? privatePostsError, null, 2));
+            logExactLoadError(publicPostsError ?? privatePostsError);
+            setPublicPosts([]);
+            setPrivatePosts([]);
+          } else {
+            setPublicPosts((publicPostRows ?? []) as ProfilePost[]);
+            setPrivatePosts((privatePostRows ?? []) as ProfilePost[]);
+          }
+
+          if (followConnectionsResult.error) {
+            console.error("Profile connections load error:", JSON.stringify(followConnectionsResult.error, null, 2));
+            setConnectionsError(followConnectionsResult.error);
+            setFollowers([]);
+            setFriends([]);
+          } else {
+            setConnectionsError(null);
+            setFollowers(followConnectionsResult.data?.followers ?? []);
+            setFriends(followConnectionsResult.data?.friends ?? []);
+          }
+        } catch (secondaryLoadError) {
+          console.error("Profile secondary data load error:", JSON.stringify(secondaryLoadError, null, 2));
+          setConnectionsError("Some profile details could not load. Your profile is still available.");
+          setPublicPosts([]);
+          setPrivatePosts([]);
+          setFollowers([]);
+          setFriends([]);
+        }
+      } catch (loadError) {
+        console.error("Profile load error:", JSON.stringify(loadError, null, 2));
+        setError(loadError instanceof Error && loadError.message ? loadError.message : "Unable to load your profile.");
+      } finally {
+        profileSettled = true;
+        window.clearTimeout(timeoutId);
+
+        if (!cancelled) {
+          setLoading(false);
+          setLoadingConnections(false);
+          setLoadingPosts(false);
+        }
       }
-
-      if (!session?.user) {
-        setLoading(false);
-        setLoadingConnections(false);
-        setLoadingPosts(false);
-        return;
-      }
-
-      const ensuredProfile = await ensureProfileRow({ user: session.user });
-
-      if (ensuredProfile.error && !ensuredProfile.needsOnboarding) {
-        setError(ensuredProfile.error);
-      }
-
-      if (!ensuredProfile.profile?.username) {
-        router.push("/onboarding");
-        return;
-      }
-
-      setProfile(ensuredProfile.profile);
-
-      const followConnectionsResult = await loadFollowConnections(session.user.id);
-
-      const [
-        { data: publicPostRows, error: publicPostsError },
-        { data: privatePostRows, error: privatePostsError },
-      ] = await Promise.all([
-        supabase
-          .from("posts")
-          .select("*")
-          .eq("user_id", session.user.id)
-          .eq("visibility", "public")
-          .order("created_at", { ascending: false }),
-        supabase
-          .from("posts")
-          .select("*")
-          .eq("user_id", session.user.id)
-          .eq("visibility", "private")
-          .order("created_at", { ascending: false }),
-      ]);
-
-      if (publicPostsError || privatePostsError) {
-        logExactLoadError(publicPostsError ?? privatePostsError);
-        setPublicPosts([]);
-        setPrivatePosts([]);
-      } else {
-        setPublicPosts((publicPostRows ?? []) as ProfilePost[]);
-        setPrivatePosts((privatePostRows ?? []) as ProfilePost[]);
-      }
-
-      if (followConnectionsResult.error) {
-        setConnectionsError(followConnectionsResult.error);
-        setFollowers([]);
-        setFriends([]);
-      } else {
-        setConnectionsError(null);
-        setFollowers(followConnectionsResult.data?.followers ?? []);
-        setFriends(followConnectionsResult.data?.friends ?? []);
-      }
-
-      setLoadingConnections(false);
-      setLoadingPosts(false);
-      setLoading(false);
     };
 
     void loadProfile();
-  }, [router]);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [router, loadAttempt]);
 
   const followersCount = followers.length;
   const friendsCount = friends.length;
   const postsCount = publicPosts.length;
   const activePosts = activeContentTab === "posts" ? publicPosts : privatePosts;
-  const activeConnections = activeConnectionsTab === "friends" ? friends : followers;
-
-  const toggleConnectionsTab = (tab: "followers" | "friends") => {
-    setActiveConnectionsTab((current) => (current === tab ? null : tab));
-  };
+  const activeConnections = activeProfileSection === "friends" ? friends : followers;
+  const isOfficialAIGuide = Boolean(profile?.is_ai_guide && profile.is_official);
 
   const handlePostCreated = (post: CreatedProfilePost) => {
     console.log("profile post created with id:", post.id);
@@ -223,6 +309,7 @@ export default function ProfilePage() {
       setPublicPosts((currentPosts) => [post, ...currentPosts]);
       setActiveContentTab("posts");
     }
+    setActiveProfileSection("posts");
     showSuccessMessage("Post published.");
   };
 
@@ -307,7 +394,10 @@ export default function ProfilePage() {
 
           {!loading && profile?.username ? (
             <div className="space-y-1">
-              <h1 className="text-2xl font-semibold text-white">{publicProfileUsername(profile.username)}</h1>
+              <div className="flex flex-wrap items-center gap-2">
+                <h1 className="text-2xl font-semibold text-white">{publicProfileUsername(profile.username)}</h1>
+                {isOfficialAIGuide ? <OfficialAIGuideBadge /> : null}
+              </div>
               <p className="text-xs uppercase tracking-[0.24em] text-slate-500">My Profile</p>
             </div>
           ) : null}
@@ -316,10 +406,32 @@ export default function ProfilePage() {
             <p className="max-w-sm text-sm leading-relaxed text-slate-400">{profile.bio}</p>
           ) : null}
 
+          {location.countryName || location.cityName ? (
+            <div className="grid w-full max-w-sm grid-cols-2 gap-2 rounded-3xl border border-white/10 bg-white/5 p-3 text-left">
+              <div>
+                <p className="text-[10px] uppercase tracking-[0.24em] text-slate-500">Country</p>
+                <p className="mt-1 truncate text-sm font-semibold text-white">{location.countryName ?? "Not set"}</p>
+              </div>
+              <div>
+                <p className="text-[10px] uppercase tracking-[0.24em] text-slate-500">City</p>
+                <p className="mt-1 truncate text-sm font-semibold text-white">{location.cityName ?? "Not set"}</p>
+              </div>
+            </div>
+          ) : null}
+
           {loading ? (
             <p className="text-sm text-slate-500">Loading profile...</p>
           ) : error ? (
-            <p className="text-sm text-red-300">{error}</p>
+            <div className="w-full space-y-3 rounded-2xl border border-red-500/20 bg-red-500/5 p-5">
+              <p className="text-sm text-red-300">{error}</p>
+              <button
+                type="button"
+                onClick={() => setLoadAttempt((current) => current + 1)}
+                className="inline-flex rounded-full bg-white px-5 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-slate-200"
+              >
+                Try again
+              </button>
+            </div>
           ) : !session?.user ? (
             <div className="w-full space-y-4 rounded-2xl border border-dashed border-white/10 bg-white/5 p-6">
               <p className="font-medium text-white">You are not signed in.</p>
@@ -334,27 +446,41 @@ export default function ProfilePage() {
           ) : (
             <>
               <div className="grid w-full max-w-sm grid-cols-3 gap-2 sm:gap-3">
-                <div className="rounded-2xl bg-white/5 px-2 py-3">
-                  <p className="text-xl font-semibold text-white sm:text-2xl">{postsCount}</p>
-                  <p className="mt-1 text-xs text-slate-500">Posts</p>
-                </div>
                 <button
                   type="button"
-                  onClick={() => toggleConnectionsTab("followers")}
+                  onClick={() => setActiveProfileSection("posts")}
                   className={`rounded-2xl px-2 py-3 transition ${
-                    activeConnectionsTab === "followers" ? "bg-cyan-400 text-slate-950" : "bg-white/5 hover:bg-white/10"
+                    activeProfileSection === "posts" ? "bg-cyan-400 text-slate-950" : "bg-white/5 hover:bg-white/10"
                   }`}
                 >
                   <p
                     className={`text-xl font-semibold sm:text-2xl ${
-                      activeConnectionsTab === "followers" ? "text-slate-950" : "text-white"
+                      activeProfileSection === "posts" ? "text-slate-950" : "text-white"
+                    }`}
+                  >
+                    {postsCount}
+                  </p>
+                  <p className={`mt-1 text-xs ${activeProfileSection === "posts" ? "text-slate-700" : "text-slate-500"}`}>
+                    Posts
+                  </p>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveProfileSection("followers")}
+                  className={`rounded-2xl px-2 py-3 transition ${
+                    activeProfileSection === "followers" ? "bg-cyan-400 text-slate-950" : "bg-white/5 hover:bg-white/10"
+                  }`}
+                >
+                  <p
+                    className={`text-xl font-semibold sm:text-2xl ${
+                      activeProfileSection === "followers" ? "text-slate-950" : "text-white"
                     }`}
                   >
                     {followersCount}
                   </p>
                   <p
                     className={`mt-1 text-xs ${
-                      activeConnectionsTab === "followers" ? "text-slate-700" : "text-slate-500"
+                      activeProfileSection === "followers" ? "text-slate-700" : "text-slate-500"
                     }`}
                   >
                     Followers
@@ -362,23 +488,19 @@ export default function ProfilePage() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => toggleConnectionsTab("friends")}
+                  onClick={() => setActiveProfileSection("friends")}
                   className={`rounded-2xl px-2 py-3 transition ${
-                    activeConnectionsTab === "friends" ? "bg-cyan-400 text-slate-950" : "bg-white/5 hover:bg-white/10"
+                    activeProfileSection === "friends" ? "bg-cyan-400 text-slate-950" : "bg-white/5 hover:bg-white/10"
                   }`}
                 >
                   <p
                     className={`text-xl font-semibold sm:text-2xl ${
-                      activeConnectionsTab === "friends" ? "text-slate-950" : "text-white"
+                      activeProfileSection === "friends" ? "text-slate-950" : "text-white"
                     }`}
                   >
                     {friendsCount}
                   </p>
-                  <p
-                    className={`mt-1 text-xs ${
-                      activeConnectionsTab === "friends" ? "text-slate-700" : "text-slate-500"
-                    }`}
-                  >
+                  <p className={`mt-1 text-xs ${activeProfileSection === "friends" ? "text-slate-700" : "text-slate-500"}`}>
                     Friends
                   </p>
                 </button>
@@ -397,7 +519,13 @@ export default function ProfilePage() {
           )}
         </section>
 
-        {session?.user && activeConnectionsTab ? (
+        {session?.user && !activeProfileSection ? (
+          <section className="rounded-3xl border border-dashed border-white/10 bg-slate-900/50 p-6 text-center text-sm text-slate-400">
+            Choose Posts, Followers, or Friends.
+          </section>
+        ) : null}
+
+        {session?.user && activeProfileSection && activeProfileSection !== "posts" ? (
           <section className="space-y-3">
             {loadingConnections ? (
               <div className="grid gap-4 sm:grid-cols-2">
@@ -419,7 +547,7 @@ export default function ProfilePage() {
               <div className="rounded-3xl border border-red-500/20 bg-red-500/5 p-6 text-sm text-red-200">{connectionsError}</div>
             ) : activeConnections.length === 0 ? (
               <div className="rounded-3xl border border-dashed border-slate-700 bg-slate-900/60 p-8 text-center text-slate-400">
-                {activeConnectionsTab === "followers" ? "No followers yet." : "No friends yet."}
+                {activeProfileSection === "followers" ? "No followers yet." : "No friends yet."}
               </div>
             ) : (
               <div className="grid gap-4 sm:grid-cols-2">
@@ -439,7 +567,7 @@ export default function ProfilePage() {
                     <div className="min-w-0">
                       <p className="truncate text-base font-semibold text-white">{publicProfileUsername(person.username)}</p>
                       <p className="mt-1 text-sm text-slate-400">
-                        {activeConnectionsTab === "followers" ? "Follows you" : "Mutual follow"}
+                        {activeProfileSection === "followers" ? "Follows you" : "Mutual follow"}
                       </p>
                     </div>
                   </Link>
@@ -449,7 +577,7 @@ export default function ProfilePage() {
           </section>
         ) : null}
 
-        {session?.user ? (
+        {session?.user && activeProfileSection === "posts" ? (
           <section className="space-y-4">
             <div className="grid grid-cols-2 gap-2 rounded-3xl border border-white/10 bg-slate-950/70 p-1">
               <button

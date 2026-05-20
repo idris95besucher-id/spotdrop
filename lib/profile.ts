@@ -16,6 +16,8 @@ export type ProfileRecord = {
   country_slug?: string | null;
   city_slug?: string | null;
   city_id?: string | null;
+  is_ai_guide?: boolean | null;
+  is_official?: boolean | null;
 };
 
 type EnsureProfileOptions = {
@@ -31,7 +33,7 @@ export type EnsureProfileResult = {
   profile: ProfileRecord | null;
 };
 
-const PROFILE_SELECT_WITH_LOCATION = "id, name, username, gender, date_of_birth, avatar_url, cover_url, bio, country_slug, city_slug, city_id";
+const PROFILE_SELECT_WITH_LOCATION = "id, name, username, gender, date_of_birth, avatar_url, cover_url, bio, country_slug, city_slug, city_id, is_ai_guide, is_official";
 const PROFILE_SELECT_FALLBACK = "id, name, username, gender, date_of_birth, avatar_url, cover_url, bio, city_id";
 
 function normalizeUsername(value: unknown) {
@@ -71,7 +73,7 @@ async function loadProfileRecord(userId: string) {
 
     return {
       data: fallbackResult.data
-        ? { ...fallbackResult.data, name: null, gender: null, country_slug: null, city_slug: null }
+        ? { ...fallbackResult.data, name: null, gender: null, country_slug: null, city_slug: null, is_ai_guide: false, is_official: false }
         : null,
       error: fallbackResult.error,
     };

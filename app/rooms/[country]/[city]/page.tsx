@@ -5,7 +5,9 @@ import { useParams } from "next/navigation";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import type { RealtimeChannel, Session } from "@supabase/supabase-js";
-import { Pencil, Trash2, Users } from "lucide-react";
+import { Map as MapIcon, MessageSquare, Pencil, Trash2, Users } from "lucide-react";
+import BernDiscoveryMap from "@/components/BernDiscoveryMap";
+import { isBernDiscoveryRoom } from "@/lib/discoveryMap";
 import { getSafeAuthSession } from "@/lib/authSession";
 import { publicProfileUsername } from "@/lib/publicProfile";
 import { ensureProfileRow } from "@/lib/profile";
@@ -175,6 +177,12 @@ export default function RoomChatPage() {
   const [pendingDeleteMessageId, setPendingDeleteMessageId] = useState<string | null>(null);
   const [deletingMessage, setDeletingMessage] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [roomView, setRoomView] = useState<"chat" | "map">("chat");
+
+  const isBernRoom = useMemo(
+    () => isBernDiscoveryRoom(countrySlug, citySlug, city?.name),
+    [countrySlug, citySlug, city?.name]
+  );
 
   const loadSession = useCallback(async () => {
     const { session, error: sessionError } = await getSafeAuthSession();
@@ -841,6 +849,9 @@ export default function RoomChatPage() {
   return (
     <Shell>
       <div className="mx-auto flex min-h-[calc(100vh-10rem)] max-w-5xl flex-col gap-3">
+        <p className="rounded-2xl border-2 border-amber-400 bg-amber-500/20 px-4 py-3 text-center text-sm font-bold uppercase tracking-wide text-amber-100">
+          THIS IS THE REAL BERN ROOM FILE
+        </p>
         <section className="rounded-3xl border border-white/10 bg-slate-900/90 p-5 shadow-xl shadow-black/20 sm:p-6">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div className="flex min-w-0 flex-1 items-start gap-4">
@@ -866,7 +877,7 @@ export default function RoomChatPage() {
                 <p className="mt-2 text-base text-slate-300">{country?.name ?? "Country"}</p>
               </div>
             </div>
-            <div className="flex flex-wrap gap-2 text-sm">
+            <div className="flex flex-wrap items-center gap-2 text-sm">
               <Link href="/rooms" className="rounded-full bg-white/5 px-3 py-2 text-slate-200 transition hover:bg-white/10">
                 Countries
               </Link>
@@ -878,9 +889,36 @@ export default function RoomChatPage() {
               </Link>
             </div>
           </div>
+
+          <div className="mt-5 flex w-full gap-2 rounded-2xl border border-white/10 bg-slate-950/70 p-1.5">
+            <button
+              type="button"
+              onClick={() => setRoomView("chat")}
+              className={`inline-flex flex-1 items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold transition ${
+                roomView === "chat"
+                  ? "bg-cyan-400 text-slate-950 shadow-lg shadow-cyan-500/20"
+                  : "text-slate-300 hover:bg-white/5 hover:text-white"
+              }`}
+            >
+              <MessageSquare className="h-4 w-4" aria-hidden />
+              Chat
+            </button>
+            <button
+              type="button"
+              onClick={() => setRoomView("map")}
+              className={`inline-flex flex-1 items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold transition ${
+                roomView === "map"
+                  ? "bg-cyan-400 text-slate-950 shadow-lg shadow-cyan-500/20"
+                  : "text-slate-300 hover:bg-white/5 hover:text-white"
+              }`}
+            >
+              <MapIcon className="h-4 w-4" aria-hidden />
+              Map
+            </button>
+          </div>
         </section>
 
-        <section className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-3xl border border-white/10 bg-[linear-gradient(180deg,rgba(15,23,42,0.92)_0%,rgba(8,12,24,0.96)_100%)] shadow-2xl shadow-black/30">
+        <section className="relative flex min-h-[520px] flex-1 flex-col overflow-hidden rounded-3xl border border-white/10 bg-[linear-gradient(180deg,rgba(15,23,42,0.92)_0%,rgba(8,12,24,0.96)_100%)] shadow-2xl shadow-black/30">
           <div className="pointer-events-none absolute inset-0">
             <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(34,211,238,0.10),transparent_30%),radial-gradient(circle_at_top_right,rgba(59,130,246,0.10),transparent_28%),radial-gradient(circle_at_bottom,rgba(244,114,182,0.06),transparent_30%)]" />
             <div className="absolute -left-16 top-20 h-52 w-52 rounded-full bg-cyan-400/10 blur-3xl" />
@@ -890,6 +928,25 @@ export default function RoomChatPage() {
             <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,0.02),transparent_38%,rgba(255,255,255,0.015)_62%,transparent)]" />
           </div>
 
+          {roomView === "map" ? (
+            <div className="relative z-10 w-full">
+              {isBernRoom ? (
+                <BernDiscoveryMap userId={session?.user?.id ?? null} />
+              ) : (
+                <div className="flex h-[500px] flex-col items-center justify-center gap-4 px-6 text-center">
+                  <div className="rounded-[2rem] border border-dashed border-white/15 bg-slate-950/60 px-8 py-10">
+                    <MapIcon className="mx-auto h-12 w-12 text-slate-600" strokeWidth={1.25} aria-hidden />
+                    <p className="mt-4 text-lg font-semibold text-white">Map coming soon for this city.</p>
+                    <p className="mt-2 max-w-sm text-sm text-slate-400">
+                      Bern already has the discovery map with Blausee, Interlaken, Thun, Gurten, Oeschinensee, and
+                      Lauterbrunnen.
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            <>
           {joinMessage && showJoinMessage ? (
             <div className="relative z-10 px-4 pt-4">
               <div className="mx-auto w-fit rounded-full border border-white/10 bg-slate-950/45 px-4 py-2 text-xs font-medium text-slate-200 shadow-lg shadow-black/20 backdrop-blur-md join-message-fade">
@@ -1033,8 +1090,11 @@ export default function RoomChatPage() {
               </>
             )}
           </div>
+            </>
+          )}
         </section>
 
+        {roomView === "chat" ? (
         <section className="sticky bottom-4 z-20">
           <form
             ref={emojiPickerRef}
@@ -1107,6 +1167,7 @@ export default function RoomChatPage() {
             </div>
           </form>
         </section>
+        ) : null}
       </div>
       <style jsx>{`
         @keyframes joinBadgeFade {

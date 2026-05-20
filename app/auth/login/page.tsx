@@ -120,6 +120,7 @@ export default function LoginPage() {
               onChange={(event) => setEmail(event.target.value)}
               className="mt-2 w-full rounded-3xl border border-white/10 bg-slate-950 px-4 py-3 text-white outline-none transition focus:border-cyan-400"
             />
+            <span className="mt-2 block text-xs text-slate-500">Enter your email here first if you need to reset your password.</span>
           </label>
           <label className="block text-sm text-slate-300">
             Password
@@ -134,9 +135,9 @@ export default function LoginPage() {
             type="button"
             onClick={handleForgotPassword}
             disabled={sendingReset}
-            className="text-left text-sm font-semibold text-cyan-300 transition hover:text-cyan-200 disabled:cursor-not-allowed disabled:opacity-60"
+            className="flex w-full items-center justify-center rounded-3xl border border-cyan-400/30 bg-cyan-400/10 px-5 py-3 text-sm font-semibold text-cyan-200 transition hover:border-cyan-300/60 hover:bg-cyan-400/15 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {sendingReset ? "Sending reset link..." : "Forgot password?"}
+            {sendingReset ? "Sending reset link..." : "Forgot your password? Send reset link"}
           </button>
         </div>
 

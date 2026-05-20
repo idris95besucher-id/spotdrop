@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 1500" role="img" aria-labelledby="title desc">
+  <title id="title">Blausee illustrated guide image</title>
+  <desc id="desc">Admin-approved illustrated mountain lake scene for the Swiss Guide Blausee place card.</desc>
+  <defs>
+    <linearGradient id="sky" x1="0" x2="0" y1="0" y2="1">
+      <stop offset="0" stop-color="#0f172a"/>
+      <stop offset="0.45" stop-color="#164e63"/>
+      <stop offset="1" stop-color="#67e8f9"/>
+    </linearGradient>
+    <linearGradient id="lake" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#06b6d4"/>
+      <stop offset="0.5" stop-color="#22d3ee"/>
+      <stop offset="1" stop-color="#0f766e"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="24%" r="42%">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1200" height="1500" fill="url(#sky)"/>
+  <rect width="1200" height="900" fill="url(#glow)"/>
+  <path d="M0 780 250 410l180 250 160-310 260 400 180-250 170 280v720H0Z" fill="#0f172a" opacity="0.92"/>
+  <path d="M250 410 430 660l-84-22-96-112-82 120-98 50Z" fill="#e0f2fe" opacity="0.9"/>
+  <path d="M590 350 850 750l-140-62-116-178-98 168-130 58Z" fill="#f8fafc" opacity="0.95"/>
+  <path d="M1030 500 1200 780v720H870l78-730Z" fill="#020617" opacity="0.62"/>
+  <path d="M0 910c160-80 285-92 430-30 132 56 258 52 396-12 142-66 262-60 374 14v618H0Z" fill="url(#lake)"/>
+  <path d="M95 1055c205-48 338-34 505 12 156 43 288 40 505-20" fill="none" stroke="#ecfeff" stroke-width="18" stroke-linecap="round" opacity="0.34"/>
+  <path d="M135 1170c180-32 310-24 452 12 145 37 292 31 482-18" fill="none" stroke="#cffafe" stroke-width="12" stroke-linecap="round" opacity="0.24"/>
+  <path d="M0 1030c115-78 190-164 278-250 84-82 162-120 268-112 106 8 169 76 266 120 118 54 235 14 388-76v788H0Z" fill="#020617" opacity="0.17"/>
+  <circle cx="910" cy="245" r="82" fill="#f8fafc" opacity="0.74"/>
+  <text x="80" y="1320" fill="#f8fafc" font-family="Arial, Helvetica, sans-serif" font-size="86" font-weight="700">Blausee</text>
+  <text x="84" y="1385" fill="#cffafe" font-family="Arial, Helvetica, sans-serif" font-size="34" letter-spacing="6">BERNESE OBERLAND</text>
+</svg>

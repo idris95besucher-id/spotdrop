@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { ArrowLeft, Rss } from "lucide-react";
+import { ArrowLeft, Rss, UserRound } from "lucide-react";
+import OfficialAIGuideBadge from "@/components/OfficialAIGuideBadge";
 import PostCommentsSection from "@/components/PostCommentsSection";
 import PostReactionButtons from "@/components/PostReactionButtons";
 import Shell from "@/components/Shell";
@@ -12,7 +13,10 @@ import { findDemoPost, type PostDetailRow } from "@/lib/postDetail";
 import { isDemoPostId, normalizePostId, postIdForQuery } from "@/lib/postIds";
 import { loadPostReactions, type PostReactionState } from "@/lib/postReactions";
 import { formatPostTime, getPostMedia } from "@/lib/posts";
+import { isGuidePlaceRelationMissing, normalizeGuidePlace } from "@/lib/guidePlaces";
+import { publicProfileUsername } from "@/lib/publicProfile";
 import { getErrorMessage, logExactLoadError, userFacingSupabaseListError } from "@/lib/safeLoad";
+import GuidePlaceCard from "@/components/GuidePlaceCard";
 import { supabase } from "@/lib/supabaseClient";
 
 const EMPTY_REACTIONS: PostReactionState = {
@@ -22,7 +26,10 @@ const EMPTY_REACTIONS: PostReactionState = {
   userMarkedUseful: false,
 };
 
-const POST_DETAIL_SELECT = "id, user_id, content, created_at, updated_at, image_url, video_url, media_url, media_type";
+const POST_DETAIL_SELECT =
+  "id, user_id, content, created_at, updated_at, image_url, video_url, media_url, media_type, guide_places(title, location_name, canton, city, description, opening_hours, price_info, official_url, read_more_text, media_url, media_type, source_url), profiles(username, avatar_url, is_ai_guide, is_official)";
+const POST_DETAIL_SELECT_LEGACY =
+  "id, user_id, content, created_at, updated_at, image_url, video_url, media_url, media_type, profiles(username, avatar_url, is_ai_guide, is_official)";
 
 function ShimmerBlock({ className }: { className: string }) {
   return (
@@ -164,11 +171,14 @@ export default function PostDetailPage() {
         }
 
         const queryId = postIdForQuery(postId);
-        const { data, error: postError } = await supabase
+        const primaryResult = await supabase
           .from("posts")
           .select(POST_DETAIL_SELECT)
           .eq("id", queryId)
           .single();
+        const { data, error: postError } = isGuidePlaceRelationMissing(primaryResult.error)
+          ? await supabase.from("posts").select(POST_DETAIL_SELECT_LEGACY).eq("id", queryId).single()
+          : primaryResult;
 
         if (cancelled) {
           return;
@@ -187,8 +197,9 @@ export default function PostDetailPage() {
           return;
         }
 
-        const row = data as PostDetailRow & { id: string | number };
-        setPost({ ...row, id: normalizePostId(row.id) ?? postId });
+        const row = data as unknown as PostDetailRow & { id: string | number; profiles?: PostDetailRow["profiles"] | PostDetailRow["profiles"][] };
+        const authorProfile = Array.isArray(row.profiles) ? row.profiles[0] : row.profiles;
+        setPost({ ...row, profiles: authorProfile ?? null, id: normalizePostId(row.id) ?? postId });
         setIsDemo(false);
         setLoading(false);
         setEngagementReady(true);
@@ -293,6 +304,10 @@ export default function PostDetailPage() {
   };
 
   const { mediaUrl, mediaType } = post ? getDetailMedia(post) : { mediaUrl: null, mediaType: null };
+  const postAuthor = post?.profiles;
+  const authorUsername = publicProfileUsername(postAuthor?.username);
+  const isOfficialAIGuide = Boolean(postAuthor?.is_ai_guide && postAuthor.is_official);
+  const guidePlace = normalizeGuidePlace(post?.guide_places);
 
   return (
     <Shell showHeader={false}>
@@ -332,7 +347,33 @@ export default function PostDetailPage() {
           </div>
         ) : (
           <div className="flex-1 space-y-5">
-            {mediaUrl ? (
+            {postAuthor ? (
+              <Link
+                href={`/user/${post.user_id}`}
+                className="mx-4 mt-4 flex items-center gap-3 rounded-3xl border border-white/10 bg-slate-900/80 px-4 py-3 transition hover:bg-slate-900"
+              >
+                <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/10 bg-slate-800 text-white">
+                  {postAuthor.avatar_url ? (
+                    <img src={postAuthor.avatar_url} alt="" className="h-full w-full object-cover" />
+                  ) : (
+                    <UserRound className="h-5 w-5 text-slate-400" strokeWidth={1.5} aria-hidden />
+                  )}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="truncate text-sm font-semibold text-white">{authorUsername}</p>
+                    {isOfficialAIGuide ? <OfficialAIGuideBadge /> : null}
+                  </div>
+                  <p className="text-xs text-slate-500">Post author</p>
+                </div>
+              </Link>
+            ) : null}
+
+            {guidePlace ? (
+              <div className="px-4">
+                <GuidePlaceCard place={guidePlace} postId={post.id} />
+              </div>
+            ) : mediaUrl ? (
               <div className="w-full bg-black">
                 {mediaType === "video" ? (
                   <video src={mediaUrl} controls playsInline className="w-full max-h-[72vh] object-contain" />

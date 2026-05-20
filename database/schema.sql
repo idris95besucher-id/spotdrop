@@ -39,6 +39,8 @@ create table if not exists profiles (
   is_demo boolean not null default false,
   can_create_channels boolean not null default false,
   is_verified boolean not null default false,
+  is_ai_guide boolean not null default false,
+  is_official boolean not null default false,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -86,6 +88,8 @@ alter table if exists profiles add column if not exists is_private boolean not n
 alter table if exists profiles add column if not exists is_demo boolean not null default false;
 alter table if exists profiles add column if not exists can_create_channels boolean not null default false;
 alter table if exists profiles add column if not exists is_verified boolean not null default false;
+alter table if exists profiles add column if not exists is_ai_guide boolean not null default false;
+alter table if exists profiles add column if not exists is_official boolean not null default false;
 alter table if exists profiles add column if not exists name text;
 alter table if exists profiles add column if not exists gender text;
 alter table if exists profiles add column if not exists date_of_birth date;
@@ -100,10 +104,16 @@ alter table if exists profiles
 update profiles set is_online = false where is_online is null;
 update profiles set can_create_channels = false where can_create_channels is null;
 update profiles set is_verified = false where is_verified is null;
+update profiles set is_ai_guide = false where is_ai_guide is null;
+update profiles set is_official = false where is_official is null;
 alter table if exists profiles alter column can_create_channels set default false;
 alter table if exists profiles alter column can_create_channels set not null;
 alter table if exists profiles alter column is_verified set default false;
 alter table if exists profiles alter column is_verified set not null;
+alter table if exists profiles alter column is_ai_guide set default false;
+alter table if exists profiles alter column is_ai_guide set not null;
+alter table if exists profiles alter column is_official set default false;
+alter table if exists profiles alter column is_official set not null;
 update profiles set country_slug = country_code where country_slug is null and country_code is not null;
 
 create or replace function public.prevent_profile_permission_self_update()
@@ -113,14 +123,28 @@ security definer
 set search_path = public
 as $$
 begin
-  if auth.uid() = new.id
-    and coalesce(auth.role(), '') <> 'service_role'
-    and (
-      new.can_create_channels is distinct from old.can_create_channels
-      or new.is_verified is distinct from old.is_verified
-    )
-  then
-    raise exception 'Channel creation permissions can only be changed by an administrator.';
+  if auth.uid() = new.id and coalesce(auth.role(), '') <> 'service_role' then
+    if tg_op = 'INSERT'
+      and (
+        coalesce(new.can_create_channels, false)
+        or coalesce(new.is_verified, false)
+        or coalesce(new.is_ai_guide, false)
+        or coalesce(new.is_official, false)
+      )
+    then
+      raise exception 'Profile trust badges can only be changed by an administrator.';
+    end if;
+
+    if tg_op = 'UPDATE'
+      and (
+        new.can_create_channels is distinct from old.can_create_channels
+        or new.is_verified is distinct from old.is_verified
+        or new.is_ai_guide is distinct from old.is_ai_guide
+        or new.is_official is distinct from old.is_official
+      )
+    then
+      raise exception 'Profile trust badges can only be changed by an administrator.';
+    end if;
   end if;
 
   return new;
@@ -129,7 +153,7 @@ $$;
 
 drop trigger if exists prevent_profile_permission_self_update on public.profiles;
 create trigger prevent_profile_permission_self_update
-before update of can_create_channels, is_verified on public.profiles
+before insert or update of can_create_channels, is_verified, is_ai_guide, is_official on public.profiles
 for each row
 execute function public.prevent_profile_permission_self_update();
 
@@ -157,6 +181,58 @@ alter table if exists posts
   add constraint posts_visibility_check
   check (visibility in ('public', 'private'));
 alter table if exists posts alter column content set default '';
+
+create table if not exists guide_places (
+  id uuid primary key default gen_random_uuid(),
+  post_id uuid not null references posts(id) on delete cascade unique,
+  title text not null,
+  location_name text,
+  canton text,
+  city text,
+  description text,
+  opening_hours text,
+  price_info text,
+  official_url text,
+  read_more_text text,
+  media_url text,
+  media_type text check (media_type is null or media_type in ('image', 'video')),
+  source_url text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+alter table if exists guide_places add column if not exists post_id uuid references posts(id) on delete cascade;
+alter table if exists guide_places add column if not exists title text;
+alter table if exists guide_places add column if not exists location_name text;
+alter table if exists guide_places add column if not exists canton text;
+alter table if exists guide_places add column if not exists city text;
+alter table if exists guide_places add column if not exists description text;
+alter table if exists guide_places add column if not exists opening_hours text;
+alter table if exists guide_places add column if not exists price_info text;
+alter table if exists guide_places add column if not exists official_url text;
+alter table if exists guide_places add column if not exists read_more_text text;
+alter table if exists guide_places add column if not exists media_url text;
+alter table if exists guide_places add column if not exists media_type text;
+alter table if exists guide_places add column if not exists source_url text;
+alter table if exists guide_places add column if not exists created_at timestamptz not null default now();
+alter table if exists guide_places add column if not exists updated_at timestamptz not null default now();
+alter table if exists guide_places drop constraint if exists guide_places_media_type_check;
+alter table if exists guide_places
+  add constraint guide_places_media_type_check
+  check (media_type is null or media_type in ('image', 'video'));
+create unique index if not exists guide_places_post_id_key on guide_places(post_id);
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'guide_places_post_id_unique'
+      and conrelid = 'public.guide_places'::regclass
+  ) then
+    alter table public.guide_places
+      add constraint guide_places_post_id_unique unique using index guide_places_post_id_key;
+  end if;
+end $$;
 
 do $$
 begin
@@ -381,9 +457,31 @@ begin
 end $$;
 
 alter table if exists direct_messages add column if not exists recipient_id uuid references profiles(id) on delete cascade;
+alter table if exists direct_messages add column if not exists body text;
+
+do $$
+begin
+  if exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'direct_messages'
+      and column_name = 'content'
+  ) then
+    update public.direct_messages
+    set body = coalesce(body, content)
+    where body is null;
+
+    alter table public.direct_messages drop column content;
+  end if;
+end $$;
+
 delete from direct_messages where recipient_id is null;
+delete from direct_messages where body is null or btrim(body) = '';
 alter table if exists direct_messages alter column recipient_id set not null;
+alter table if exists direct_messages alter column body set not null;
 alter table if exists direct_messages drop column if exists receiver_id;
+alter table if exists direct_messages drop column if exists content;
 
 drop index if exists idx_city_messages_city_id_created_at;
 create index if not exists idx_city_messages_city_id_created_at on city_messages(city_id, created_at asc);
@@ -870,6 +968,49 @@ using (
 create policy if not exists "Allow authenticated post insert" on posts for insert with check (auth.uid() = user_id);
 create policy if not exists "Allow post owner update" on posts for update using (auth.uid() = user_id) with check (auth.uid() = user_id);
 create policy if not exists "Allow post owner delete" on posts for delete using (auth.uid() = user_id);
+
+alter table if exists guide_places enable row level security;
+drop policy if exists "Authenticated users can read public guide places" on guide_places;
+create policy "Authenticated users can read public guide places"
+on guide_places
+for select
+to authenticated
+using (
+  exists (
+    select 1
+    from public.posts
+    join public.profiles on profiles.id = posts.user_id
+    where posts.id = guide_places.post_id
+      and (
+        posts.user_id = auth.uid()
+        or (
+          coalesce(posts.visibility, 'public') = 'public'
+          and coalesce(profiles.is_private, false) = false
+        )
+      )
+  )
+);
+drop policy if exists "Post owners can manage own guide places" on guide_places;
+create policy "Post owners can manage own guide places"
+on guide_places
+for all
+to authenticated
+using (
+  exists (
+    select 1
+    from public.posts
+    where posts.id = guide_places.post_id
+      and posts.user_id = auth.uid()
+  )
+)
+with check (
+  exists (
+    select 1
+    from public.posts
+    where posts.id = guide_places.post_id
+      and posts.user_id = auth.uid()
+  )
+);
 
 alter table if exists post_comments enable row level security;
 drop policy if exists "Post comments readable" on post_comments;

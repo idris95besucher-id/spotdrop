@@ -5,17 +5,12 @@ import { useEffect, useState } from "react";
 import { UserRound } from "lucide-react";
 import { type FeedPostRow } from "@/lib/demoFeed";
 import { loadFeedPosts } from "@/lib/feed";
+import { normalizeGuidePlace } from "@/lib/guidePlaces";
 import { formatPostTime, getPostMedia } from "@/lib/posts";
+import GuidePlaceCard from "@/components/GuidePlaceCard";
+import OfficialAIGuideBadge from "@/components/OfficialAIGuideBadge";
 import PostMediaLink from "@/components/PostMediaLink";
 import Shell from "@/components/Shell";
-
-function GuideBadge() {
-  return (
-    <span className="shrink-0 rounded-full border border-cyan-400/25 bg-cyan-400/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.2em] text-cyan-300">
-      Guide
-    </span>
-  );
-}
 
 export default function FeedPage() {
   const [posts, setPosts] = useState<FeedPostRow[]>([]);
@@ -70,6 +65,8 @@ export default function FeedPage() {
               const { mediaUrl, mediaType } = getPostMedia(post);
               const username = post.profiles.username || "User";
               const isDemo = post.profiles.is_demo;
+              const isOfficialAIGuide = Boolean(post.profiles.is_ai_guide && post.profiles.is_official);
+              const guidePlace = normalizeGuidePlace(post.guide_places);
 
               return (
                 <article
@@ -85,7 +82,7 @@ export default function FeedPage() {
                         <div className="min-w-0 flex-1">
                           <div className="flex flex-wrap items-center gap-2">
                             <p className="truncate text-sm font-semibold text-white">@{username}</p>
-                            <GuideBadge />
+                            {isOfficialAIGuide ? <OfficialAIGuideBadge /> : null}
                           </div>
                           <time className="text-xs text-slate-500" dateTime={post.created_at}>
                             {formatPostTime(post.created_at)}
@@ -110,6 +107,7 @@ export default function FeedPage() {
                         </div>
                         <div className="min-w-0 flex-1">
                           <p className="truncate text-sm font-semibold text-white">{username}</p>
+                          {isOfficialAIGuide ? <OfficialAIGuideBadge className="mt-1" /> : null}
                           <time className="text-xs text-slate-500" dateTime={post.created_at}>
                             {formatPostTime(post.created_at)}
                           </time>
@@ -118,7 +116,11 @@ export default function FeedPage() {
                     )}
                   </header>
 
-                  {mediaUrl ? (
+                  {guidePlace ? (
+                    <div className="p-3">
+                      <GuidePlaceCard place={guidePlace} postId={post.id} />
+                    </div>
+                  ) : mediaUrl ? (
                     <PostMediaLink postId={post.id} className="block bg-black">
                       {mediaType === "video" ? (
                         <video src={mediaUrl} playsInline muted className="max-h-[70vh] w-full object-cover" />

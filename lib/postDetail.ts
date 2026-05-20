@@ -1,4 +1,5 @@
 import { CLIENT_DEMO_FEED_POSTS } from "@/lib/demoFeed";
+import type { GuidePlace } from "@/lib/guidePlaces";
 import type { PostMediaFields } from "@/lib/posts";
 import { isDemoPostId, normalizePostId, postIdForQuery } from "@/lib/postIds";
 import { logExactLoadError, userFacingSupabaseListError } from "@/lib/safeLoad";
@@ -10,6 +11,13 @@ export type PostDetailRow = PostMediaFields & {
   content: string;
   created_at: string;
   updated_at?: string;
+  profiles?: {
+    username: string;
+    avatar_url?: string | null;
+    is_ai_guide?: boolean | null;
+    is_official?: boolean | null;
+  } | null;
+  guide_places?: GuidePlace | GuidePlace[] | null;
 };
 
 export function findDemoPost(postId: string): PostDetailRow | null {
