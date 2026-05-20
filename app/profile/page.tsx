@@ -16,7 +16,10 @@ import { logExactLoadError } from "@/lib/safeLoad";
 import { supabase } from "@/lib/supabaseClient";
 import { resolveProfileLocation, type ResolvedProfileLocation } from "@/lib/profileLocation";
 import CreatePostForm, { type CreatedProfilePost } from "@/components/CreatePostForm";
+import CreateStoryForm from "@/components/CreateStoryForm";
 import OfficialAIGuideBadge from "@/components/OfficialAIGuideBadge";
+import ProfileStoriesBar from "@/components/ProfileStoriesBar";
+import { loadActiveProfileStories, loadArchivedProfileStories, type StoryRow } from "@/lib/stories";
 import PostMediaLink from "@/components/PostMediaLink";
 import Shell from "@/components/Shell";
 
@@ -94,6 +97,8 @@ export default function ProfilePage() {
   const [friends, setFriends] = useState<FollowProfile[]>([]);
   const [publicPosts, setPublicPosts] = useState<ProfilePost[]>([]);
   const [privatePosts, setPrivatePosts] = useState<ProfilePost[]>([]);
+  const [activeStories, setActiveStories] = useState<StoryRow[]>([]);
+  const [archivedStories, setArchivedStories] = useState<StoryRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingConnections, setLoadingConnections] = useState(true);
   const [loadingPosts, setLoadingPosts] = useState(true);
@@ -229,6 +234,20 @@ export default function ProfilePage() {
             .eq("visibility", "private")
             .order("created_at", { ascending: false }),
         ]);
+
+        const refreshStories = async () => {
+          const [activeResult, archiveResult] = await Promise.all([
+            loadActiveProfileStories(session.user.id),
+            loadArchivedProfileStories(session.user.id),
+          ]);
+
+          if (!cancelled) {
+            setActiveStories(activeResult.stories);
+            setArchivedStories(archiveResult.stories);
+          }
+        };
+
+        void refreshStories();
 
         try {
           const [
@@ -514,6 +533,15 @@ export default function ProfilePage() {
                   Edit Profile
                 </Link>
                 <CreatePostForm userId={session.user.id} onCreated={handlePostCreated} />
+                <CreateStoryForm
+                  userId={session.user.id}
+                  defaultCityId={profile?.city_id ?? null}
+                  onCreated={() => {
+                    void loadActiveProfileStories(session.user.id).then((r) => setActiveStories(r.stories));
+                    void loadArchivedProfileStories(session.user.id).then((r) => setArchivedStories(r.stories));
+                    showSuccessMessage("Story shared. Visible for 24 hours.");
+                  }}
+                />
               </div>
             </>
           )}
@@ -579,6 +607,11 @@ export default function ProfilePage() {
 
         {session?.user && activeProfileSection === "posts" ? (
           <section className="space-y-4">
+            <ProfileStoriesBar
+              stories={activeStories}
+              username={publicProfileUsername(profile?.username)}
+            />
+
             <div className="grid grid-cols-2 gap-2 rounded-3xl border border-white/10 bg-slate-950/70 p-1">
               <button
                 type="button"
@@ -653,6 +686,29 @@ export default function ProfilePage() {
                 {activeContentTab === "posts" ? "No public posts yet." : "No private media yet."}
               </div>
             )}
+
+            {archivedStories.length > 0 ? (
+              <div className="space-y-3 border-t border-white/10 pt-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Story archive</p>
+                <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+                  {archivedStories.map((story) => (
+                    <a
+                      key={story.id}
+                      href={story.media_url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="overflow-hidden rounded-xl border border-white/10 bg-slate-950"
+                    >
+                      {story.media_type === "video" ? (
+                        <video src={story.media_url} className="aspect-square w-full object-cover" muted playsInline />
+                      ) : (
+                        <img src={story.media_url} alt="" className="aspect-square w-full object-cover" />
+                      )}
+                    </a>
+                  ))}
+                </div>
+              </div>
+            ) : null}
           </section>
         ) : null}
       </div>

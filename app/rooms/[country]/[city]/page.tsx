@@ -849,9 +849,6 @@ export default function RoomChatPage() {
   return (
     <Shell>
       <div className="mx-auto flex min-h-[calc(100vh-10rem)] max-w-5xl flex-col gap-3">
-        <p className="rounded-2xl border-2 border-amber-400 bg-amber-500/20 px-4 py-3 text-center text-sm font-bold uppercase tracking-wide text-amber-100">
-          THIS IS THE REAL BERN ROOM FILE
-        </p>
         <section className="rounded-3xl border border-white/10 bg-slate-900/90 p-5 shadow-xl shadow-black/20 sm:p-6">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div className="flex min-w-0 flex-1 items-start gap-4">

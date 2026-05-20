@@ -8,6 +8,7 @@
     "start": "next start",
     "seed:bern-guide": "node scripts/seed-bern-guide.mjs",
     "seed:bern-discovery": "node scripts/seed-bern-discovery.mjs",
+    "db:discovery-map": "node scripts/run-discovery-map-sql.mjs",
     "seed:swiss-guide": "node scripts/seed-swiss-guide.mjs",
     "lint": "eslint"
   },
@@ -25,6 +26,7 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.2.6",
+    "pg": "^8.21.0",
     "tailwindcss": "^4",
     "typescript": "^5"
   }
