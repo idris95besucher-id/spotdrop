@@ -9,6 +9,7 @@
     "seed:bern-guide": "node scripts/seed-bern-guide.mjs",
     "seed:bern-discovery": "node scripts/seed-bern-discovery.mjs",
     "db:discovery-map": "node scripts/run-discovery-map-sql.mjs",
+    "db:migrate": "node scripts/run-all-migrations.mjs",
     "seed:swiss-guide": "node scripts/seed-swiss-guide.mjs",
     "lint": "eslint"
   },

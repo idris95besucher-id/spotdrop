@@ -91,7 +91,7 @@ async function verifyTables(supabase) {
 async function main() {
   loadLocalEnv();
 
-  const sqlPath = "database/add-discovery-map.sql";
+  const sqlPath = process.env.MIGRATION_FILE || "database/add-discovery-map.sql";
   const sql = readFileSync(sqlPath, "utf8");
   const databaseUrl = resolveDatabaseUrl();
 
