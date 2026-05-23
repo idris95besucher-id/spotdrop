@@ -11,7 +11,8 @@
     "db:discovery-map": "node scripts/run-discovery-map-sql.mjs",
     "db:migrate": "node scripts/run-all-migrations.mjs",
     "seed:swiss-guide": "node scripts/seed-swiss-guide.mjs",
-    "lint": "eslint"
+    "lint": "eslint",
+    "deploy": "vercel --prod --yes"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.35.0",
