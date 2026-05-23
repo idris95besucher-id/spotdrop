@@ -137,17 +137,10 @@ export default function CountryRoomsPage() {
             {sortedCities.map((city) => (
               <Link
                 key={city.id}
-                href={
-                  countrySlug === "switzerland" && city.slug === "bern"
-                    ? `/rooms/${countrySlug}/${city.slug}?tab=map`
-                    : `/rooms/${countrySlug}/${city.slug}`
-                }
+                href={`/rooms/${countrySlug}/${city.slug}`}
                 className="rounded-3xl border border-white/10 bg-white/5 p-6 transition hover:border-cyan-300/40 hover:bg-white/10"
               >
                 <div className="text-2xl font-semibold text-white">{city.name}</div>
-                {countrySlug === "switzerland" && city.slug === "bern" ? (
-                  <p className="mt-2 text-sm font-medium text-cyan-300">Discovery map · 6 places</p>
-                ) : null}
               </Link>
             ))}
           </div>

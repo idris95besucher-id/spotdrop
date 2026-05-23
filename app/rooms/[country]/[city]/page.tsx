@@ -876,14 +876,6 @@ export default function RoomChatPage() {
   return (
     <Shell>
       <div className="mx-auto flex min-h-[calc(100vh-10rem)] max-w-5xl flex-col gap-3">
-        {showBernMapUi ? (
-          <div
-            className="rounded-2xl border-4 border-yellow-300 bg-yellow-300 px-4 py-4 text-center shadow-lg shadow-yellow-500/30"
-            role="status"
-          >
-            <p className="text-2xl font-black tracking-tight text-slate-950 sm:text-3xl">MAP VERSION 2 IS LIVE</p>
-          </div>
-        ) : null}
         <section className="rounded-3xl border border-white/10 bg-slate-900/90 p-5 shadow-xl shadow-black/20 sm:p-6">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div className="flex min-w-0 flex-1 items-start gap-4">
@@ -907,9 +899,6 @@ export default function RoomChatPage() {
                 </div>
                 <h1 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">{city?.name ?? "City room"}</h1>
                 <p className="mt-2 text-base text-slate-300">{country?.name ?? "Country"}</p>
-                {showBernMapUi ? (
-                  <p className="mt-2 text-sm font-medium text-cyan-300">Bern discovery map — Map tab is selected by default</p>
-                ) : null}
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-2 text-sm">

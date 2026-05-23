@@ -63,20 +63,6 @@ export default function RoomsPage() {
           <h1 className="mt-4 text-4xl font-semibold text-white">Choose a country to explore city rooms.</h1>
         </section>
 
-        <Link
-          href="/rooms/switzerland/bern?tab=map"
-          className="block rounded-3xl border border-cyan-400/40 bg-gradient-to-br from-cyan-500/15 via-slate-900/90 to-slate-950 p-6 shadow-lg shadow-cyan-500/10 transition hover:border-cyan-300/60 hover:from-cyan-500/20"
-        >
-          <p className="text-xs font-semibold uppercase tracking-[0.28em] text-cyan-300">New · Bern discovery map</p>
-          <h2 className="mt-2 text-2xl font-semibold text-white">Open the map — 6 places near Bern</h2>
-          <p className="mt-2 text-sm text-slate-300">
-            Blausee, Interlaken, Thun, Gurten, Oeschinensee, Lauterbrunnen. Tap a pin for posts.
-          </p>
-          <span className="mt-4 inline-flex rounded-full bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-950">
-            Open Bern map
-          </span>
-        </Link>
-
         {loading ? (
           <div className="rounded-3xl border border-dashed border-slate-700 bg-slate-950 p-8 text-center text-slate-400">Loading countries...</div>
         ) : error ? (
