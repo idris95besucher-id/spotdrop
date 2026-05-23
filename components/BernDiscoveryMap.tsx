@@ -99,8 +99,40 @@ export default function BernDiscoveryMap({ userId }: BernDiscoveryMapProps) {
     return Array.from(unique) as DiscoveryPlaceCategory[];
   }, [places]);
 
+  const bernPlaceButtons = useMemo(
+    () =>
+      ["Blausee", "Interlaken", "Thun", "Gurten", "Oeschinensee", "Lauterbrunnen"].map((label) => {
+        const place =
+          places.find((item) => item.name === label) ??
+          INSTANT_PLACES.find((item) => item.name === label) ??
+          null;
+        return { label, place };
+      }),
+    [places]
+  );
+
   return (
     <div className="relative z-10 flex w-full min-h-[520px] flex-col">
+      <div className="shrink-0 border-b border-cyan-400/30 bg-slate-950 px-4 py-4">
+        <div className="rounded-3xl border-4 border-cyan-400 bg-gradient-to-br from-cyan-500/25 via-slate-900 to-slate-950 p-6 shadow-xl shadow-cyan-500/20">
+          <h2 className="text-center text-4xl font-black tracking-tight text-white sm:text-5xl">Bern Map</h2>
+          <p className="mt-2 text-center text-sm font-medium text-cyan-200">Tap a place to open posts</p>
+          <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3">
+            {bernPlaceButtons.map(({ label, place }) => (
+              <button
+                key={label}
+                type="button"
+                onClick={() => place && setSelectedPlace(place)}
+                disabled={!place}
+                className="rounded-2xl border-2 border-cyan-300/60 bg-slate-950 px-3 py-4 text-center text-base font-bold text-white transition hover:border-cyan-200 hover:bg-cyan-500/20 disabled:opacity-50 sm:text-lg"
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
       <div className="shrink-0 border-b border-white/10 bg-slate-950/80 px-4 py-3 backdrop-blur-md">
         <div className="flex items-start justify-between gap-3">
           <div>

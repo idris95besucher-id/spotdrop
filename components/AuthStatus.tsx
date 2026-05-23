@@ -4,7 +4,9 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
-import { Globe2, LayoutGrid, LogOut, MessageCircle, Search as SearchIcon, UserRound } from "lucide-react";
+import { Globe2, LayoutGrid, LogOut, MapPin, MessageCircle, Search as SearchIcon, UserRound } from "lucide-react";
+
+const BERN_MAP_HREF = "/rooms/switzerland/bern?tab=map";
 import { getSafeAuthSession } from "@/lib/authSession";
 import { supabase } from "@/lib/supabaseClient";
 
@@ -68,6 +70,11 @@ export default function AuthStatus() {
     return (
       <nav className="flex flex-wrap items-center justify-end gap-2 sm:gap-3" aria-label="Main">
         <NavLink href="/rooms" label="Visit" icon={<Globe2 className={iconClass} strokeWidth={1.75} aria-hidden />} />
+        <NavLink
+          href={BERN_MAP_HREF}
+          label="Bern map"
+          icon={<MapPin className={iconClass} strokeWidth={1.75} aria-hidden />}
+        />
         <NavLink href="/feed" label="Feed" icon={<LayoutGrid className={iconClass} strokeWidth={1.75} aria-hidden />} />
         <NavLink href="/chats" label="Chats" icon={<MessageCircle className={iconClass} strokeWidth={1.75} aria-hidden />} />
         <NavLink href="/search" label="Search" icon={<SearchIcon className={iconClass} strokeWidth={1.75} aria-hidden />} />
@@ -84,6 +91,11 @@ export default function AuthStatus() {
   return (
     <nav className="flex flex-wrap items-center justify-end gap-2 sm:gap-3" aria-label="Main">
       <NavLink href="/rooms" label="Visit" icon={<Globe2 className={iconClass} strokeWidth={1.75} aria-hidden />} />
+      <NavLink
+        href={BERN_MAP_HREF}
+        label="Bern map"
+        icon={<MapPin className={iconClass} strokeWidth={1.75} aria-hidden />}
+      />
       <NavLink href="/feed" label="Feed" icon={<LayoutGrid className={iconClass} strokeWidth={1.75} aria-hidden />} />
       <NavLink href="/chats" label="Chats" icon={<MessageCircle className={iconClass} strokeWidth={1.75} aria-hidden />} />
       <NavLink href="/search" label="Search" icon={<SearchIcon className={iconClass} strokeWidth={1.75} aria-hidden />} />

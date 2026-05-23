@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import type { RealtimeChannel, Session } from "@supabase/supabase-js";
@@ -145,8 +145,10 @@ function countPresencePeers(channel: RealtimeChannel) {
 
 export default function RoomChatPage() {
   const params = useParams<{ country: string; city: string }>();
+  const searchParams = useSearchParams();
   const citySlug = String(params.city ?? "").toLowerCase();
   const countrySlug = String(params.country ?? "").toLowerCase();
+  const bernByUrl = isBernDiscoveryRoom(countrySlug, citySlug, null);
   const [country, setCountry] = useState<Country | null>(null);
   const [city, setCity] = useState<City | null>(null);
   const [currentUsername, setCurrentUsername] = useState<string | null>(null);
@@ -177,12 +179,37 @@ export default function RoomChatPage() {
   const [pendingDeleteMessageId, setPendingDeleteMessageId] = useState<string | null>(null);
   const [deletingMessage, setDeletingMessage] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
-  const [roomView, setRoomView] = useState<"chat" | "map">("chat");
-
+  const tabFromUrl = searchParams.get("tab");
   const isBernRoom = useMemo(
     () => isBernDiscoveryRoom(countrySlug, citySlug, city?.name),
     [countrySlug, citySlug, city?.name]
   );
+  const showBernMapUi = bernByUrl || isBernRoom;
+
+  const initialRoomView: "chat" | "map" = showBernMapUi
+    ? tabFromUrl === "chat"
+      ? "chat"
+      : "map"
+    : "chat";
+  const [roomView, setRoomView] = useState<"chat" | "map">(initialRoomView);
+
+  const switchRoomView = useCallback((view: "chat" | "map") => {
+    setRoomView(view);
+  }, []);
+
+  useEffect(() => {
+    if (!showBernMapUi) {
+      setRoomView("chat");
+      return;
+    }
+
+    if (tabFromUrl === "chat") {
+      setRoomView("chat");
+      return;
+    }
+
+    setRoomView("map");
+  }, [tabFromUrl, showBernMapUi]);
 
   const loadSession = useCallback(async () => {
     const { session, error: sessionError } = await getSafeAuthSession();
@@ -849,6 +876,14 @@ export default function RoomChatPage() {
   return (
     <Shell>
       <div className="mx-auto flex min-h-[calc(100vh-10rem)] max-w-5xl flex-col gap-3">
+        {showBernMapUi ? (
+          <div
+            className="rounded-2xl border-4 border-yellow-300 bg-yellow-300 px-4 py-4 text-center shadow-lg shadow-yellow-500/30"
+            role="status"
+          >
+            <p className="text-2xl font-black tracking-tight text-slate-950 sm:text-3xl">MAP VERSION 2 IS LIVE</p>
+          </div>
+        ) : null}
         <section className="rounded-3xl border border-white/10 bg-slate-900/90 p-5 shadow-xl shadow-black/20 sm:p-6">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div className="flex min-w-0 flex-1 items-start gap-4">
@@ -872,6 +907,9 @@ export default function RoomChatPage() {
                 </div>
                 <h1 className="mt-3 text-3xl font-semibold text-white sm:text-4xl">{city?.name ?? "City room"}</h1>
                 <p className="mt-2 text-base text-slate-300">{country?.name ?? "Country"}</p>
+                {showBernMapUi ? (
+                  <p className="mt-2 text-sm font-medium text-cyan-300">Bern discovery map — Map tab is selected by default</p>
+                ) : null}
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-2 text-sm">
@@ -887,32 +925,34 @@ export default function RoomChatPage() {
             </div>
           </div>
 
-          <div className="mt-5 flex w-full gap-2 rounded-2xl border border-white/10 bg-slate-950/70 p-1.5">
-            <button
-              type="button"
-              onClick={() => setRoomView("chat")}
-              className={`inline-flex flex-1 items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold transition ${
-                roomView === "chat"
-                  ? "bg-cyan-400 text-slate-950 shadow-lg shadow-cyan-500/20"
-                  : "text-slate-300 hover:bg-white/5 hover:text-white"
-              }`}
-            >
-              <MessageSquare className="h-4 w-4" aria-hidden />
-              Chat
-            </button>
-            <button
-              type="button"
-              onClick={() => setRoomView("map")}
-              className={`inline-flex flex-1 items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold transition ${
-                roomView === "map"
-                  ? "bg-cyan-400 text-slate-950 shadow-lg shadow-cyan-500/20"
-                  : "text-slate-300 hover:bg-white/5 hover:text-white"
-              }`}
-            >
-              <MapIcon className="h-4 w-4" aria-hidden />
-              Map
-            </button>
-          </div>
+          {showBernMapUi ? (
+            <div className="mt-5 flex w-full gap-2 rounded-2xl border border-white/10 bg-slate-950/70 p-1.5">
+              <button
+                type="button"
+                onClick={() => switchRoomView("chat")}
+                className={`inline-flex flex-1 items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold transition ${
+                  roomView === "chat"
+                    ? "bg-cyan-400 text-slate-950 shadow-lg shadow-cyan-500/20"
+                    : "text-slate-300 hover:bg-white/5 hover:text-white"
+                }`}
+              >
+                <MessageSquare className="h-4 w-4" aria-hidden />
+                Chat
+              </button>
+              <button
+                type="button"
+                onClick={() => switchRoomView("map")}
+                className={`inline-flex flex-1 items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold transition ${
+                  roomView === "map"
+                    ? "bg-cyan-400 text-slate-950 shadow-lg shadow-cyan-500/20"
+                    : "text-slate-300 hover:bg-white/5 hover:text-white"
+                }`}
+              >
+                <MapIcon className="h-4 w-4" aria-hidden />
+                Map
+              </button>
+            </div>
+          ) : null}
         </section>
 
         <section className="relative flex min-h-[520px] flex-1 flex-col overflow-hidden rounded-3xl border border-white/10 bg-[linear-gradient(180deg,rgba(15,23,42,0.92)_0%,rgba(8,12,24,0.96)_100%)] shadow-2xl shadow-black/30">
@@ -925,22 +965,9 @@ export default function RoomChatPage() {
             <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,0.02),transparent_38%,rgba(255,255,255,0.015)_62%,transparent)]" />
           </div>
 
-          {roomView === "map" ? (
-            <div className="relative z-10 w-full">
-              {isBernRoom ? (
-                <BernDiscoveryMap userId={session?.user?.id ?? null} />
-              ) : (
-                <div className="flex h-[500px] flex-col items-center justify-center gap-4 px-6 text-center">
-                  <div className="rounded-[2rem] border border-dashed border-white/15 bg-slate-950/60 px-8 py-10">
-                    <MapIcon className="mx-auto h-12 w-12 text-slate-600" strokeWidth={1.25} aria-hidden />
-                    <p className="mt-4 text-lg font-semibold text-white">Map coming soon for this city.</p>
-                    <p className="mt-2 max-w-sm text-sm text-slate-400">
-                      Bern already has the discovery map with Blausee, Interlaken, Thun, Gurten, Oeschinensee, and
-                      Lauterbrunnen.
-                    </p>
-                  </div>
-                </div>
-              )}
+          {showBernMapUi && roomView === "map" ? (
+            <div className="relative z-20 w-full">
+              <BernDiscoveryMap userId={session?.user?.id ?? null} />
             </div>
           ) : (
             <>
@@ -1091,7 +1118,7 @@ export default function RoomChatPage() {
           )}
         </section>
 
-        {roomView === "chat" ? (
+        {(!showBernMapUi || roomView === "chat") ? (
         <section className="sticky bottom-4 z-20">
           <form
             ref={emojiPickerRef}
