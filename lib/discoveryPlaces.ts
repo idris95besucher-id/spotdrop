@@ -7,6 +7,8 @@ import {
   type DiscoveryRegion,
   isDiscoveryRelationMissing,
 } from "@/lib/discoveryMap";
+import { isGuideAccountProfile } from "@/lib/guideAccounts";
+import { POST_AUTHOR_PROFILES_FKEY } from "@/lib/posts";
 import { supabase } from "@/lib/supabaseClient";
 
 export type DiscoveryPlacePost = {
@@ -20,7 +22,7 @@ export type DiscoveryPlacePost = {
   video_url: string | null;
   created_at: string;
   expires_at: string | null;
-  profiles: { username: string; avatar_url: string | null; is_ai_guide: boolean; is_official: boolean } | null;
+  profiles: { username: string; avatar_url: string | null } | null;
 };
 
 export type DiscoveryPlaceComment = {
@@ -35,8 +37,6 @@ export type DiscoveryPlaceComment = {
 type ProfileJoin = {
   username: string;
   avatar_url: string | null;
-  is_ai_guide?: boolean;
-  is_official?: boolean;
 };
 
 function normalizeProfileJoin<T extends ProfileJoin>(value: T | T[] | null | undefined): T | null {
@@ -60,15 +60,11 @@ function mapPostRow(row: Record<string, unknown>): DiscoveryPlacePost {
     created_at: String(row.created_at),
     expires_at: (row.expires_at as string | null) ?? null,
     profiles: (() => {
-      const profile = normalizeProfileJoin(
-        row.profiles as (ProfileJoin & { is_ai_guide?: boolean; is_official?: boolean }) | null
-      );
+      const profile = normalizeProfileJoin(row.profiles as ProfileJoin | ProfileJoin[] | null);
       if (!profile) return null;
       return {
         username: profile.username,
         avatar_url: profile.avatar_url,
-        is_ai_guide: Boolean(profile.is_ai_guide),
-        is_official: Boolean(profile.is_official),
       };
     })(),
   };
@@ -222,7 +218,7 @@ export async function loadPlaceContent(placeId: string) {
   const { data, error } = await supabase
     .from("posts")
     .select(
-      "id, user_id, content, content_kind, media_url, media_type, image_url, video_url, created_at, expires_at, profiles(username, avatar_url, is_ai_guide, is_official)"
+      `id, user_id, content, content_kind, media_url, media_type, image_url, video_url, created_at, expires_at, ${POST_AUTHOR_PROFILES_FKEY}(username, avatar_url)`
     )
     .eq("discovery_place_id", placeId)
     .eq("visibility", "public")
@@ -238,7 +234,12 @@ export async function loadPlaceContent(placeId: string) {
     return { posts: [] as DiscoveryPlacePost[], error: error.message };
   }
 
-  return { posts: (data ?? []).map((row) => mapPostRow(row as Record<string, unknown>)), error: null };
+  return {
+    posts: (data ?? [])
+      .map((row) => mapPostRow(row as Record<string, unknown>))
+      .filter((post) => !isGuideAccountProfile(post.profiles)),
+    error: null,
+  };
 }
 
 export async function loadPlaceComments(placeId: string) {
@@ -261,7 +262,12 @@ export async function loadPlaceComments(placeId: string) {
     return { comments: [] as DiscoveryPlaceComment[], error: error.message };
   }
 
-  return { comments: (data ?? []).map((row) => mapCommentRow(row as Record<string, unknown>)), error: null };
+  return {
+    comments: (data ?? [])
+      .map((row) => mapCommentRow(row as Record<string, unknown>))
+      .filter((comment) => !isGuideAccountProfile(comment.profiles)),
+    error: null,
+  };
 }
 
 export async function addPlaceComment(placeId: string, userId: string, content: string) {
@@ -344,7 +350,7 @@ export async function createPlaceContent(
     .from("posts")
     .insert(row)
     .select(
-      "id, user_id, content, content_kind, media_url, media_type, image_url, video_url, created_at, expires_at, profiles(username, avatar_url, is_ai_guide, is_official)"
+      `id, user_id, content, content_kind, media_url, media_type, image_url, video_url, created_at, expires_at, ${POST_AUTHOR_PROFILES_FKEY}(username, avatar_url)`
     )
     .single();
 

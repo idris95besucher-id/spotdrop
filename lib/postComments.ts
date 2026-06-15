@@ -23,11 +23,36 @@ const COMMENT_SELECT = `
   user_id,
   content,
   created_at,
-  profiles!inner (
+  profiles!post_comments_user_id_fkey (
     username,
     avatar_url
   )
 `;
+
+export const POST_COMMENTS_MIGRATION_HINT =
+  "Run database/add-post-comments.sql in Supabase to enable comments.";
+
+export function isMissingPostCommentsTable(error: { code?: string; message?: string } | null) {
+  if (!error) {
+    return false;
+  }
+
+  const message = error.message?.toLowerCase() ?? "";
+
+  return (
+    error.code === "42P01" ||
+    (error.code === "PGRST205" && message.includes("post_comments")) ||
+    message.includes("post_comments") && message.includes("does not exist")
+  );
+}
+
+function formatCommentsError(error: { code?: string; message?: string } | null) {
+  if (isMissingPostCommentsTable(error)) {
+    return POST_COMMENTS_MIGRATION_HINT;
+  }
+
+  return userFacingSupabaseListError(error);
+}
 
 function normalizeCommentRow(
   row: PostCommentRow & { profiles: PostCommentProfile | PostCommentProfile[] }
@@ -60,7 +85,7 @@ export async function loadPostComments(postId: string): Promise<{
 
     if (error) {
       logExactLoadError(error);
-      return { comments: [], error: userFacingSupabaseListError(error) };
+      return { comments: [], error: formatCommentsError(error) };
     }
 
     const comments = (data ?? []).map((row) =>
@@ -89,7 +114,7 @@ export async function loadPostCommentsCount(postId: string): Promise<{
 
     if (error) {
       logExactLoadError(error);
-      return { count: 0, error: userFacingSupabaseListError(error) };
+      return { count: 0, error: formatCommentsError(error) };
     }
 
     return { count: count ?? 0, error: null };
@@ -126,7 +151,12 @@ export async function addPostComment(
 
     if (error) {
       logExactLoadError(error);
-      return { comment: null, error: error.message || "Unable to post comment." };
+      return {
+        comment: null,
+        error: isMissingPostCommentsTable(error)
+          ? POST_COMMENTS_MIGRATION_HINT
+          : error.message || "Unable to post comment.",
+      };
     }
 
     return {

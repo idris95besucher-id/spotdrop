@@ -1,27 +1,38 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Menu } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { useRouter } from "next/navigation";
-import { Camera, Loader2, UserRound } from "lucide-react";
 import { getSafeAuthSession } from "@/lib/authSession";
+import { markIntentionalSignOut } from "@/lib/authMessages";
 import type { FollowProfile } from "@/lib/follows";
 import { loadFollowConnections } from "@/lib/follows";
 import { publicProfileUsername } from "@/lib/publicProfile";
 import { ensureProfileRow } from "@/lib/profile";
 import { uploadAvatarImage } from "@/lib/profileMedia";
-import { logExactLoadError } from "@/lib/safeLoad";
 import { supabase } from "@/lib/supabaseClient";
-import { resolveProfileLocation, type ResolvedProfileLocation } from "@/lib/profileLocation";
-import CreatePostForm, { type CreatedProfilePost } from "@/components/CreatePostForm";
-import CreateStoryForm from "@/components/CreateStoryForm";
-import OfficialAIGuideBadge from "@/components/OfficialAIGuideBadge";
-import ProfileStoriesBar from "@/components/ProfileStoriesBar";
-import { loadActiveProfileStories, loadArchivedProfileStories, type StoryRow } from "@/lib/stories";
-import PostMediaLink from "@/components/PostMediaLink";
+import {
+  formatProfileLocationLine,
+  resolveProfileLocation,
+  type ResolvedProfileLocation,
+} from "@/lib/profileLocation";
+import ProfileAvatarActions from "@/components/ProfileAvatarActions";
+import ProfileMenuSheet from "@/components/ProfileMenuSheet";
+import { NotificationsBellLink } from "@/components/NotificationsProvider";
+import { useSpotDrafts } from "@/components/SpotDraftsProvider";
+import ShareProfileSheet from "@/components/ShareProfileSheet";
+import ProfileCollectionsTab from "@/components/ProfileCollectionsTab";
+import ProfileContentTabs, { type ProfileContentTab } from "@/components/ProfileContentTabs";
 import Shell from "@/components/Shell";
+import { useI18n } from "@/components/I18nProvider";
+import { localizeError } from "@/lib/i18n/localizeError";
+import { loadOwnProfileContent, type ProfileContentPost } from "@/lib/profileContent";
+import { PROFILE_CONTENT_REFRESH_EVENT } from "@/lib/profileContentRefresh";
+import { postIdsEqual } from "@/lib/postIds";
+import { buildProfileMenuItems } from "@/lib/profileMenuItems";
 
 type ProfileData = {
   username?: string | null;
@@ -30,54 +41,7 @@ type ProfileData = {
   country_slug?: string | null;
   city_slug?: string | null;
   city_id?: string | null;
-  is_ai_guide?: boolean | null;
-  is_official?: boolean | null;
 };
-
-type ProfilePost = {
-  id: string;
-  user_id: string;
-  content: string;
-  visibility?: "public" | "private";
-  image_url?: string | null;
-  video_url?: string | null;
-  media_url?: string | null;
-  media_type?: string | null;
-  created_at: string;
-  updated_at?: string;
-};
-
-function getPostMedia(post: ProfilePost) {
-  if (post.media_url) {
-    return {
-      mediaUrl: post.media_url,
-      mediaType: post.media_type ?? (post.video_url ? "video" : "image"),
-    };
-  }
-
-  if (post.video_url) {
-    return { mediaUrl: post.video_url, mediaType: "video" };
-  }
-
-  if (post.image_url) {
-    return { mediaUrl: post.image_url, mediaType: "image" };
-  }
-
-  return { mediaUrl: null, mediaType: null };
-}
-
-function formatPostTime(createdAt: string) {
-  const date = new Date(createdAt);
-
-  if (Number.isNaN(date.getTime())) {
-    return "Just now";
-  }
-
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(date);
-}
 
 function withTimeout<T>(promise: Promise<T>, message: string, timeoutMs = 6000): Promise<T> {
   return Promise.race([
@@ -89,28 +53,31 @@ function withTimeout<T>(promise: Promise<T>, message: string, timeoutMs = 6000):
 }
 
 export default function ProfilePage() {
+  const { t } = useI18n();
   const router = useRouter();
+  const { drafts } = useSpotDrafts();
   const [profile, setProfile] = useState<ProfileData | null>(null);
   const [location, setLocation] = useState<ResolvedProfileLocation>({ countryName: null, cityName: null });
   const [session, setSession] = useState<Session | null>(null);
   const [followers, setFollowers] = useState<FollowProfile[]>([]);
   const [friends, setFriends] = useState<FollowProfile[]>([]);
-  const [publicPosts, setPublicPosts] = useState<ProfilePost[]>([]);
-  const [privatePosts, setPrivatePosts] = useState<ProfilePost[]>([]);
-  const [activeStories, setActiveStories] = useState<StoryRow[]>([]);
-  const [archivedStories, setArchivedStories] = useState<StoryRow[]>([]);
+  const [personalPosts, setPersonalPosts] = useState<ProfileContentPost[]>([]);
+  const [spotPosts, setSpotPosts] = useState<ProfileContentPost[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingConnections, setLoadingConnections] = useState(true);
   const [loadingPosts, setLoadingPosts] = useState(true);
-  const [activeProfileSection, setActiveProfileSection] = useState<"posts" | "followers" | "friends" | null>(null);
-  const [activeContentTab, setActiveContentTab] = useState<"posts" | "private">("posts");
+  const [activeProfileSection, setActiveProfileSection] = useState<"posts" | "followers" | "friends" | null>("posts");
+  const [activeContentTab, setActiveContentTab] = useState<ProfileContentTab>("spots");
   const [connectionsError, setConnectionsError] = useState<string | null>(null);
+  const [postsError, setPostsError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loadAttempt, setLoadAttempt] = useState(0);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
-  const avatarInputRef = useRef<HTMLInputElement>(null);
+  const [shareProfileOpen, setShareProfileOpen] = useState(false);
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const successTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const contentSectionRef = useRef<HTMLElement | null>(null);
 
   const showSuccessMessage = useCallback((message: string) => {
     if (successTimeoutRef.current) {
@@ -129,12 +96,12 @@ export default function ProfilePage() {
     }
 
     window.sessionStorage.removeItem("profileUpdated");
-    const timeoutId = setTimeout(() => showSuccessMessage("Profile updated successfully."), 0);
+    const timeoutId = setTimeout(() => showSuccessMessage(t("profile.updatedSuccess")), 0);
 
     return () => {
       clearTimeout(timeoutId);
     };
-  }, [showSuccessMessage]);
+  }, [showSuccessMessage, t]);
 
   useEffect(() => {
     return () => {
@@ -154,11 +121,12 @@ export default function ProfilePage() {
       setLoadingPosts(true);
       setError(null);
       setConnectionsError(null);
+      setPostsError(null);
 
       const timeoutId = window.setTimeout(() => {
         if (!profileSettled && !cancelled) {
           console.error("Profile load timeout:", JSON.stringify({ page: "/profile" }, null, 2));
-          setError("Profile is taking too long to load. Please try again.");
+          setError(t("profile.loadTimeout"));
           setLoading(false);
           setLoadingConnections(false);
           setLoadingPosts(false);
@@ -168,7 +136,7 @@ export default function ProfilePage() {
       try {
         const { session, error: sessionError } = await withTimeout(
           getSafeAuthSession(),
-          "Profile session is taking too long to load. Please try again."
+          t("profile.sessionTimeout")
         );
 
         if (cancelled) {
@@ -188,7 +156,7 @@ export default function ProfilePage() {
 
         const ensuredProfile = await withTimeout(
           ensureProfileRow({ user: session.user }),
-          "Profile data is taking too long to load. Please try again."
+          t("profile.dataTimeout")
         );
 
         if (cancelled) {
@@ -200,7 +168,7 @@ export default function ProfilePage() {
         }
 
         if (!ensuredProfile.profile?.username) {
-          setError("Complete your profile first.");
+          setError(t("profile.completeFirst"));
           router.push("/onboarding");
           return;
         }
@@ -208,68 +176,35 @@ export default function ProfilePage() {
         setProfile(ensuredProfile.profile);
         setLoading(false);
 
-        void resolveProfileLocation(ensuredProfile.profile)
-          .then((nextLocation) => {
-            if (!cancelled) {
-              setLocation(nextLocation);
-            }
-          })
-          .catch((locationError) => {
-            console.error("Profile location load error:", JSON.stringify(locationError, null, 2));
-          });
+        void resolveProfileLocation(ensuredProfile.profile).then((nextLocation) => {
+          if (!cancelled) {
+            setLocation(nextLocation);
+          }
+        });
 
         const followConnectionsPromise = loadFollowConnections(session.user.id);
 
-        const postsPromise = Promise.all([
-          supabase
-            .from("posts")
-            .select("id, user_id, content, visibility, image_url, video_url, media_url, media_type, created_at, updated_at")
-            .eq("user_id", session.user.id)
-            .eq("visibility", "public")
-            .order("created_at", { ascending: false }),
-          supabase
-            .from("posts")
-            .select("id, user_id, content, visibility, image_url, video_url, media_url, media_type, created_at, updated_at")
-            .eq("user_id", session.user.id)
-            .eq("visibility", "private")
-            .order("created_at", { ascending: false }),
-        ]);
-
-        const refreshStories = async () => {
-          const [activeResult, archiveResult] = await Promise.all([
-            loadActiveProfileStories(session.user.id),
-            loadArchivedProfileStories(session.user.id),
-          ]);
-
-          if (!cancelled) {
-            setActiveStories(activeResult.stories);
-            setArchivedStories(archiveResult.stories);
-          }
-        };
-
-        void refreshStories();
+        const postsPromise = loadOwnProfileContent(session.user.id);
 
         try {
-          const [
-            followConnectionsResult,
-            [{ data: publicPostRows, error: publicPostsError }, { data: privatePostRows, error: privatePostsError }],
-          ] = await withTimeout(
+          const [followConnectionsResult, profileContentResult] = await withTimeout(
             Promise.all([followConnectionsPromise, postsPromise]),
-            "Profile posts are taking too long to load. Showing profile without posts."
+            t("profile.postsTimeout")
           );
 
           if (cancelled) {
             return;
           }
 
-          if (publicPostsError || privatePostsError) {
-            console.error("Profile posts load error:", JSON.stringify(publicPostsError ?? privatePostsError, null, 2));
-            logExactLoadError(publicPostsError ?? privatePostsError);
-            setPublicPosts([]);
-            setPrivatePosts([]);
+          if (profileContentResult.error) {
+            console.error("Profile posts load error:", profileContentResult.error);
+            setPostsError(profileContentResult.error);
+            setPersonalPosts([]);
+            setSpotPosts([]);
           } else {
-            setPublicPosts((publicPostRows ?? []) as ProfilePost[]);
-            setPrivatePosts((privatePostRows ?? []) as ProfilePost[]);
+            setPostsError(null);
+            setPersonalPosts(profileContentResult.personal);
+            setSpotPosts(profileContentResult.spotPosts);
           }
 
           if (followConnectionsResult.error) {
@@ -284,15 +219,20 @@ export default function ProfilePage() {
           }
         } catch (secondaryLoadError) {
           console.error("Profile secondary data load error:", JSON.stringify(secondaryLoadError, null, 2));
-          setConnectionsError("Some profile details could not load. Your profile is still available.");
-          setPublicPosts([]);
-          setPrivatePosts([]);
+          setConnectionsError(t("profile.connectionsPartialLoad"));
+          setPostsError(t("profile.postsPartialLoad"));
+          setPersonalPosts([]);
+          setSpotPosts([]);
           setFollowers([]);
           setFriends([]);
         }
       } catch (loadError) {
         console.error("Profile load error:", JSON.stringify(loadError, null, 2));
-        setError(loadError instanceof Error && loadError.message ? loadError.message : "Unable to load your profile.");
+        setError(
+          loadError instanceof Error && loadError.message
+            ? localizeError(t, loadError.message) ?? t("profile.unableToLoad")
+            : t("profile.unableToLoad")
+        );
       } finally {
         profileSettled = true;
         window.clearTimeout(timeoutId);
@@ -310,27 +250,55 @@ export default function ProfilePage() {
     return () => {
       cancelled = true;
     };
-  }, [router, loadAttempt]);
+  }, [router, loadAttempt, t]);
 
+  const spotPostsCount = spotPosts.length;
   const followersCount = followers.length;
   const friendsCount = friends.length;
-  const postsCount = publicPosts.length;
-  const activePosts = activeContentTab === "posts" ? publicPosts : privatePosts;
   const activeConnections = activeProfileSection === "friends" ? friends : followers;
-  const isOfficialAIGuide = Boolean(profile?.is_ai_guide && profile.is_official);
+  const locationLine = formatProfileLocationLine(location);
 
-  const handlePostCreated = (post: CreatedProfilePost) => {
-    console.log("profile post created with id:", post.id);
-    if (post.visibility === "private") {
-      setPrivatePosts((currentPosts) => [post, ...currentPosts]);
-      setActiveContentTab("private");
-    } else {
-      setPublicPosts((currentPosts) => [post, ...currentPosts]);
-      setActiveContentTab("posts");
+  const handlePostDeleted = useCallback((postId: string) => {
+    const removePost = (items: ProfileContentPost[]) =>
+      items.filter((post) => !postIdsEqual(post.id, postId));
+
+    setPersonalPosts((current) => removePost(current));
+    setSpotPosts((current) => removePost(current));
+  }, []);
+
+  const refreshProfileContent = useCallback(async () => {
+    if (!session?.user?.id) {
+      return;
     }
-    setActiveProfileSection("posts");
-    showSuccessMessage("Post published.");
-  };
+
+    setLoadingPosts(true);
+    setPostsError(null);
+
+    const result = await loadOwnProfileContent(session.user.id);
+
+    if (result.error) {
+      setPostsError(result.error);
+      setPersonalPosts([]);
+      setSpotPosts([]);
+    } else {
+      setPersonalPosts(result.personal);
+      setSpotPosts(result.spotPosts);
+    }
+
+    setLoadingPosts(false);
+  }, [session?.user?.id]);
+
+  useEffect(() => {
+    const handleRefresh = () => {
+      void refreshProfileContent();
+    };
+
+    window.addEventListener(PROFILE_CONTENT_REFRESH_EVENT, handleRefresh);
+
+    return () => {
+      window.removeEventListener(PROFILE_CONTENT_REFRESH_EVENT, handleRefresh);
+    };
+  }, [refreshProfileContent]);
 
   const handleAvatarUpload = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -340,7 +308,7 @@ export default function ProfilePage() {
     }
 
     if (!session?.user?.id) {
-      setError("Please sign in to upload files.");
+      setError(t("profile.signInToUpload"));
       event.target.value = "";
       return;
     }
@@ -356,205 +324,194 @@ export default function ProfilePage() {
         .eq("id", session.user.id);
 
       if (updateError) {
-        throw new Error(updateError.message || "Unable to save your profile photo.");
+        throw new Error(updateError.message || t("profile.unableToSavePhoto"));
       }
 
       setProfile((currentProfile) =>
         currentProfile ? { ...currentProfile, avatar_url: publicUrl } : { avatar_url: publicUrl }
       );
-      showSuccessMessage("Profile photo updated.");
+      showSuccessMessage(t("profile.photoUpdated"));
     } catch (uploadError) {
-      setError(uploadError instanceof Error ? uploadError.message : "Unable to upload profile photo.");
+      setError(
+        uploadError instanceof Error
+          ? localizeError(t, uploadError.message) ?? t("profile.unableToUploadPhoto")
+          : t("profile.unableToUploadPhoto")
+      );
     } finally {
       setUploadingAvatar(false);
       event.target.value = "";
     }
   };
 
+  const handleSignOut = useCallback(async () => {
+    markIntentionalSignOut();
+    await supabase.auth.signOut();
+    router.replace("/auth/login");
+  }, [router]);
+
+  const handleOpenCollections = useCallback(() => {
+    setActiveProfileSection("posts");
+    setActiveContentTab("collections");
+    window.requestAnimationFrame(() => {
+      contentSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }, []);
+
+  const profileMenuItems = useMemo(
+    () =>
+      buildProfileMenuItems(
+        {
+          draftCount: drafts.length,
+          onOpenCollections: handleOpenCollections,
+          onSignOut: () => void handleSignOut(),
+        },
+        t
+      ),
+    [drafts.length, handleOpenCollections, handleSignOut, t]
+  );
+
   return (
-    <Shell>
+    <Shell flushTop>
       {successMessage ? (
         <div className="fixed inset-x-4 top-4 z-50 mx-auto max-w-sm rounded-3xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-center text-sm font-medium text-emerald-200 shadow-lg shadow-black/30">
           {successMessage}
         </div>
       ) : null}
 
-      <div className="mx-auto max-w-lg space-y-8 px-4 pb-10 pt-2 sm:max-w-xl">
-        <section className="flex flex-col items-center gap-5 text-center">
-          <div className="relative shrink-0">
-            <div className="flex h-32 w-32 items-center justify-center overflow-hidden rounded-full border border-white/10 bg-slate-900 shadow-xl shadow-black/50 sm:h-36 sm:w-36">
-              {profile?.avatar_url ? (
-                <img src={profile.avatar_url} alt="" className="h-full w-full object-cover" />
-              ) : (
-                <UserRound className="h-14 w-14 text-slate-500 sm:h-16 sm:w-16" strokeWidth={1.25} aria-hidden />
-              )}
-            </div>
-            {session?.user && !loading ? (
-              <label
-                className="absolute bottom-0 right-0 flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border-2 border-slate-950 bg-cyan-400 text-slate-950 shadow-md transition hover:bg-cyan-300 disabled:cursor-not-allowed disabled:opacity-60"
-                aria-label="Upload profile photo"
-              >
-                <input
-                  ref={avatarInputRef}
-                  type="file"
-                  accept="image/*"
-                  className="hidden"
-                  disabled={uploadingAvatar}
-                  onChange={handleAvatarUpload}
-                />
-                {uploadingAvatar ? (
-                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-                ) : (
-                  <Camera className="h-4 w-4" strokeWidth={2} aria-hidden />
-                )}
-              </label>
-            ) : null}
-          </div>
-
-          {!loading && profile?.username ? (
-            <div className="space-y-1">
-              <div className="flex flex-wrap items-center gap-2">
-                <h1 className="text-2xl font-semibold text-white">{publicProfileUsername(profile.username)}</h1>
-                {isOfficialAIGuide ? <OfficialAIGuideBadge /> : null}
-              </div>
-              <p className="text-xs uppercase tracking-[0.24em] text-slate-500">My Profile</p>
-            </div>
-          ) : null}
-
-          {profile?.bio ? (
-            <p className="max-w-sm text-sm leading-relaxed text-slate-400">{profile.bio}</p>
-          ) : null}
-
-          {location.countryName || location.cityName ? (
-            <div className="grid w-full max-w-sm grid-cols-2 gap-2 rounded-3xl border border-white/10 bg-white/5 p-3 text-left">
-              <div>
-                <p className="text-[10px] uppercase tracking-[0.24em] text-slate-500">Country</p>
-                <p className="mt-1 truncate text-sm font-semibold text-white">{location.countryName ?? "Not set"}</p>
-              </div>
-              <div>
-                <p className="text-[10px] uppercase tracking-[0.24em] text-slate-500">City</p>
-                <p className="mt-1 truncate text-sm font-semibold text-white">{location.cityName ?? "Not set"}</p>
-              </div>
-            </div>
-          ) : null}
-
-          {loading ? (
-            <p className="text-sm text-slate-500">Loading profile...</p>
-          ) : error ? (
-            <div className="w-full space-y-3 rounded-2xl border border-red-500/20 bg-red-500/5 p-5">
-              <p className="text-sm text-red-300">{error}</p>
+      <div className="mx-auto max-w-lg px-4 pb-6 pt-0 sm:max-w-xl">
+        <header className="flex items-center justify-between pb-3 pt-[max(0.375rem,env(safe-area-inset-top))]">
+          <h1 className="text-[1.75rem] font-bold tracking-[-0.03em] text-white">
+            Spot<span className="text-primary">Drop</span>
+          </h1>
+          {session?.user && !loading && !error ? (
+            <div className="flex items-center gap-1">
+              <NotificationsBellLink className="inline-flex h-9 w-9 items-center justify-center rounded-full text-white transition hover:bg-white/10 active:opacity-80" />
               <button
                 type="button"
-                onClick={() => setLoadAttempt((current) => current + 1)}
-                className="inline-flex rounded-full bg-white px-5 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-slate-200"
+                onClick={() => setProfileMenuOpen(true)}
+                className="inline-flex h-9 w-9 items-center justify-center rounded-full text-white transition hover:bg-white/10 active:opacity-80"
+                aria-label={t("profile.openProfileMenu")}
               >
-                Try again
+                <Menu className="h-5 w-5" strokeWidth={1.75} aria-hidden />
               </button>
             </div>
-          ) : !session?.user ? (
-            <div className="w-full space-y-4 rounded-2xl border border-dashed border-white/10 bg-white/5 p-6">
-              <p className="font-medium text-white">You are not signed in.</p>
-              <p className="text-sm text-slate-400">Sign in to access your profile and join city chat rooms.</p>
-              <Link
-                href="/auth/login"
-                className="inline-flex rounded-full bg-cyan-500 px-6 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400"
-              >
-                Login now
-              </Link>
-            </div>
           ) : (
-            <>
-              <div className="grid w-full max-w-sm grid-cols-3 gap-2 sm:gap-3">
+            <span className="h-9 w-9 shrink-0" aria-hidden />
+          )}
+        </header>
+
+        <section className="text-center">
+          <div className="flex flex-col items-center gap-1.5">
+            {session?.user && !loading ? (
+              <ProfileAvatarActions
+                userId={session.user.id}
+                avatarUrl={profile?.avatar_url}
+                uploadingAvatar={uploadingAvatar}
+                onAvatarUpload={handleAvatarUpload}
+                onStoryCreated={() => showSuccessMessage(t("profile.storyShared"))}
+              />
+            ) : (
+              <div className="flex h-24 w-24 items-center justify-center overflow-hidden rounded-full border border-primary/20 bg-card shadow-lg shadow-primary/10 sm:h-28 sm:w-28" />
+            )}
+
+            {!loading && profile?.username ? (
+              <h1 className="max-w-full truncate text-lg font-semibold text-white">
+                {publicProfileUsername(profile.username)}
+              </h1>
+            ) : null}
+
+            {session?.user && !loading && !error ? (
+              <div className="flex items-center justify-center gap-7 sm:gap-9">
                 <button
                   type="button"
-                  onClick={() => setActiveProfileSection("posts")}
-                  className={`rounded-2xl px-2 py-3 transition ${
-                    activeProfileSection === "posts" ? "bg-cyan-400 text-slate-950" : "bg-white/5 hover:bg-white/10"
+                  onClick={() => {
+                    setActiveProfileSection("posts");
+                    setActiveContentTab("spots");
+                  }}
+                  className={`flex min-w-[3.25rem] flex-col items-center gap-0.5 transition ${
+                    activeProfileSection === "posts" ? "text-white" : "text-muted hover:text-white"
                   }`}
                 >
-                  <p
-                    className={`text-xl font-semibold sm:text-2xl ${
-                      activeProfileSection === "posts" ? "text-slate-950" : "text-white"
-                    }`}
-                  >
-                    {postsCount}
-                  </p>
-                  <p className={`mt-1 text-xs ${activeProfileSection === "posts" ? "text-slate-700" : "text-slate-500"}`}>
-                    Posts
-                  </p>
+                  <span className="text-base font-semibold tabular-nums text-white sm:text-lg">{spotPostsCount}</span>
+                  <span className="text-xs">{t("profile.spots")}</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => setActiveProfileSection("followers")}
-                  className={`rounded-2xl px-2 py-3 transition ${
-                    activeProfileSection === "followers" ? "bg-cyan-400 text-slate-950" : "bg-white/5 hover:bg-white/10"
+                  className={`flex min-w-[3.25rem] flex-col items-center gap-0.5 transition ${
+                    activeProfileSection === "followers" ? "text-white" : "text-muted hover:text-white"
                   }`}
                 >
-                  <p
-                    className={`text-xl font-semibold sm:text-2xl ${
-                      activeProfileSection === "followers" ? "text-slate-950" : "text-white"
-                    }`}
-                  >
-                    {followersCount}
-                  </p>
-                  <p
-                    className={`mt-1 text-xs ${
-                      activeProfileSection === "followers" ? "text-slate-700" : "text-slate-500"
-                    }`}
-                  >
-                    Followers
-                  </p>
+                  <span className="text-base font-semibold tabular-nums text-white sm:text-lg">{followersCount}</span>
+                  <span className="text-xs">{t("profile.followers")}</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => setActiveProfileSection("friends")}
-                  className={`rounded-2xl px-2 py-3 transition ${
-                    activeProfileSection === "friends" ? "bg-cyan-400 text-slate-950" : "bg-white/5 hover:bg-white/10"
+                  className={`flex min-w-[3.25rem] flex-col items-center gap-0.5 transition ${
+                    activeProfileSection === "friends" ? "text-white" : "text-muted hover:text-white"
                   }`}
                 >
-                  <p
-                    className={`text-xl font-semibold sm:text-2xl ${
-                      activeProfileSection === "friends" ? "text-slate-950" : "text-white"
-                    }`}
-                  >
-                    {friendsCount}
-                  </p>
-                  <p className={`mt-1 text-xs ${activeProfileSection === "friends" ? "text-slate-700" : "text-slate-500"}`}>
-                    Friends
-                  </p>
+                  <span className="text-base font-semibold tabular-nums text-white sm:text-lg">{friendsCount}</span>
+                  <span className="text-xs">{t("profile.friends")}</span>
                 </button>
               </div>
+            ) : null}
 
-              <div className="flex w-full max-w-sm flex-col gap-2.5 sm:flex-row sm:justify-center">
+            {profile?.bio ? (
+              <p className="max-w-sm line-clamp-2 text-xs leading-relaxed text-slate-400">{profile.bio}</p>
+            ) : null}
+
+            {locationLine ? (
+              <p className="max-w-sm truncate text-xs font-medium text-slate-400">{locationLine}</p>
+            ) : null}
+
+            {loading ? (
+              <p className="text-xs text-slate-500">{t("profile.loading")}</p>
+            ) : error ? (
+              <div className="w-full space-y-3 rounded-2xl border border-red-500/20 bg-red-500/5 p-4">
+                <p className="text-sm text-red-300">{localizeError(t, error) ?? error}</p>
+                <button
+                  type="button"
+                  onClick={() => setLoadAttempt((current) => current + 1)}
+                  className="inline-flex rounded-full bg-primary px-4 py-2 text-xs font-semibold text-background transition hover:brightness-110"
+                >
+                  {t("common.tryAgain")}
+                </button>
+              </div>
+            ) : !session?.user ? (
+              <div className="w-full space-y-3 rounded-2xl border border-dashed border-primary/15 bg-card/60 p-5">
+                <p className="text-sm font-medium text-white">{t("profile.notSignedIn")}</p>
+                <p className="text-xs text-muted">{t("profile.signInPrompt")}</p>
+                <Link
+                  href="/auth/login"
+                  className="inline-flex rounded-full bg-primary px-5 py-2 text-xs font-semibold text-background transition hover:brightness-110"
+                >
+                  {t("profile.loginNow")}
+                </Link>
+              </div>
+            ) : (
+              <div className="flex flex-wrap items-center justify-center gap-2 pt-0.5">
                 <Link
                   href="/profile/edit"
-                  className="inline-flex flex-1 items-center justify-center rounded-full bg-white px-6 py-3 text-sm font-semibold text-slate-950 transition hover:bg-slate-200"
+                  className="inline-flex shrink-0 items-center justify-center rounded-full border border-white/15 px-3.5 py-1.5 text-xs font-medium text-slate-200 transition hover:border-white/25 hover:bg-white/5 hover:text-white"
                 >
-                  Edit Profile
+                  {t("profile.editProfile")}
                 </Link>
-                <CreatePostForm userId={session.user.id} onCreated={handlePostCreated} />
-                <CreateStoryForm
-                  userId={session.user.id}
-                  defaultCityId={profile?.city_id ?? null}
-                  onCreated={() => {
-                    void loadActiveProfileStories(session.user.id).then((r) => setActiveStories(r.stories));
-                    void loadArchivedProfileStories(session.user.id).then((r) => setArchivedStories(r.stories));
-                    showSuccessMessage("Story shared. Visible for 24 hours.");
-                  }}
-                />
+                <button
+                  type="button"
+                  onClick={() => setShareProfileOpen(true)}
+                  className="inline-flex shrink-0 items-center justify-center rounded-full border border-primary/30 bg-primary/10 px-3.5 py-1.5 text-xs font-medium text-primary transition hover:border-primary/50 hover:bg-primary/15"
+                >
+                  {t("profile.shareProfile")}
+                </button>
               </div>
-            </>
-          )}
+            )}
+          </div>
         </section>
 
-        {session?.user && !activeProfileSection ? (
-          <section className="rounded-3xl border border-dashed border-white/10 bg-slate-900/50 p-6 text-center text-sm text-slate-400">
-            Choose Posts, Followers, or Friends.
-          </section>
-        ) : null}
-
         {session?.user && activeProfileSection && activeProfileSection !== "posts" ? (
-          <section className="space-y-3">
+          <section className="mt-3 space-y-2">
             {loadingConnections ? (
               <div className="grid gap-4 sm:grid-cols-2">
                 {Array.from({ length: 4 }).map((_, index) => (
@@ -572,10 +529,12 @@ export default function ProfilePage() {
                 ))}
               </div>
             ) : connectionsError ? (
-              <div className="rounded-3xl border border-red-500/20 bg-red-500/5 p-6 text-sm text-red-200">{connectionsError}</div>
+              <div className="rounded-3xl border border-red-500/20 bg-red-500/5 p-6 text-sm text-red-200">
+                {localizeError(t, connectionsError) ?? connectionsError}
+              </div>
             ) : activeConnections.length === 0 ? (
               <div className="rounded-3xl border border-dashed border-slate-700 bg-slate-900/60 p-8 text-center text-slate-400">
-                {activeProfileSection === "followers" ? "No followers yet." : "No friends yet."}
+                {activeProfileSection === "followers" ? t("profile.noFollowersYet") : t("profile.noFriendsYet")}
               </div>
             ) : (
               <div className="grid gap-4 sm:grid-cols-2">
@@ -595,7 +554,7 @@ export default function ProfilePage() {
                     <div className="min-w-0">
                       <p className="truncate text-base font-semibold text-white">{publicProfileUsername(person.username)}</p>
                       <p className="mt-1 text-sm text-slate-400">
-                        {activeProfileSection === "followers" ? "Follows you" : "Mutual follow"}
+                        {activeProfileSection === "followers" ? t("profile.followsYou") : t("profile.mutualFollow")}
                       </p>
                     </div>
                   </Link>
@@ -605,113 +564,61 @@ export default function ProfilePage() {
           </section>
         ) : null}
 
-        {session?.user && activeProfileSection === "posts" ? (
-          <section className="space-y-4">
-            <ProfileStoriesBar
-              stories={activeStories}
-              username={publicProfileUsername(profile?.username)}
-            />
-
-            <div className="grid grid-cols-2 gap-2 rounded-3xl border border-white/10 bg-slate-950/70 p-1">
-              <button
-                type="button"
-                onClick={() => setActiveContentTab("posts")}
-                className={`rounded-3xl px-4 py-3 text-sm font-semibold transition ${
-                  activeContentTab === "posts" ? "bg-white text-slate-950" : "text-slate-400 hover:bg-white/10 hover:text-white"
-                }`}
-              >
-                Posts
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveContentTab("private")}
-                className={`rounded-3xl px-4 py-3 text-sm font-semibold transition ${
-                  activeContentTab === "private" ? "bg-white text-slate-950" : "text-slate-400 hover:bg-white/10 hover:text-white"
-                }`}
-              >
-                Private
-              </button>
-            </div>
-
-            <div className="rounded-3xl border border-white/10 bg-white/5 p-4">
-              <p className="text-xs font-semibold uppercase tracking-[0.24em] text-cyan-300">
-                {activeContentTab === "posts" ? "Public posts" : "Private media"}
-              </p>
-              <p className="mt-2 text-sm leading-relaxed text-slate-400">
-                {activeContentTab === "posts"
-                  ? "Public posts and status updates appear in feed and on your public profile."
-                  : "Private photos and videos are visible only to you."}
-              </p>
-            </div>
-
-            {loadingPosts ? (
-              <div className="grid grid-cols-2 gap-3">
-                {Array.from({ length: 4 }).map((_, index) => (
-                  <div key={`post-loading-${index}`} className="aspect-square animate-pulse rounded-2xl bg-slate-900" />
-                ))}
-              </div>
-            ) : activePosts.length > 0 ? (
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                {activePosts.map((post) => {
-                  const { mediaUrl, mediaType } = getPostMedia(post);
-                  const hasCaption = Boolean(post.content?.trim());
-
-                  return (
-                    <article key={post.id} className="overflow-hidden rounded-2xl border border-white/10 bg-slate-950/60">
-                      {mediaUrl ? (
-                        <PostMediaLink postId={post.id} className="block aspect-[4/5] w-full bg-black sm:aspect-square">
-                          {mediaType === "video" ? (
-                            <video src={mediaUrl} playsInline muted className="h-full w-full object-cover" />
-                          ) : (
-                            <img src={mediaUrl} alt="" className="h-full w-full object-cover" />
-                          )}
-                        </PostMediaLink>
-                      ) : null}
-                      {hasCaption || !mediaUrl ? (
-                        <div className="space-y-2 px-4 py-3">
-                          {hasCaption ? (
-                            <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-200">{post.content}</p>
-                          ) : null}
-                          <time className="block text-xs text-slate-500">{formatPostTime(post.created_at)}</time>
-                        </div>
-                      ) : (
-                        <time className="block px-4 py-2 text-xs text-slate-600">{formatPostTime(post.created_at)}</time>
-                      )}
-                    </article>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className="rounded-3xl border border-dashed border-white/10 bg-slate-900/60 p-8 text-center text-sm text-slate-400">
-                {activeContentTab === "posts" ? "No public posts yet." : "No private media yet."}
-              </div>
-            )}
-
-            {archivedStories.length > 0 ? (
-              <div className="space-y-3 border-t border-white/10 pt-4">
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Story archive</p>
-                <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
-                  {archivedStories.map((story) => (
-                    <a
-                      key={story.id}
-                      href={story.media_url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="overflow-hidden rounded-xl border border-white/10 bg-slate-950"
-                    >
-                      {story.media_type === "video" ? (
-                        <video src={story.media_url} className="aspect-square w-full object-cover" muted playsInline />
-                      ) : (
-                        <img src={story.media_url} alt="" className="aspect-square w-full object-cover" />
-                      )}
-                    </a>
-                  ))}
-                </div>
+        {session?.user && (activeProfileSection === "posts" || activeProfileSection === null) ? (
+          <section ref={contentSectionRef} className="-mx-4 mt-2 scroll-mt-2 sm:mx-0">
+            {postsError ? (
+              <div className="mx-4 mb-2 rounded-2xl border border-amber-500/25 bg-amber-500/10 px-3 py-3 text-xs text-amber-100 sm:mx-0">
+                <p>{localizeError(t, postsError) ?? postsError}</p>
+                <button
+                  type="button"
+                  onClick={() => void refreshProfileContent()}
+                  className="mt-2 inline-flex rounded-full bg-white px-3 py-1.5 text-xs font-semibold text-slate-950 transition hover:bg-slate-200"
+                >
+                  {t("common.tryAgain")}
+                </button>
               </div>
             ) : null}
+            <ProfileContentTabs
+              compact
+              activeTab={activeContentTab}
+              onTabChange={setActiveContentTab}
+              personalPosts={personalPosts}
+              spotPosts={spotPosts}
+              loading={loadingPosts}
+              emptyPostsMessage={t("profile.noPostsYet")}
+              emptySpotsMessage={t("profile.noPublicSpotsYet")}
+              viewerUserId={session.user.id}
+              onPostDeleted={handlePostDeleted}
+              viewerAuthor={
+                profile?.username
+                  ? {
+                      username: publicProfileUsername(profile.username),
+                      avatar_url: profile.avatar_url,
+                    }
+                  : null
+              }
+              collectionsPanel={
+                <ProfileCollectionsTab userId={session.user.id} viewerId={session.user.id} isOwner />
+              }
+            />
           </section>
         ) : null}
       </div>
+
+      {profile?.username ? (
+        <ShareProfileSheet
+          isOpen={shareProfileOpen}
+          onClose={() => setShareProfileOpen(false)}
+          username={profile.username}
+        />
+      ) : null}
+
+      <ProfileMenuSheet
+        isOpen={profileMenuOpen}
+        onClose={() => setProfileMenuOpen(false)}
+        items={profileMenuItems}
+        title={t("menu.title")}
+      />
     </Shell>
   );
 }

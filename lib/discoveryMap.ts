@@ -69,7 +69,7 @@ export const BERN_DISCOVERY_PLACES_FALLBACK: Omit<DiscoveryPlace, "id" | "region
     longitude: 7.693,
     short_description: "Crystal-clear alpine lake in Kandergrund.",
     official_summary:
-      "Official Swiss Guide: Blausee is a small, intensely blue lake in the Bernese Oberland. Walk the forest loop, rent a rowboat in season, and visit early for calm water and fewer crowds.",
+      "Blausee is a small, intensely blue lake in the Bernese Oberland. Walk the forest loop, rent a rowboat in season, and visit early for calm water and fewer crowds.",
     hero_image_url: "/guide-places/blausee.svg",
     official_url: "https://www.blausee.ch/",
     sort_order: 10,
@@ -82,7 +82,7 @@ export const BERN_DISCOVERY_PLACES_FALLBACK: Omit<DiscoveryPlace, "id" | "region
     longitude: 7.863,
     short_description: "Gateway town between Lake Thun and Lake Brienz.",
     official_summary:
-      "Official Swiss Guide: Use Interlaken as your base for Jungfrau trips. Höheweg is ideal for cafés and evening strolls; combine with a lake cruise or Harder Kulm for views.",
+      "Use Interlaken as your base for Jungfrau trips. Höheweg is ideal for cafés and evening strolls; combine with a lake cruise or Harder Kulm for views.",
     hero_image_url: null,
     official_url: "https://www.interlaken.ch/",
     sort_order: 20,
@@ -95,7 +95,7 @@ export const BERN_DISCOVERY_PLACES_FALLBACK: Omit<DiscoveryPlace, "id" | "region
     longitude: 7.628,
     short_description: "Lakeside old town at the gateway to the Bernese Oberland.",
     official_summary:
-      "Official Swiss Guide: Thun mixes castle views, river walks, and lake cruises. Explore the old town lanes, then take a boat toward Spiez on a clear afternoon.",
+      "Thun mixes castle views, river walks, and lake cruises. Explore the old town lanes, then take a boat toward Spiez on a clear afternoon.",
     hero_image_url: null,
     official_url: "https://www.thunersee.ch/",
     sort_order: 30,
@@ -108,7 +108,7 @@ export const BERN_DISCOVERY_PLACES_FALLBACK: Omit<DiscoveryPlace, "id" | "region
     longitude: 7.507,
     short_description: "Bern's local mountain with panorama over the capital.",
     official_summary:
-      "Official Swiss Guide: Ride the Gurten funicular from Wabern for sunset views over Bern and the Alps. Bring a jacket; the summit breeze is cooler than in the old town.",
+      "Ride the Gurten funicular from Wabern for sunset views over Bern and the Alps. Bring a jacket; the summit breeze is cooler than in the old town.",
     hero_image_url: null,
     official_url: "https://www.gurtenpark.ch/",
     sort_order: 40,
@@ -121,7 +121,7 @@ export const BERN_DISCOVERY_PLACES_FALLBACK: Omit<DiscoveryPlace, "id" | "region
     longitude: 7.727,
     short_description: "Turquoise alpine lake beneath the Blüemlisalp massif.",
     official_summary:
-      "Official Swiss Guide: Oeschinensee rewards hikers with one of Switzerland's most dramatic lake settings. Take the cable car from Kandersteg, then walk to the shore for the classic photo angle.",
+      "Oeschinensee rewards hikers with one of Switzerland's most dramatic lake settings. Take the cable car from Kandersteg, then walk to the shore for the classic photo angle.",
     hero_image_url: null,
     official_url: "https://www.oeschinensee.ch/",
     sort_order: 50,
@@ -134,7 +134,7 @@ export const BERN_DISCOVERY_PLACES_FALLBACK: Omit<DiscoveryPlace, "id" | "region
     longitude: 7.91,
     short_description: "Valley of 72 waterfalls and trailheads to Mürren and Wengen.",
     official_summary:
-      "Official Swiss Guide: Lauterbrunnen is the valley hub for Staubbach Falls, Trümmelbach, and lifts to car-free mountain villages. Plan a full day if you combine valley walks with a summit trip.",
+      "Lauterbrunnen is the valley hub for Staubbach Falls, Trümmelbach, and lifts to car-free mountain villages. Plan a full day if you combine valley walks with a summit trip.",
     hero_image_url: null,
     official_url: "https://www.myswitzerland.com/en/destinations/lauterbrunnen/",
     sort_order: 60,

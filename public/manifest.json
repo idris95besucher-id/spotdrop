@@ -1,0 +1,16 @@
+{
+  "name": "SpotDrop",
+  "short_name": "SpotDrop",
+  "description": "City-based social spots and chat",
+  "start_url": "/visit",
+  "display": "standalone",
+  "background_color": "#050816",
+  "theme_color": "#050816",
+  "icons": [
+    {
+      "src": "/globe.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}

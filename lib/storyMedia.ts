@@ -7,7 +7,7 @@ import {
 } from "@/lib/storageUpload";
 import { supabase } from "@/lib/supabaseClient";
 
-export const STORY_MAX_VIDEO_SECONDS = 30;
+export const STORY_MAX_VIDEO_SECONDS = 60;
 
 export type StoryMediaType = "image" | "video";
 

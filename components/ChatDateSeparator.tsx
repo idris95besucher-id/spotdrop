@@ -1,3 +1,6 @@
+"use client";
+
+import { useI18n } from "@/components/I18nProvider";
 import { formatChatDateLabel } from "@/lib/chatDates";
 
 type ChatDateSeparatorProps = {
@@ -5,7 +8,8 @@ type ChatDateSeparatorProps = {
 };
 
 export default function ChatDateSeparator({ createdAt }: ChatDateSeparatorProps) {
-  const label = formatChatDateLabel(createdAt);
+  const { t, locale } = useI18n();
+  const label = formatChatDateLabel(createdAt, { t, locale });
 
   if (!label) {
     return null;

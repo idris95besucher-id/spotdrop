@@ -1,4 +1,4 @@
--- Demo guide accounts + sample feed posts (run in Supabase SQL editor).
+-- Demo accounts + sample feed posts (run in Supabase SQL editor).
 
 alter table if exists profiles add column if not exists is_demo boolean not null default false;
 
@@ -30,19 +30,6 @@ begin
     updated_at
   )
   values
-    (
-      'a1000001-0001-4000-8000-000000000001',
-      auth_instance_id,
-      'authenticated',
-      'authenticated',
-      'spot_guide@demo.spotdrop.invalid',
-      demo_password,
-      now(),
-      '{"provider":"email","providers":["email"]}',
-      '{"username":"spot_guide"}',
-      now(),
-      now()
-    ),
     (
       'a1000001-0001-4000-8000-000000000002',
       auth_instance_id,
@@ -88,13 +75,6 @@ end $$;
 insert into profiles (id, username, bio, is_private, is_demo)
 values
   (
-    'a1000001-0001-4000-8000-000000000001',
-    'spot_guide',
-    'SpotDrop guide for cafés, neighborhoods, and everyday city discoveries.',
-    false,
-    true
-  ),
-  (
     'a1000001-0001-4000-8000-000000000002',
     'food_finder',
     'Restaurant picks, street food, and where locals actually eat.',
@@ -130,14 +110,6 @@ values
     'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?w=900&q=80',
     'image',
     now() - interval '2 hours'
-  ),
-  (
-    'b2000001-0001-4000-8000-000000000002',
-    'a1000001-0001-4000-8000-000000000001',
-    'Morning café run: single-origin pour-over, window seats, and a quiet corner to plan your walking route.',
-    'https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?w=900&q=80',
-    'image',
-    now() - interval '5 hours'
   ),
   (
     'b2000001-0001-4000-8000-000000000003',

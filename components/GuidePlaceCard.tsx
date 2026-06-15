@@ -1,4 +1,7 @@
+"use client";
+
 import Link from "next/link";
+import { useI18n } from "@/components/I18nProvider";
 import type { GuidePlace } from "@/lib/guidePlaces";
 
 type GuidePlaceCardProps = {
@@ -11,6 +14,7 @@ function getPlaceLocation(place: GuidePlace) {
 }
 
 export default function GuidePlaceCard({ place, postId }: GuidePlaceCardProps) {
+  const { t } = useI18n();
   const mediaType = place.media_type === "video" ? "video" : "image";
   const readMoreHref = postId ? `/posts/${postId}` : place.official_url;
   const location = getPlaceLocation(place);
@@ -25,13 +29,13 @@ export default function GuidePlaceCard({ place, postId }: GuidePlaceCardProps) {
             <img src={place.media_url} alt={place.title} className="h-full w-full object-cover" />
           )}
           <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-slate-950 via-slate-950/60 to-transparent p-5">
-            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-cyan-200">Swiss place guide</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-cyan-200">{t("guidePlace.badge")}</p>
             <h2 className="mt-2 text-3xl font-semibold tracking-tight text-white">{place.title}</h2>
           </div>
         </div>
       ) : (
         <div className="bg-gradient-to-br from-cyan-500/20 via-slate-900 to-indigo-500/20 p-6">
-          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-cyan-200">Swiss place guide</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.24em] text-cyan-200">{t("guidePlace.badge")}</p>
           <h2 className="mt-2 text-3xl font-semibold tracking-tight text-white">{place.title}</h2>
         </div>
       )}
@@ -42,19 +46,19 @@ export default function GuidePlaceCard({ place, postId }: GuidePlaceCardProps) {
         <div className="grid gap-3 text-left sm:grid-cols-2">
           {location ? (
             <div className="rounded-2xl bg-white/[0.04] p-4">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500">Location</p>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500">{t("guidePlace.location")}</p>
               <p className="mt-2 text-sm font-semibold text-white">{location}</p>
             </div>
           ) : null}
           {place.opening_hours ? (
             <div className="rounded-2xl bg-white/[0.04] p-4">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500">Opening</p>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500">{t("guidePlace.opening")}</p>
               <p className="mt-2 text-sm font-semibold text-white">{place.opening_hours}</p>
             </div>
           ) : null}
           {place.price_info ? (
             <div className="rounded-2xl bg-white/[0.04] p-4 sm:col-span-2">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500">Price</p>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-slate-500">{t("guidePlace.price")}</p>
               <p className="mt-2 text-sm font-semibold text-white">{place.price_info}</p>
             </div>
           ) : null}
@@ -66,7 +70,7 @@ export default function GuidePlaceCard({ place, postId }: GuidePlaceCardProps) {
               href={readMoreHref}
               className="inline-flex flex-1 items-center justify-center rounded-full bg-cyan-400 px-5 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-300"
             >
-              Read more
+              {t("guidePlace.readMore")}
             </Link>
           ) : null}
           {place.official_url ? (
@@ -76,12 +80,16 @@ export default function GuidePlaceCard({ place, postId }: GuidePlaceCardProps) {
               rel="noreferrer"
               className="inline-flex flex-1 items-center justify-center rounded-full border border-white/15 bg-white/5 px-5 py-3 text-sm font-semibold text-white transition hover:bg-white/10"
             >
-              Official website
+              {t("guidePlace.officialWebsite")}
             </a>
           ) : null}
         </div>
 
-        {place.source_url ? <p className="text-[11px] leading-relaxed text-slate-600">Media/source: {place.source_url}</p> : null}
+        {place.source_url ? (
+          <p className="text-[11px] leading-relaxed text-slate-600">
+            {t("guidePlace.mediaSource")} {place.source_url}
+          </p>
+        ) : null}
       </div>
     </div>
   );

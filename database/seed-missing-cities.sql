@@ -677,14 +677,13 @@ insert into cities (country_id, name, slug)
 select c.id, v.name, v.slug
 from countries c
 cross join (values
-  ('Kazan', 'kazan'),
+  ('Chechen Republic', 'chechen-republic'),
+  ('Dagestan', 'dagestan'),
+  ('Ingushetia', 'ingushetia'),
+  ('Krasnodar', 'krasnodar'),
   ('Moscow', 'moscow'),
-  ('Nizhny Novgorod', 'nizhny-novgorod'),
-  ('Novosibirsk', 'novosibirsk'),
-  ('Rostov-on-Don', 'rostov-on-don'),
   ('Saint Petersburg', 'saint-petersburg'),
-  ('Sochi', 'sochi'),
-  ('Yekaterinburg', 'yekaterinburg')
+  ('Tatarstan', 'tatarstan')
 ) as v(name, slug)
 where c.slug = 'russia'
 on conflict (country_id, slug) do nothing;

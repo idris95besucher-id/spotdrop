@@ -22,10 +22,30 @@ type CreateStoryFormProps = {
   userId: string;
   defaultCityId?: string | null;
   onCreated: () => void;
+  isOpen?: boolean;
+  onClose?: () => void;
+  profileMode?: boolean;
 };
 
-export default function CreateStoryForm({ userId, defaultCityId, onCreated }: CreateStoryFormProps) {
-  const [isOpen, setIsOpen] = useState(false);
+export default function CreateStoryForm({
+  userId,
+  defaultCityId,
+  onCreated,
+  isOpen: isOpenControlled,
+  onClose,
+  profileMode = false,
+}: CreateStoryFormProps) {
+  const [isOpenInternal, setIsOpenInternal] = useState(false);
+  const isControlled = isOpenControlled !== undefined;
+  const isOpen = isControlled ? Boolean(isOpenControlled) : isOpenInternal;
+
+  const closeForm = () => {
+    if (isControlled) {
+      onClose?.();
+    } else {
+      setIsOpenInternal(false);
+    }
+  };
   const [caption, setCaption] = useState("");
   const [visibility, setVisibility] = useState<StoryVisibility>("public");
   const [shareInRoom, setShareInRoom] = useState(false);
@@ -176,7 +196,9 @@ export default function CreateStoryForm({ userId, defaultCityId, onCreated }: Cr
       return;
     }
 
-    if (shareInRoom && (!cityId || !placeId)) {
+    const shareToRoom = !profileMode && shareInRoom;
+
+    if (shareToRoom && (!cityId || !placeId)) {
       setError("Choose a city and place for Share in Room City.");
       return;
     }
@@ -192,9 +214,9 @@ export default function CreateStoryForm({ userId, defaultCityId, onCreated }: Cr
         mediaType: upload.mediaType,
         caption: caption.trim() || "Story",
         visibility,
-        sharedToRoom: shareInRoom,
-        cityId: shareInRoom ? cityId : null,
-        placeId: shareInRoom ? placeId : null,
+        sharedToRoom: shareToRoom,
+        cityId: shareToRoom ? cityId : null,
+        placeId: shareToRoom ? placeId : null,
       });
 
       if (result.error) {
@@ -206,7 +228,7 @@ export default function CreateStoryForm({ userId, defaultCityId, onCreated }: Cr
       setCaption("");
       setShareInRoom(false);
       resetMedia();
-      setIsOpen(false);
+      closeForm();
       onCreated();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Unable to publish story.");
@@ -216,10 +238,14 @@ export default function CreateStoryForm({ userId, defaultCityId, onCreated }: Cr
   };
 
   if (!isOpen) {
+    if (isControlled) {
+      return null;
+    }
+
     return (
       <button
         type="button"
-        onClick={() => setIsOpen(true)}
+        onClick={() => setIsOpenInternal(true)}
         className="inline-flex flex-1 items-center justify-center gap-2 rounded-full border border-cyan-400/30 bg-cyan-400/10 px-6 py-3 text-sm font-semibold text-cyan-200 transition hover:bg-cyan-400/20"
       >
         <ImagePlus className="h-4 w-4" aria-hidden />
@@ -228,17 +254,17 @@ export default function CreateStoryForm({ userId, defaultCityId, onCreated }: Cr
     );
   }
 
-  return (
+  const formBody = (
     <form
       onSubmit={(event) => void handleSubmit(event)}
-      className="w-full max-w-sm space-y-3 rounded-3xl border border-white/10 bg-slate-950/80 p-4 text-left"
+      className="w-full max-w-sm space-y-3 rounded-3xl border border-white/10 bg-slate-950 p-4 text-left shadow-2xl"
     >
       <div className="flex items-center justify-between">
         <p className="text-sm font-semibold text-white">New story</p>
         <button
           type="button"
           onClick={() => {
-            setIsOpen(false);
+            closeForm();
             resetMedia();
             setError(null);
           }}
@@ -249,9 +275,9 @@ export default function CreateStoryForm({ userId, defaultCityId, onCreated }: Cr
         </button>
       </div>
 
-      <p className="text-xs text-slate-400">
-        Visible on your profile for 24 hours, then saved to your archive. Videos max {STORY_MAX_VIDEO_SECONDS}s.
-      </p>
+      {!profileMode ? (
+        <p className="text-xs text-slate-400">Videos max {STORY_MAX_VIDEO_SECONDS}s.</p>
+      ) : null}
 
       <input ref={fileInputRef} type="file" accept="image/*,video/*" className="hidden" onChange={(e) => void handleMediaChange(e)} />
 
@@ -299,6 +325,7 @@ export default function CreateStoryForm({ userId, defaultCityId, onCreated }: Cr
         <option value="private">Private</option>
       </select>
 
+      {!profileMode ? (
       <label className="flex cursor-pointer items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.03] px-3 py-3">
         <input
           type="checkbox"
@@ -311,8 +338,9 @@ export default function CreateStoryForm({ userId, defaultCityId, onCreated }: Cr
           Share in Room City
         </span>
       </label>
+      ) : null}
 
-      {shareInRoom ? (
+      {shareInRoom && !profileMode ? (
         <div className="space-y-2 rounded-2xl border border-cyan-400/20 bg-cyan-400/5 p-3">
           <select
             value={countrySlug}
@@ -362,4 +390,14 @@ export default function CreateStoryForm({ userId, defaultCityId, onCreated }: Cr
       {error ? <p className="text-xs text-red-300">{error}</p> : null}
     </form>
   );
+
+  if (profileMode || isControlled) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-4 sm:items-center">
+        {formBody}
+      </div>
+    );
+  }
+
+  return formBody;
 }

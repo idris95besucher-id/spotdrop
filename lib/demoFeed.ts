@@ -2,7 +2,6 @@ import type { PostMediaFields } from "@/lib/posts";
 import type { GuidePlace } from "@/lib/guidePlaces";
 
 export const DEMO_PROFILE_IDS = {
-  spot_guide: "a1000001-0001-4000-8000-000000000001",
   food_finder: "a1000001-0001-4000-8000-000000000002",
   city_tips: "a1000001-0001-4000-8000-000000000003",
   travel_local: "a1000001-0001-4000-8000-000000000004",
@@ -13,8 +12,6 @@ export type FeedPostProfile = {
   avatar_url?: string | null;
   is_private: boolean;
   is_demo: boolean;
-  is_ai_guide?: boolean | null;
-  is_official?: boolean | null;
 };
 
 export type FeedPostRow = PostMediaFields & {
@@ -44,24 +41,6 @@ export const CLIENT_DEMO_FEED_POSTS: FeedPostRow[] = [
       avatar_url: null,
       is_private: false,
       is_demo: true,
-      is_ai_guide: false,
-      is_official: false,
-    },
-  },
-  {
-    id: "demo-post-0002",
-    user_id: DEMO_PROFILE_IDS.spot_guide,
-    content: "Morning café run: single-origin pour-over, window seats, and a quiet corner to plan your walking route.",
-    media_url: "https://images.unsplash.com/photo-1495474472287-4d71bcdd2085?w=900&q=80",
-    media_type: "image",
-    created_at: hoursAgo(5),
-    profiles: {
-      username: "spot_guide",
-      avatar_url: null,
-      is_private: false,
-      is_demo: true,
-      is_ai_guide: false,
-      is_official: false,
     },
   },
   {
@@ -77,8 +56,6 @@ export const CLIENT_DEMO_FEED_POSTS: FeedPostRow[] = [
       avatar_url: null,
       is_private: false,
       is_demo: true,
-      is_ai_guide: false,
-      is_official: false,
     },
   },
   {
@@ -93,8 +70,6 @@ export const CLIENT_DEMO_FEED_POSTS: FeedPostRow[] = [
       avatar_url: null,
       is_private: false,
       is_demo: true,
-      is_ai_guide: false,
-      is_official: false,
     },
   },
   {
@@ -107,8 +82,6 @@ export const CLIENT_DEMO_FEED_POSTS: FeedPostRow[] = [
       avatar_url: null,
       is_private: false,
       is_demo: true,
-      is_ai_guide: false,
-      is_official: false,
     },
   },
   {
@@ -121,8 +94,6 @@ export const CLIENT_DEMO_FEED_POSTS: FeedPostRow[] = [
       avatar_url: null,
       is_private: false,
       is_demo: true,
-      is_ai_guide: false,
-      is_official: false,
     },
   },
 ];
@@ -151,13 +122,11 @@ export const FEED_POST_SELECT = `
     media_type,
     source_url
   ),
-  profiles!inner (
+  profiles!posts_user_id_fkey!inner (
     username,
     avatar_url,
     is_private,
-    is_demo,
-    is_ai_guide,
-    is_official
+    is_demo
   )
 `;
 
@@ -171,7 +140,7 @@ export const FEED_POST_SELECT_LEGACY = `
   media_type,
   visibility,
   created_at,
-  profiles!inner (
+  profiles!posts_user_id_fkey!inner (
     username,
     avatar_url,
     is_private,

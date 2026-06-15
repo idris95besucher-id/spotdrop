@@ -1,7 +1,6 @@
 import { spawn } from "node:child_process";
 
 const files = [
-  "database/add-ai-guide-fields.sql",
   "database/add-guide-places.sql",
   "database/add-discovery-map.sql",
   "database/add-stories.sql",

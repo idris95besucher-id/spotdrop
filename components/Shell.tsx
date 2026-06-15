@@ -1,23 +1,76 @@
-import Link from "next/link";
+"use client";
+
+import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 import AuthStatus from "@/components/AuthStatus";
+import { MobileBottomNav } from "@/components/MainNavigation";
+import { isChatThreadRoute } from "@/lib/chatThreadRoutes";
+import {
+  isAuthRoute,
+  MOBILE_BOTTOM_NAV_PADDING,
+  shouldShowMobileBottomNav,
+} from "@/lib/mainNav";
 
-export default function Shell({ children, showHeader = true }: { children: ReactNode; showHeader?: boolean }) {
+export default function Shell({
+  children,
+  showHeader = true,
+  chatThread = false,
+  immersive = false,
+  flushTop = false,
+}: {
+  children: ReactNode;
+  showHeader?: boolean;
+  chatThread?: boolean;
+  immersive?: boolean;
+  /** Drop default top padding (e.g. profile with its own app header). */
+  flushTop?: boolean;
+}) {
+  const pathname = usePathname();
+  const isFullScreenChat = chatThread || isChatThreadRoute(pathname);
+  const showMobileNav = shouldShowMobileBottomNav(pathname);
+  const isMobileSecondary = !showMobileNav && !isFullScreenChat && !isAuthRoute(pathname);
+  const showDesktopHeader = showHeader && !isAuthRoute(pathname);
+
+  if (immersive) {
+    return (
+      <div className="min-h-[100dvh] bg-[#050816] text-white">
+        <main className="h-[calc(100dvh-4.5rem-env(safe-area-inset-bottom,0px))] min-h-0 md:h-[100dvh]">
+          {children}
+        </main>
+        {showMobileNav ? <MobileBottomNav /> : null}
+      </div>
+    );
+  }
+
+  if (isFullScreenChat) {
+    return (
+      <div className="min-h-[100dvh] bg-[#050816] text-white">
+        <main className="h-[100dvh] min-h-0">{children}</main>
+      </div>
+    );
+  }
+
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100">
-      <div className="mx-auto flex min-h-screen max-w-5xl flex-col px-4 py-6 sm:px-6 lg:px-8">
-        {showHeader ? (
-          <header className="mb-8 flex flex-col gap-4 rounded-3xl border border-white/10 bg-white/5 p-4 shadow-xl sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <Link href="/" className="text-2xl font-semibold text-white">
-                SpotDrop
-              </Link>
-            </div>
+    <div className="min-h-[100dvh] bg-[#050816] text-white md:min-h-screen">
+      <div
+        className={`mx-auto flex min-h-[100dvh] max-w-5xl flex-col md:min-h-screen ${
+          showMobileNav ? MOBILE_BOTTOM_NAV_PADDING : ""
+        } md:pb-0 ${
+          isMobileSecondary
+            ? "px-0 py-0 sm:px-6 sm:py-6 lg:px-8"
+            : flushTop
+              ? "px-4 pb-6 pt-0 sm:px-6 lg:px-8"
+              : "px-4 py-6 sm:px-6 lg:px-8"
+        }`}
+      >
+        {showDesktopHeader ? (
+          <header className="mb-4 hidden items-center justify-end gap-4 md:mb-6 md:flex">
             <AuthStatus />
           </header>
         ) : null}
-        <main className="flex-1">{children}</main>
+        <main className={`flex-1 ${isMobileSecondary ? "flex min-h-0 flex-col" : ""}`}>{children}</main>
       </div>
+      {showMobileNav ? <MobileBottomNav /> : null}
     </div>
   );
 }

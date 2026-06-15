@@ -9,6 +9,8 @@ import { uploadAvatarImage } from "@/lib/profileMedia";
 import { getCountryFlag } from "@/lib/countryFlags";
 import { supabase } from "@/lib/supabaseClient";
 import Shell from "@/components/Shell";
+import { useI18n } from "@/components/I18nProvider";
+import { localizeUserMessage } from "@/lib/i18n/localizeUserMessage";
 
 type CountryOption = {
   id: string;
@@ -26,6 +28,7 @@ type CityOption = {
 
 export default function OnboardingPage() {
   const router = useRouter();
+  const { t } = useI18n();
   const [username, setUsername] = useState("");
   const [avatarUrl, setAvatarUrl] = useState("");
   const [bio, setBio] = useState("");
@@ -113,7 +116,7 @@ export default function OnboardingPage() {
 
     if (updateError) {
       console.error("Failed to persist avatar_url:", updateError);
-      throw new Error(updateError.message || "Unable to save profile photo.");
+      throw new Error(updateError.message || "Unable to save your profile photo.");
     }
   };
 
@@ -193,30 +196,33 @@ export default function OnboardingPage() {
   };
 
   const selectedCities = cityOptions.filter((city) => city.country_id === selectedCountryId);
+  const localizedError = localizeUserMessage(t, error);
 
   return (
     <Shell>
       <div className="mx-auto max-w-3xl rounded-3xl border border-white/10 bg-slate-900/90 p-8 shadow-xl shadow-black/40">
         <div className="space-y-4">
-          <p className="text-sm uppercase tracking-[0.35em] text-cyan-300">Onboarding</p>
-          <h1 className="text-4xl font-semibold text-white">Create your SpotDrop profile.</h1>
+          <p className="text-sm uppercase tracking-[0.35em] text-cyan-300">{t("onboarding.label")}</p>
+          <h1 className="text-4xl font-semibold text-white">{t("onboarding.title")}</h1>
         </div>
 
         {loading ? (
-          <div className="rounded-3xl border border-dashed border-slate-700 bg-slate-950 p-8 text-center text-slate-400">Loading onboarding…</div>
+          <div className="rounded-3xl border border-dashed border-slate-700 bg-slate-950 p-8 text-center text-slate-400">
+            {t("onboarding.loading")}
+          </div>
         ) : !session?.user?.id ? (
           <div className="rounded-3xl border border-dashed border-white/10 bg-white/5 p-8 text-center text-slate-300">
-            <p className="text-lg font-semibold text-white">You must be signed in.</p>
-            <p className="mt-3 text-slate-400">Login or register to complete your profile.</p>
+            <p className="text-lg font-semibold text-white">{t("onboarding.mustSignIn")}</p>
+            <p className="mt-3 text-slate-400">{t("onboarding.signInPrompt")}</p>
             <a href="/auth/login" className="mt-6 inline-flex rounded-3xl bg-cyan-500 px-6 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400">
-              Login
+              {t("onboarding.login")}
             </a>
           </div>
         ) : (
           <form className="space-y-6" onSubmit={handleSubmit}>
             <div className="grid gap-4 sm:grid-cols-2">
               <label className="block text-sm text-slate-300">
-                Username <span className="text-cyan-200">*</span>
+                {t("common.username")} <span className="text-cyan-200">*</span>
                 <input
                   value={username}
                   onChange={(event) => setUsername(event.target.value)}
@@ -224,7 +230,7 @@ export default function OnboardingPage() {
                 />
               </label>
               <div className="text-sm text-slate-300">
-                <span className="block">Profile photo</span>
+                <span className="block">{t("onboarding.profilePhoto")}</span>
                 <div className="mt-2 flex items-center gap-4 rounded-3xl border border-white/10 bg-slate-950 p-4">
                   <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-full bg-slate-800 text-lg font-semibold text-white">
                     {avatarUrl ? (
@@ -235,7 +241,7 @@ export default function OnboardingPage() {
                   </div>
                   <label className="inline-flex cursor-pointer items-center justify-center rounded-3xl bg-white/5 px-4 py-3 text-sm font-medium text-white transition hover:bg-white/10">
                     <input type="file" accept="image/*" className="hidden" onChange={handleAvatarUpload} />
-                    {uploadingAvatar ? "Uploading..." : "Upload profile photo"}
+                    {uploadingAvatar ? t("onboarding.uploading") : t("onboarding.uploadPhoto")}
                   </label>
                 </div>
               </div>
@@ -243,7 +249,7 @@ export default function OnboardingPage() {
 
 
             <label className="block text-sm text-slate-300">
-              Bio
+              {t("onboarding.bio")}
               <textarea
                 value={bio}
                 onChange={(event) => setBio(event.target.value)}
@@ -254,7 +260,7 @@ export default function OnboardingPage() {
 
             <div className="grid gap-4 sm:grid-cols-2">
               <label className="block text-sm text-slate-300">
-                Country
+                {t("onboarding.country")}
                 <select
                   value={selectedCountryId}
                   onChange={(event) => {
@@ -263,7 +269,7 @@ export default function OnboardingPage() {
                   }}
                   className="mt-2 w-full rounded-3xl border border-white/10 bg-slate-950 px-4 py-3 text-white outline-none transition focus:border-cyan-400"
                 >
-                  <option value="">Optional country</option>
+                  <option value="">{t("onboarding.optionalCountry")}</option>
                   {countryOptions.map((country) => (
                     <option key={country.id} value={country.id}>
                       {getCountryFlag(country.slug, country.emoji, country.code)} {country.name}
@@ -272,14 +278,14 @@ export default function OnboardingPage() {
                 </select>
               </label>
               <label className="block text-sm text-slate-300">
-                City
+                {t("search.city")}
                 <select
                   value={cityId}
                   onChange={(event) => setCityId(event.target.value)}
                   disabled={!selectedCountryId}
                   className="mt-2 w-full rounded-3xl border border-white/10 bg-slate-950 px-4 py-3 text-white outline-none transition focus:border-cyan-400 disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  <option value="">Optional city</option>
+                  <option value="">{t("onboarding.optionalCity")}</option>
                   {selectedCities.map((city) => (
                     <option key={city.id} value={city.id}>
                       {city.name}
@@ -289,14 +295,14 @@ export default function OnboardingPage() {
               </label>
             </div>
 
-            {error ? <p className="text-sm text-red-300">{error}</p> : null}
+            {localizedError ? <p className="text-sm text-red-300">{localizedError}</p> : null}
 
             <button
               type="submit"
               disabled={saving}
               className="inline-flex w-full items-center justify-center rounded-3xl bg-cyan-500 px-6 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {saving ? "Saving…" : "Complete profile"}
+              {saving ? t("onboarding.saving") : t("onboarding.complete")}
             </button>
           </form>
         )}

@@ -1,4 +1,4 @@
-import { sanitizePublicProfiles } from "@/lib/publicProfile";
+import { sanitizePublicProfiles, isGuideAccountProfile } from "@/lib/publicProfile";
 import { supabase } from "@/lib/supabaseClient";
 
 export type FollowProfile = {
@@ -36,7 +36,7 @@ async function loadProfilesByIds(ids: string[]) {
 
   const { data, error } = await supabase
     .from("profiles")
-    .select("id, username, avatar_url")
+    .select("id, username, name, avatar_url")
     .in("id", uniqueIds)
     .order("username", { ascending: true });
 
@@ -49,7 +49,9 @@ async function loadProfilesByIds(ids: string[]) {
   }
 
   return {
-    data: sanitizePublicProfiles((data ?? []) as FollowProfile[]),
+    data: sanitizePublicProfiles(
+      (data ?? []).filter((profile) => !isGuideAccountProfile(profile)) as FollowProfile[]
+    ),
     error: null as string | null,
   };
 }
@@ -104,8 +106,8 @@ export async function loadFollowConnections(userId: string) {
     data: {
       followers,
       friends,
-      followersCount: followerIds.length,
-      friendsCount: friendIds.length,
+      followersCount: followers.length,
+      friendsCount: friends.length,
     },
     error: null as string | null,
   };
@@ -174,6 +176,21 @@ export async function followUser(followerId: string, followingId: string) {
 
   if (followerId === followingId) {
     return "You cannot follow yourself.";
+  }
+
+  const { data: targetProfile, error: targetError } = await supabase
+    .from("profiles")
+    .select("username, name")
+    .eq("id", followingId)
+    .maybeSingle();
+
+  if (targetError) {
+    console.error("Failed to load follow target profile:", targetError);
+    return targetError.message || "Unable to follow this user.";
+  }
+
+  if (!targetProfile || isGuideAccountProfile(targetProfile)) {
+    return "Unable to follow this user.";
   }
 
   const { error } = await supabase

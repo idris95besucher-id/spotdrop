@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ChangeEvent, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import type { Session } from "@supabase/supabase-js";
 import { getSafeAuthSession } from "@/lib/authSession";
@@ -9,7 +9,11 @@ import { getCountryFlag } from "@/lib/countryFlags";
 import { ensureProfileRow } from "@/lib/profile";
 import { uploadAvatarImage } from "@/lib/profileMedia";
 import { supabase } from "@/lib/supabaseClient";
+import SignOutButton from "@/components/SignOutButton";
 import Shell from "@/components/Shell";
+import { useI18n } from "@/components/I18nProvider";
+import { localizeUserMessage } from "@/lib/i18n/localizeUserMessage";
+import type { TranslationKey } from "@/lib/i18n/messages";
 
 type CountryOption = {
   id: string;
@@ -26,29 +30,34 @@ type CityOption = {
 };
 
 const USERNAME_REGEX = /^[a-z0-9._]{3,30}$/;
-const GENDER_OPTIONS = [
-  { value: "male", label: "Male" },
-  { value: "female", label: "Female" },
-  { value: "prefer_not_to_say", label: "Prefer not to say" },
-] as const;
-const GENDER_VALUES = GENDER_OPTIONS.map((option) => option.value) as string[];
+const GENDER_VALUES = ["male", "female", "prefer_not_to_say"] as const;
+const GENDER_LABEL_KEYS: Record<(typeof GENDER_VALUES)[number], TranslationKey> = {
+  male: "profileEdit.gender.male",
+  female: "profileEdit.gender.female",
+  prefer_not_to_say: "profileEdit.gender.preferNotToSay",
+};
 const CURRENT_YEAR = new Date().getFullYear();
-const MONTH_OPTIONS = [
-  "January",
-  "February",
-  "March",
-  "April",
-  "May",
-  "June",
-  "July",
-  "August",
-  "September",
-  "October",
-  "November",
-  "December",
+const MONTH_KEYS: TranslationKey[] = [
+  "profileEdit.month.january",
+  "profileEdit.month.february",
+  "profileEdit.month.march",
+  "profileEdit.month.april",
+  "profileEdit.month.may",
+  "profileEdit.month.june",
+  "profileEdit.month.july",
+  "profileEdit.month.august",
+  "profileEdit.month.september",
+  "profileEdit.month.october",
+  "profileEdit.month.november",
+  "profileEdit.month.december",
 ];
 const DAY_OPTIONS = Array.from({ length: 31 }, (_, index) => index + 1);
 const YEAR_OPTIONS = Array.from({ length: CURRENT_YEAR - 1899 }, (_, index) => CURRENT_YEAR - index);
+
+const fieldClass =
+  "mt-1.5 w-full rounded-xl border border-white/10 bg-slate-950/80 px-3.5 py-2.5 text-sm text-white outline-none transition placeholder:text-slate-500 focus:border-cyan-400/50 focus:ring-1 focus:ring-cyan-400/20";
+
+const labelClass = "block text-xs font-medium uppercase tracking-wide text-slate-400";
 
 function buildDateOfBirth(yearValue: string, monthValue: string, dayValue: string) {
   const year = Number(yearValue);
@@ -104,6 +113,7 @@ function splitDateOfBirth(dateOfBirth: string | null | undefined) {
 
 export default function EditProfilePage() {
   const router = useRouter();
+  const { t } = useI18n();
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   const [savingProfile, setSavingProfile] = useState(false);
@@ -193,14 +203,10 @@ export default function EditProfilePage() {
         setCityOptions([]);
         setSelectedCitySlug("");
         setLoadingCities(false);
-        console.log("selected country slug:", selectedCountrySlug);
-        console.log("loaded cities count:", 0);
-        console.log("selected city slug:", "");
         return;
       }
 
       setLoadingCities(true);
-      console.log("selected country slug:", selectedCountry.slug);
 
       const { data, error: citiesError } = await supabase
         .from("cities")
@@ -214,8 +220,6 @@ export default function EditProfilePage() {
         setCityOptions([]);
         setSelectedCitySlug("");
         setLoadingCities(false);
-        console.log("loaded cities count:", 0);
-        console.log("selected city slug:", "");
         return;
       }
 
@@ -227,14 +231,12 @@ export default function EditProfilePage() {
       setCityOptions(nextCities);
       setSelectedCitySlug(nextCitySlug);
       setLoadingCities(false);
-      console.log("loaded cities count:", nextCities.length);
-      console.log("selected city slug:", nextCitySlug);
     };
 
     void loadCitiesForCountry();
   }, [savedCityId, selectedCitySlug, selectedCountry, selectedCountrySlug]);
 
-  const handleAvatarUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleAvatarUpload = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
@@ -258,7 +260,7 @@ export default function EditProfilePage() {
     }
   };
 
-  const handleSaveProfile = async (event: React.FormEvent<HTMLFormElement>) => {
+  const handleSaveProfile = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
     if (!session?.user?.id) {
@@ -295,7 +297,7 @@ export default function EditProfilePage() {
       return;
     }
 
-    if (!GENDER_VALUES.includes(formGender)) {
+    if (!(GENDER_VALUES as readonly string[]).includes(formGender)) {
       setError("Gender is required.");
       return;
     }
@@ -364,215 +366,246 @@ export default function EditProfilePage() {
 
   return (
     <Shell>
-      <div className="mx-auto max-w-4xl rounded-3xl border border-white/10 bg-slate-900/90 p-8 shadow-xl shadow-black/40">
-        <div className="space-y-4">
-          <p className="text-sm uppercase tracking-[0.35em] text-cyan-300">Edit profile</p>
-          <h1 className="text-4xl font-semibold text-white">Update your SpotDrop profile.</h1>
-          <p className="text-slate-300">Manage your public profile details here. Email always stays private.</p>
-        </div>
+      <div className="mx-auto w-full max-w-lg space-y-6 px-1 pb-10 pt-1 sm:max-w-xl">
+        <header className="space-y-2">
+          <Link
+            href="/profile"
+            className="inline-flex text-sm text-slate-500 transition hover:text-slate-300"
+          >
+            ← {t("profileEdit.backToProfile")}
+          </Link>
+          <p className="text-xs font-semibold uppercase tracking-[0.28em] text-cyan-300/90">{t("profileEdit.accountLabel")}</p>
+          <h1 className="text-2xl font-semibold text-white">{t("profile.editProfile")}</h1>
+          <p className="text-sm text-slate-400">{t("profileEdit.subtitle")}</p>
+        </header>
 
         {loading ? (
-          <div className="mt-8 rounded-3xl border border-dashed border-slate-700 bg-slate-950 p-8 text-center text-slate-400">Loading profile editor…</div>
+          <div className="rounded-2xl border border-dashed border-white/10 bg-slate-900/50 px-6 py-12 text-center text-sm text-slate-400">
+            {t("profile.loading")}
+          </div>
         ) : !session?.user?.id ? (
-          <div className="mt-8 rounded-3xl border border-dashed border-white/10 bg-white/5 p-8 text-center text-slate-300">
-            <p className="text-lg font-semibold text-white">You must be signed in.</p>
-            <p className="mt-3 text-slate-400">Login to edit your profile.</p>
-            <Link href="/auth/login" className="mt-6 inline-flex rounded-3xl bg-cyan-500 px-6 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400">
-              Login
+          <div className="rounded-2xl border border-white/10 bg-slate-900/50 px-6 py-10 text-center">
+            <p className="font-medium text-white">{t("profileEdit.signInRequired")}</p>
+            <p className="mt-2 text-sm text-slate-400">{t("profileEdit.signInToEdit")}</p>
+            <Link
+              href="/auth/login"
+              className="mt-5 inline-flex rounded-full border border-white/15 px-5 py-2 text-sm font-medium text-white transition hover:bg-white/5"
+            >
+              {t("auth.logIn")}
             </Link>
           </div>
         ) : (
-          <form className="mt-8 space-y-6" onSubmit={handleSaveProfile}>
-            <div className="grid gap-6 lg:grid-cols-[1fr_1.4fr]">
-              <div className="space-y-4">
-                <div className="rounded-3xl border border-white/10 bg-slate-900 p-4">
-                  <p className="text-sm text-slate-300">Profile photo</p>
-                  <div className="mt-4 flex items-center gap-4">
-                    <div className="flex h-20 w-20 items-center justify-center overflow-hidden rounded-full bg-slate-800 text-2xl font-semibold text-white">
-                      {formAvatarUrl ? (
-                        <img src={formAvatarUrl} alt="Profile avatar preview" className="h-full w-full object-cover" />
-                      ) : (
-                        formUsername.trim().charAt(0).toUpperCase() || "?"
-                      )}
-                    </div>
-                    <label className="inline-flex cursor-pointer items-center justify-center rounded-3xl bg-white/5 px-4 py-3 text-sm font-medium text-white transition hover:bg-white/10">
-                      <input type="file" accept="image/*" className="hidden" onChange={handleAvatarUpload} />
-                      {uploadingAvatar ? "Uploading..." : "Upload profile photo"}
-                    </label>
-                  </div>
+          <form className="space-y-5" onSubmit={handleSaveProfile}>
+            <section className="rounded-2xl border border-white/10 bg-slate-900/60 p-4 sm:p-5">
+              <p className={labelClass}>{t("profileEdit.profilePhoto")}</p>
+              <div className="mt-3 flex items-center gap-4">
+                <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/10 bg-slate-800 text-lg font-semibold text-white">
+                  {formAvatarUrl ? (
+                    <img src={formAvatarUrl} alt="" className="h-full w-full object-cover" />
+                  ) : (
+                    formUsername.trim().charAt(0).toUpperCase() || "?"
+                  )}
                 </div>
-
+                <label className="inline-flex cursor-pointer items-center rounded-full border border-white/15 px-4 py-2 text-sm font-medium text-slate-200 transition hover:border-white/25 hover:bg-white/5">
+                  <input type="file" accept="image/*" className="hidden" onChange={handleAvatarUpload} />
+                  {uploadingAvatar ? t("profileEdit.uploading") : t("profileEdit.changePhoto")}
+                </label>
               </div>
+            </section>
 
-              <div className="space-y-4">
-                <label className="block text-sm text-slate-300">
-                  Name <span className="text-slate-500">(optional)</span>
-                  <input
-                    value={formName}
-                    onChange={(event) => setFormName(event.target.value)}
-                    autoComplete="name"
-                    className="mt-2 w-full rounded-3xl border border-white/10 bg-slate-900 px-4 py-3 text-white outline-none transition placeholder:text-slate-500 focus:border-cyan-400"
-                    placeholder="First name or full name"
-                  />
-                </label>
+            <section className="space-y-4 rounded-2xl border border-white/10 bg-slate-900/60 p-4 sm:p-5">
+              <p className="text-sm font-medium text-white">{t("profileEdit.basicInfo")}</p>
 
-                <label className="block text-sm text-slate-300">
-                  Username
-                  <input
-                    value={formUsername}
-                    onChange={(event) => setFormUsername(event.target.value.toLowerCase())}
-                    autoCapitalize="none"
-                    autoCorrect="off"
-                    spellCheck={false}
-                    className="mt-2 w-full rounded-3xl border border-white/10 bg-slate-900 px-4 py-3 text-white outline-none transition focus:border-cyan-400"
-                  />
-                </label>
+              <label className="block">
+                <span className={labelClass}>{t("profileEdit.name")}</span>
+                <span className="ml-1 text-[10px] normal-case text-slate-600">{t("profileEdit.optional")}</span>
+                <input
+                  value={formName}
+                  onChange={(event) => setFormName(event.target.value)}
+                  autoComplete="name"
+                  className={fieldClass}
+                  placeholder={t("profileEdit.namePlaceholder")}
+                />
+              </label>
 
-                <label className="block text-sm text-slate-300">
-                  Gender <span className="text-red-300">*</span>
+              <label className="block">
+                <span className={labelClass}>{t("common.username")}</span>
+                <input
+                  value={formUsername}
+                  onChange={(event) => setFormUsername(event.target.value.toLowerCase())}
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  required
+                  className={fieldClass}
+                  placeholder={t("profileEdit.usernamePlaceholder")}
+                />
+              </label>
+
+              <label className="block">
+                <span className={labelClass}>
+                  {t("profileEdit.gender")} <span className="text-cyan-400/80">*</span>
+                </span>
+                <select
+                  value={formGender}
+                  onChange={(event) => setFormGender(event.target.value)}
+                  required
+                  className={fieldClass}
+                >
+                  <option value="">{t("profileEdit.selectGender")}</option>
+                  {GENDER_VALUES.map((value) => (
+                    <option key={value} value={value}>
+                      {t(GENDER_LABEL_KEYS[value])}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="block">
+                <span className={labelClass}>{t("profileEdit.bio")}</span>
+                <textarea
+                  value={formBio}
+                  onChange={(event) => setFormBio(event.target.value)}
+                  rows={3}
+                  className={fieldClass}
+                  placeholder={t("profileEdit.bioPlaceholder")}
+                />
+              </label>
+            </section>
+
+            <section className="space-y-4 rounded-2xl border border-white/10 bg-slate-900/60 p-4 sm:p-5">
+              <p className="text-sm font-medium text-white">{t("profileEdit.location")}</p>
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="block">
+                  <span className={labelClass}>
+                    {t("profileEdit.country")} <span className="text-cyan-400/80">*</span>
+                  </span>
                   <select
-                    value={formGender}
-                    onChange={(event) => setFormGender(event.target.value)}
+                    value={selectedCountrySlug}
+                    onChange={(event) => {
+                      setSelectedCountrySlug(event.target.value);
+                      setSelectedCitySlug("");
+                      setSavedCityId("");
+                      setCityOptions([]);
+                    }}
                     required
-                    className="mt-2 w-full rounded-3xl border border-white/10 bg-slate-900 px-4 py-3 text-white outline-none transition focus:border-cyan-400"
+                    className={fieldClass}
                   >
-                    <option value="">Select gender</option>
-                    {GENDER_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
+                    <option value="">{t("profileEdit.selectCountry")}</option>
+                    {countryOptions.map((country) => (
+                      <option key={country.id} value={country.slug}>
+                        {getCountryFlag(country.slug, country.emoji)} {country.name}
                       </option>
                     ))}
                   </select>
                 </label>
 
-                <label className="block text-sm text-slate-300">
-                  Bio
-                  <textarea
-                    value={formBio}
-                    onChange={(event) => setFormBio(event.target.value)}
-                    rows={4}
-                    className="mt-2 w-full rounded-3xl border border-white/10 bg-slate-900 px-4 py-3 text-white outline-none transition focus:border-cyan-400"
-                  />
-                </label>
-
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <label className="block text-sm text-slate-300">
-                    Country <span className="text-red-300">*</span>
-                    <select
-                      value={selectedCountrySlug}
-                      onChange={(event) => {
-                        setSelectedCountrySlug(event.target.value);
-                        setSelectedCitySlug("");
-                        setSavedCityId("");
-                        setCityOptions([]);
-                      }}
-                      required
-                      className="mt-2 w-full rounded-3xl border border-white/10 bg-slate-900 px-4 py-3 text-white outline-none transition focus:border-cyan-400"
-                    >
-                      <option value="">Select country</option>
-                      {countryOptions.map((country) => (
-                        <option key={country.id} value={country.slug}>
-                          {getCountryFlag(country.slug, country.emoji)} {country.name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-
-                  <label className="block text-sm text-slate-300">
-                    City <span className="text-red-300">*</span>
-                    <select
-                      value={selectedCitySlug}
-                      onChange={(event) => {
-                        setSelectedCitySlug(event.target.value);
-                        console.log("selected city slug:", event.target.value);
-                      }}
-                      disabled={!selectedCountrySlug || loadingCities}
-                      required
-                      className="mt-2 w-full rounded-3xl border border-white/10 bg-slate-900 px-4 py-3 text-white outline-none transition focus:border-cyan-400 disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      <option value="">
-                        {!selectedCountrySlug
-                          ? "Select country first"
-                          : loadingCities
-                            ? "Loading cities..."
-                            : cityOptions.length === 0
-                              ? "No cities found"
-                              : "Select city"}
+                <label className="block">
+                  <span className={labelClass}>
+                    {t("profileEdit.city")} <span className="text-cyan-400/80">*</span>
+                  </span>
+                  <select
+                    value={selectedCitySlug}
+                    onChange={(event) => setSelectedCitySlug(event.target.value)}
+                    disabled={!selectedCountrySlug || loadingCities}
+                    required
+                    className={fieldClass}
+                  >
+                    <option value="">
+                      {!selectedCountrySlug
+                        ? t("profileEdit.selectCountryFirst")
+                        : loadingCities
+                          ? t("profileEdit.loadingCities")
+                          : cityOptions.length === 0
+                            ? t("profileEdit.noCitiesFound")
+                            : t("profileEdit.selectCity")}
+                    </option>
+                    {cityOptions.map((city) => (
+                      <option key={city.id} value={city.slug}>
+                        {city.name}
                       </option>
-                      {cityOptions.map((city) => (
-                        <option key={city.id} value={city.slug}>
-                          {city.name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                </div>
-
-                <label className="block text-sm text-slate-300">
-                  Date of birth
-                  <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-3">
-                    <select
-                      value={birthDay}
-                      onChange={(event) => setBirthDay(event.target.value)}
-                      className="w-full rounded-3xl border border-white/10 bg-slate-900 px-4 py-3 text-white outline-none transition focus:border-cyan-400"
-                    >
-                      <option value="">Day</option>
-                      {DAY_OPTIONS.map((day) => (
-                        <option key={day} value={String(day)}>
-                          {day}
-                        </option>
-                      ))}
-                    </select>
-
-                    <select
-                      value={birthMonth}
-                      onChange={(event) => setBirthMonth(event.target.value)}
-                      className="w-full rounded-3xl border border-white/10 bg-slate-900 px-4 py-3 text-white outline-none transition focus:border-cyan-400"
-                    >
-                      <option value="">Month</option>
-                      {MONTH_OPTIONS.map((month, index) => (
-                        <option key={month} value={String(index + 1)}>
-                          {month}
-                        </option>
-                      ))}
-                    </select>
-
-                    <select
-                      value={birthYear}
-                      onChange={(event) => setBirthYear(event.target.value)}
-                      className="w-full rounded-3xl border border-white/10 bg-slate-900 px-4 py-3 text-white outline-none transition focus:border-cyan-400"
-                    >
-                      <option value="">Year</option>
-                      {YEAR_OPTIONS.map((year) => (
-                        <option key={year} value={String(year)}>
-                          {year}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+                    ))}
+                  </select>
                 </label>
               </div>
-            </div>
+            </section>
+
+            <section className="rounded-2xl border border-white/10 bg-slate-900/60 p-4 sm:p-5">
+              <label className="block">
+                <span className={labelClass}>
+                  {t("profileEdit.dateOfBirth")} <span className="text-cyan-400/80">*</span>
+                </span>
+                <div className="mt-1.5 grid grid-cols-3 gap-2">
+                  <select
+                    value={birthDay}
+                    onChange={(event) => setBirthDay(event.target.value)}
+                    className={fieldClass}
+                  >
+                    <option value="">{t("profileEdit.day")}</option>
+                    {DAY_OPTIONS.map((day) => (
+                      <option key={day} value={String(day)}>
+                        {day}
+                      </option>
+                    ))}
+                  </select>
+
+                  <select
+                    value={birthMonth}
+                    onChange={(event) => setBirthMonth(event.target.value)}
+                    className={fieldClass}
+                  >
+                    <option value="">{t("profileEdit.month")}</option>
+                    {MONTH_KEYS.map((monthKey, index) => (
+                      <option key={monthKey} value={String(index + 1)}>
+                        {t(monthKey)}
+                      </option>
+                    ))}
+                  </select>
+
+                  <select
+                    value={birthYear}
+                    onChange={(event) => setBirthYear(event.target.value)}
+                    className={fieldClass}
+                  >
+                    <option value="">{t("profileEdit.year")}</option>
+                    {YEAR_OPTIONS.map((year) => (
+                      <option key={year} value={String(year)}>
+                        {year}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </label>
+            </section>
 
             {error ? (
-              <div className="rounded-3xl border border-red-500/20 bg-red-500/5 p-4 text-sm text-red-200">{error}</div>
+              <div className="rounded-xl border border-red-500/20 bg-red-500/5 px-4 py-3 text-sm text-red-200">
+                {localizeUserMessage(t, error) ?? error}
+              </div>
             ) : null}
 
-            <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
+            <div className="flex flex-wrap items-center justify-end gap-3 pt-1">
               <Link
                 href="/profile"
-                className="inline-flex items-center justify-center rounded-3xl border border-white/10 bg-white/5 px-6 py-3 text-sm font-semibold text-white transition hover:bg-white/10"
+                className="inline-flex items-center rounded-full border border-white/15 px-4 py-2 text-sm font-medium text-slate-300 transition hover:bg-white/5 hover:text-white"
               >
-                Back to profile
+                {t("common.cancel")}
               </Link>
               <button
                 type="submit"
                 disabled={savingProfile || uploadingAvatar}
-                className="inline-flex items-center justify-center rounded-3xl bg-cyan-500 px-6 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-60"
+                className="inline-flex items-center rounded-full bg-cyan-500 px-5 py-2 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {savingProfile ? "Saving..." : "Save changes"}
+                {savingProfile ? t("common.saving") : t("profileEdit.save")}
               </button>
             </div>
+
+            <section className="space-y-3 rounded-2xl border border-white/10 bg-slate-900/60 p-4 sm:p-5">
+              <p className="text-sm font-medium text-white">{t("profileEdit.accountLabel")}</p>
+              <p className="text-sm text-slate-400">{t("profileEdit.signOutSection")}</p>
+              <SignOutButton />
+            </section>
           </form>
         )}
       </div>

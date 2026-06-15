@@ -1,4 +1,6 @@
 import { isDiscoveryRelationMissing } from "@/lib/discoveryMap";
+import { isGuideAccountProfile } from "@/lib/guideAccounts";
+import { POST_AUTHOR_PROFILES_FKEY } from "@/lib/posts";
 import { supabase } from "@/lib/supabaseClient";
 
 export type StoryVisibility = "public" | "friends" | "private";
@@ -29,13 +31,13 @@ export type PlaceFeedItem = {
   media_type: StoryMediaType | null;
   created_at: string;
   is_archived_story: boolean;
-  profiles: { username: string; avatar_url: string | null; is_ai_guide?: boolean; is_official?: boolean } | null;
+  profiles: { username: string; avatar_url: string | null } | null;
   post_id?: string;
   story_id?: string;
 };
 
 const POST_STORY_SELECT =
-  "id, user_id, content, visibility, content_kind, media_url, media_type, image_url, video_url, discovery_place_id, expires_at, created_at, profiles(username, avatar_url)";
+  `id, user_id, content, visibility, content_kind, media_url, media_type, image_url, video_url, discovery_place_id, expires_at, created_at, ${POST_AUTHOR_PROFILES_FKEY}(username, avatar_url)`;
 
 function normalizeProfileJoin<T extends { username: string; avatar_url: string | null }>(
   value: T | T[] | null | undefined
@@ -234,13 +236,12 @@ export type CreateStoryInput = {
 
 async function createStoryAsPost(input: CreateStoryInput) {
   const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-  const contentKind = input.mediaType === "video" ? "video" : "story";
 
   const row = {
     user_id: input.userId,
     content: input.caption.trim() || "Story",
     visibility: input.visibility,
-    content_kind: contentKind,
+    content_kind: "story" as const,
     discovery_place_id: input.sharedToRoom ? input.placeId : null,
     media_url: input.mediaUrl,
     media_type: input.mediaType,
@@ -304,7 +305,7 @@ export async function loadPlaceFeed(placeId: string) {
   const { data, error } = await supabase
     .from("posts")
     .select(
-      "id, user_id, content, content_kind, media_url, media_type, image_url, video_url, created_at, expires_at, profiles(username, avatar_url, is_ai_guide, is_official)"
+      `id, user_id, content, content_kind, media_url, media_type, image_url, video_url, created_at, expires_at, ${POST_AUTHOR_PROFILES_FKEY}(username, avatar_url)`
     )
     .eq("discovery_place_id", placeId)
     .eq("visibility", "public")
@@ -325,8 +326,13 @@ export async function loadPlaceFeed(placeId: string) {
   for (const row of data ?? []) {
     const record = row as Record<string, unknown>;
     const profile = normalizeProfileJoin(
-      record.profiles as { username: string; avatar_url: string | null; is_ai_guide?: boolean; is_official?: boolean } | null
+      record.profiles as { username: string; avatar_url: string | null } | null
     );
+
+    if (isGuideAccountProfile(profile)) {
+      continue;
+    }
+
     const { mediaUrl, mediaType } = getPostMedia(record);
     const contentKind = String(record.content_kind ?? "post");
     const expiresAt = record.expires_at ? String(record.expires_at) : null;
@@ -350,8 +356,6 @@ export async function loadPlaceFeed(placeId: string) {
         ? {
             username: profile.username,
             avatar_url: profile.avatar_url,
-            is_ai_guide: Boolean(profile.is_ai_guide),
-            is_official: Boolean(profile.is_official),
           }
         : null,
       post_id: String(record.id),

@@ -39,8 +39,6 @@ create table if not exists profiles (
   is_demo boolean not null default false,
   can_create_channels boolean not null default false,
   is_verified boolean not null default false,
-  is_ai_guide boolean not null default false,
-  is_official boolean not null default false,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -88,8 +86,6 @@ alter table if exists profiles add column if not exists is_private boolean not n
 alter table if exists profiles add column if not exists is_demo boolean not null default false;
 alter table if exists profiles add column if not exists can_create_channels boolean not null default false;
 alter table if exists profiles add column if not exists is_verified boolean not null default false;
-alter table if exists profiles add column if not exists is_ai_guide boolean not null default false;
-alter table if exists profiles add column if not exists is_official boolean not null default false;
 alter table if exists profiles add column if not exists name text;
 alter table if exists profiles add column if not exists gender text;
 alter table if exists profiles add column if not exists date_of_birth date;
@@ -104,16 +100,10 @@ alter table if exists profiles
 update profiles set is_online = false where is_online is null;
 update profiles set can_create_channels = false where can_create_channels is null;
 update profiles set is_verified = false where is_verified is null;
-update profiles set is_ai_guide = false where is_ai_guide is null;
-update profiles set is_official = false where is_official is null;
 alter table if exists profiles alter column can_create_channels set default false;
 alter table if exists profiles alter column can_create_channels set not null;
 alter table if exists profiles alter column is_verified set default false;
 alter table if exists profiles alter column is_verified set not null;
-alter table if exists profiles alter column is_ai_guide set default false;
-alter table if exists profiles alter column is_ai_guide set not null;
-alter table if exists profiles alter column is_official set default false;
-alter table if exists profiles alter column is_official set not null;
 update profiles set country_slug = country_code where country_slug is null and country_code is not null;
 
 create or replace function public.prevent_profile_permission_self_update()
@@ -128,8 +118,6 @@ begin
       and (
         coalesce(new.can_create_channels, false)
         or coalesce(new.is_verified, false)
-        or coalesce(new.is_ai_guide, false)
-        or coalesce(new.is_official, false)
       )
     then
       raise exception 'Profile trust badges can only be changed by an administrator.';
@@ -139,8 +127,6 @@ begin
       and (
         new.can_create_channels is distinct from old.can_create_channels
         or new.is_verified is distinct from old.is_verified
-        or new.is_ai_guide is distinct from old.is_ai_guide
-        or new.is_official is distinct from old.is_official
       )
     then
       raise exception 'Profile trust badges can only be changed by an administrator.';
@@ -153,7 +139,7 @@ $$;
 
 drop trigger if exists prevent_profile_permission_self_update on public.profiles;
 create trigger prevent_profile_permission_self_update
-before insert or update of can_create_channels, is_verified, is_ai_guide, is_official on public.profiles
+before insert or update of can_create_channels, is_verified on public.profiles
 for each row
 execute function public.prevent_profile_permission_self_update();
 
@@ -729,13 +715,13 @@ insert into cities (country_id, name, slug) values
   ((select id from countries where code = 'IE'), 'Galway', 'galway'),
   ((select id from countries where code = 'IE'), 'Limerick', 'limerick'),
   ((select id from countries where code = 'IE'), 'Waterford', 'waterford'),
+  ((select id from countries where code = 'RU'), 'Chechen Republic', 'chechen-republic'),
+  ((select id from countries where code = 'RU'), 'Dagestan', 'dagestan'),
+  ((select id from countries where code = 'RU'), 'Ingushetia', 'ingushetia'),
+  ((select id from countries where code = 'RU'), 'Krasnodar', 'krasnodar'),
   ((select id from countries where code = 'RU'), 'Moscow', 'moscow'),
   ((select id from countries where code = 'RU'), 'Saint Petersburg', 'saint-petersburg'),
-  ((select id from countries where code = 'RU'), 'Novosibirsk', 'novosibirsk'),
-  ((select id from countries where code = 'RU'), 'Yekaterinburg', 'yekaterinburg'),
-  ((select id from countries where code = 'RU'), 'Kazan', 'kazan'),
-  ((select id from countries where code = 'RU'), 'Nizhny Novgorod', 'nizhny-novgorod'),
-  ((select id from countries where code = 'RU'), 'Rostov-on-Don', 'rostov-on-don'),
+  ((select id from countries where code = 'RU'), 'Tatarstan', 'tatarstan'),
   ((select id from countries where code = 'UA'), 'Kyiv', 'kyiv'),
   ((select id from countries where code = 'UA'), 'Lviv', 'lviv'),
   ((select id from countries where code = 'UA'), 'Odesa', 'odesa'),

@@ -1,4 +1,4 @@
--- Structured official guide place cards linked to normal posts.
+-- Structured place cards linked to normal posts.
 
 create table if not exists public.guide_places (
   id uuid primary key default gen_random_uuid(),

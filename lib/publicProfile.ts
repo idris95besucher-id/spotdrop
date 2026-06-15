@@ -27,3 +27,5 @@ export function sanitizePublicProfile<T extends { username?: string | null }>(pr
 export function sanitizePublicProfiles<T extends { username?: string | null }>(profiles: T[]): Array<T & { username: string }> {
   return profiles.map(sanitizePublicProfile);
 }
+
+export { excludeGuideProfiles, isGuideAccountName, isGuideAccountProfile, isGuideAccountUsername } from "@/lib/guideAccounts";

@@ -1,9 +1,19 @@
 "use client";
 
-import { useRef, useState } from "react";
-import type { ChangeEvent, FormEvent } from "react";
-import { ImagePlus, Loader2, Video, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import type { FormEvent } from "react";
+import { ArrowLeft, Loader2, MapPin, X } from "lucide-react";
+import SpotLocationPicker from "@/components/SpotLocationPicker";
+import { setImmersiveOverlayActive } from "@/lib/immersiveOverlay";
 import { getPostMediaType, NOT_SIGNED_IN_UPLOAD_MESSAGE, uploadPostMedia } from "@/lib/postMedia";
+import { pickMediaFromGallery } from "@/lib/pickMediaFromGallery";
+import { uploadVideoCoverForPublish } from "@/lib/publishVideoCover";
+import {
+  requestDeviceLocation,
+  type PlaceSearchResult,
+  type SpotGeoLocation,
+} from "@/lib/spotLocation";
 import { supabase } from "@/lib/supabaseClient";
 
 export type CreatedProfilePost = {
@@ -13,6 +23,7 @@ export type CreatedProfilePost = {
   visibility: "public" | "private";
   image_url?: string | null;
   video_url?: string | null;
+  video_cover_url?: string | null;
   media_url?: string | null;
   media_type?: string | null;
   created_at: string;
@@ -22,119 +33,267 @@ export type CreatedProfilePost = {
 type CreatePostFormProps = {
   userId: string;
   onCreated: (post: CreatedProfilePost) => void;
+  isOpen?: boolean;
+  onClose?: () => void;
 };
 
 type PostInsertRow = {
   user_id: string;
   content: string;
   visibility: "public" | "private";
+  content_kind: "post";
+  published_to_spots: false;
   media_url: string | null;
   media_type: string | null;
   image_url: string | null;
   video_url: string | null;
+  video_cover_url: string | null;
+  thumbnail_url: string | null;
+  spot_latitude: number | null;
+  spot_longitude: number | null;
+  spot_address: string | null;
+  spot_city: string | null;
+  spot_country: string | null;
 };
 
 function buildPostInsertRow(
   authUserId: string,
   content: string,
-  visibility: "public" | "private",
   mediaUrl: string | null,
-  mediaType: string | null
+  mediaType: string | null,
+  videoCoverUrl: string | null,
+  location: SpotGeoLocation | null
 ): PostInsertRow {
   const row: PostInsertRow = {
     user_id: authUserId,
     content,
-    visibility,
+    visibility: "public",
+    content_kind: "post",
+    published_to_spots: false,
     media_url: mediaUrl,
     media_type: mediaType,
     image_url: null,
     video_url: null,
+    video_cover_url: videoCoverUrl,
+    thumbnail_url: videoCoverUrl,
+    spot_latitude: location?.latitude ?? null,
+    spot_longitude: location?.longitude ?? null,
+    spot_address: location?.address ?? null,
+    spot_city: location?.city ?? null,
+    spot_country: location?.country ?? null,
   };
 
   if (mediaUrl && mediaType === "image") {
     row.image_url = mediaUrl;
   } else if (mediaUrl && mediaType === "video") {
     row.video_url = mediaUrl;
+    row.image_url = videoCoverUrl;
   }
 
   return row;
 }
 
-export default function CreatePostForm({ userId, onCreated }: CreatePostFormProps) {
-  const [isOpen, setIsOpen] = useState(false);
+function isMissingVideoCoverColumn(error: { code?: string; message?: string } | null) {
+  if (!error) {
+    return false;
+  }
+
+  const message = error.message?.toLowerCase() ?? "";
+
+  return (
+    error.code === "42703" &&
+    (message.includes("video_cover_url") || message.includes("thumbnail_url"))
+  );
+}
+
+function isMissingSpotColumns(error: { code?: string; message?: string } | null) {
+  if (!error) {
+    return false;
+  }
+
+  const message = error.message?.toLowerCase() ?? "";
+
+  return error.code === "42703" && message.includes("spot_");
+}
+
+export default function CreatePostForm({
+  userId,
+  onCreated,
+  isOpen: isOpenProp,
+  onClose,
+}: CreatePostFormProps) {
+  const controlled = isOpenProp !== undefined;
+  const [internalOpen, setInternalOpen] = useState(false);
+  const isOpen = controlled ? Boolean(isOpenProp) : internalOpen;
+
+  const [picking, setPicking] = useState(false);
   const [content, setContent] = useState("");
-  const [visibility, setVisibility] = useState<"public" | "private">("public");
   const [mediaFile, setMediaFile] = useState<File | null>(null);
   const [mediaPreviewUrl, setMediaPreviewUrl] = useState<string | null>(null);
   const [mediaType, setMediaType] = useState<"image" | "video" | null>(null);
+  const [showLocation, setShowLocation] = useState(false);
+  const [location, setLocation] = useState<SpotGeoLocation | null>(null);
+  const [locating, setLocating] = useState(false);
+  const [locationHint, setLocationHint] = useState<string | null>(null);
   const [publishing, setPublishing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const pickSessionRef = useRef(0);
+
+  useEffect(() => {
+    if (!isOpen) {
+      setImmersiveOverlayActive(false);
+      return;
+    }
+
+    setImmersiveOverlayActive(true);
+
+    return () => {
+      setImmersiveOverlayActive(false);
+    };
+  }, [isOpen]);
+
+  const closeForm = () => {
+    if (controlled) {
+      onClose?.();
+      return;
+    }
+
+    setInternalOpen(false);
+  };
 
   const resetForm = () => {
     if (mediaPreviewUrl) {
       URL.revokeObjectURL(mediaPreviewUrl);
     }
 
+    setPicking(false);
     setContent("");
-    setVisibility("public");
     setMediaFile(null);
     setMediaPreviewUrl(null);
     setMediaType(null);
+    setShowLocation(false);
+    setLocation(null);
+    setLocating(false);
+    setLocationHint(null);
     setError(null);
-
-    if (fileInputRef.current) {
-      fileInputRef.current.value = "";
-    }
   };
 
-  const handleMediaChange = (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-
-    if (!file) {
+  const handleClose = () => {
+    if (publishing || picking) {
       return;
     }
 
+    resetForm();
+    closeForm();
+  };
+
+  const applySelectedFile = (file: File) => {
     const nextMediaType = getPostMediaType(file);
 
     if (!nextMediaType) {
-      setError("Only images and videos are allowed.");
-      event.target.value = "";
-      return;
+      setError("Only photos and videos are allowed.");
+      return false;
     }
 
-    setError(null);
     if (mediaPreviewUrl) {
       URL.revokeObjectURL(mediaPreviewUrl);
     }
+
+    setError(null);
     setMediaFile(file);
     setMediaPreviewUrl(URL.createObjectURL(file));
     setMediaType(nextMediaType);
+    return true;
   };
 
-  const clearMedia = () => {
-    if (mediaPreviewUrl) {
-      URL.revokeObjectURL(mediaPreviewUrl);
-    }
-
-    setMediaFile(null);
-    setMediaPreviewUrl(null);
-    setMediaType(null);
+  const openGallery = async ({ closeOnCancel = true }: { closeOnCancel?: boolean } = {}) => {
+    const sessionId = pickSessionRef.current + 1;
+    pickSessionRef.current = sessionId;
+    setPicking(true);
     setError(null);
 
-    if (fileInputRef.current) {
-      fileInputRef.current.value = "";
+    try {
+      const file = await pickMediaFromGallery();
+
+      if (pickSessionRef.current !== sessionId) {
+        return;
+      }
+
+      if (!file) {
+        if (closeOnCancel) {
+          handleClose();
+        }
+        return;
+      }
+
+      if (!applySelectedFile(file) && closeOnCancel) {
+        handleClose();
+      }
+    } finally {
+      if (pickSessionRef.current === sessionId) {
+        setPicking(false);
+      }
+    }
+  };
+
+  useEffect(() => {
+    if (!isOpen) {
+      pickSessionRef.current += 1;
+      return;
+    }
+
+    resetForm();
+    void openGallery({ closeOnCancel: true });
+
+    return () => {
+      pickSessionRef.current += 1;
+    };
+  }, [isOpen]);
+
+  const resolveFromDevice = async () => {
+    setLocating(true);
+    setLocationHint(null);
+    setError(null);
+
+    try {
+      const detected = await requestDeviceLocation();
+      setLocation(detected);
+    } catch (caught) {
+      setLocationHint(caught instanceof Error ? caught.message : "Unable to get your location.");
+    } finally {
+      setLocating(false);
+    }
+  };
+
+  const applySearchPlace = async (place: PlaceSearchResult) => {
+    setLocating(true);
+    setLocationHint(null);
+
+    try {
+      const { spotLocationFromCoordinates } = await import("@/lib/spotLocation");
+      const resolved = await spotLocationFromCoordinates(place.latitude, place.longitude);
+      setLocation(resolved);
+    } catch (caught) {
+      setLocation({
+        latitude: place.latitude,
+        longitude: place.longitude,
+        address: place.label,
+        city: place.city,
+        country: place.country,
+      });
+      setLocationHint(
+        caught instanceof Error ? caught.message : "Using place name without full address."
+      );
+    } finally {
+      setLocating(false);
     }
   };
 
   const handlePublish = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
-    const trimmedContent = content.trim();
-    const hasMedia = Boolean(mediaFile);
-
-    if (!trimmedContent && !hasMedia) {
-      setError("Add text, a photo, or a video before publishing.");
+    if (!mediaFile || !mediaType) {
+      setError("Choose a photo or video to publish.");
       return;
     }
 
@@ -164,12 +323,7 @@ export default function CreatePostForm({ userId, onCreated }: CreatePostFormProp
         .maybeSingle();
 
       if (profileError) {
-        console.error("Failed to verify profile before post:", {
-          message: profileError.message,
-          details: profileError.details,
-          hint: profileError.hint,
-          code: profileError.code,
-        });
+        console.error("Failed to verify profile before post:", profileError);
         throw new Error(profileError.message || "Unable to verify your profile.");
       }
 
@@ -178,30 +332,53 @@ export default function CreatePostForm({ userId, onCreated }: CreatePostFormProp
         return;
       }
 
-      let mediaUrl: string | null = null;
-      let savedMediaType: string | null = null;
+      const uploadResult = await uploadPostMedia(user.id, mediaFile);
+      let videoCoverUrl: string | null = null;
 
-      if (mediaFile) {
-        const uploadResult = await uploadPostMedia(user.id, mediaFile);
-        mediaUrl = uploadResult.mediaUrl;
-        savedMediaType = uploadResult.mediaType;
+      if (uploadResult.mediaType === "video") {
+        videoCoverUrl = await uploadVideoCoverForPublish(user.id, mediaFile, null);
       }
 
-      const postRow = buildPostInsertRow(user.id, trimmedContent, visibility, mediaUrl, savedMediaType);
+      const postLocation = showLocation ? location : null;
+      const postRow = buildPostInsertRow(
+        user.id,
+        content.trim(),
+        uploadResult.mediaUrl,
+        uploadResult.mediaType,
+        videoCoverUrl,
+        postLocation
+      );
 
-      const { data: insertedPost, error: insertError } = await supabase
+      let { data: insertedPost, error: insertError } = await supabase
         .from("posts")
         .insert(postRow)
-        .select("id, user_id, content, visibility, image_url, video_url, media_url, media_type, created_at, updated_at")
+        .select(
+          "id, user_id, content, visibility, image_url, video_url, video_cover_url, media_url, media_type, created_at, updated_at"
+        )
         .single();
 
+      if (insertError && (isMissingVideoCoverColumn(insertError) || isMissingSpotColumns(insertError))) {
+        const {
+          video_cover_url: _videoCover,
+          thumbnail_url: _thumb,
+          spot_latitude: _lat,
+          spot_longitude: _lng,
+          spot_address: _addr,
+          spot_city: _city,
+          spot_country: _country,
+          ...legacyRow
+        } = postRow;
+        const retry = await supabase
+          .from("posts")
+          .insert(legacyRow)
+          .select("id, user_id, content, visibility, image_url, video_url, media_url, media_type, created_at, updated_at")
+          .single();
+        insertedPost = retry.data as typeof insertedPost;
+        insertError = retry.error;
+      }
+
       if (insertError) {
-        console.error("Failed to create post:", {
-          message: insertError.message,
-          details: insertError.details,
-          hint: insertError.hint,
-          code: insertError.code,
-        });
+        console.error("Failed to create post:", insertError);
         throw new Error(insertError.message || "Unable to publish your post.");
       }
 
@@ -209,11 +386,9 @@ export default function CreatePostForm({ userId, onCreated }: CreatePostFormProp
         throw new Error("Unable to publish your post.");
       }
 
-      console.log("inserted post into public.posts:", insertedPost);
-
-      onCreated(insertedPost);
+      onCreated(insertedPost as CreatedProfilePost);
       resetForm();
-      setIsOpen(false);
+      closeForm();
     } catch (publishError) {
       setError(publishError instanceof Error ? publishError.message : "Unable to publish your post.");
     } finally {
@@ -222,138 +397,159 @@ export default function CreatePostForm({ userId, onCreated }: CreatePostFormProp
   };
 
   if (!isOpen) {
+    if (controlled) {
+      return null;
+    }
+
     return (
       <button
         type="button"
-        onClick={() => setIsOpen(true)}
+        onClick={() => setInternalOpen(true)}
         className="inline-flex flex-1 items-center justify-center rounded-full border border-white/15 bg-white/5 px-6 py-3 text-sm font-semibold text-white transition hover:bg-white/10"
       >
-        Create Post
+        Add Post
       </button>
     );
   }
 
-  return (
-    <form onSubmit={handlePublish} className="w-full basis-full space-y-4 rounded-3xl border border-white/10 bg-slate-950 p-5 sm:p-6">
-      <div className="flex items-center justify-between gap-3">
-        <h2 className="text-sm font-semibold uppercase tracking-[0.35em] text-slate-400">New post</h2>
-        <button
-          type="button"
-          onClick={() => {
-            if (!publishing) {
-              resetForm();
-              setIsOpen(false);
-            }
-          }}
-          disabled={publishing}
-          className="inline-flex h-9 w-9 items-center justify-center rounded-full text-slate-400 transition hover:bg-white/10 hover:text-white disabled:opacity-50"
-          aria-label="Close create post"
+  if (picking || !mediaFile || !mediaPreviewUrl || !mediaType) {
+    return typeof document !== "undefined"
+      ? createPortal(
+          <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/80">
+            <Loader2 className="h-8 w-8 animate-spin text-primary" aria-hidden />
+            <span className="sr-only">Opening photo library…</span>
+          </div>,
+          document.body
+        )
+      : null;
+  }
+
+  const preview = (
+    <div className="fixed inset-0 z-[120] flex flex-col bg-[#050816]">
+      <form onSubmit={handlePublish} className="flex min-h-0 flex-1 flex-col">
+        <header
+          className="flex shrink-0 items-center justify-between gap-3 border-b border-white/10 px-4 py-3"
+          style={{ paddingTop: "max(0.75rem, env(safe-area-inset-top))" }}
         >
-          <X className="h-4 w-4" />
-        </button>
-      </div>
-
-      <textarea
-        value={content}
-        onChange={(event) => setContent(event.target.value)}
-        placeholder="Share what you're up to…"
-        rows={4}
-        disabled={publishing}
-        className="w-full resize-none rounded-2xl border border-white/10 bg-slate-900 px-4 py-3 text-sm leading-7 text-white placeholder:text-slate-500 focus:border-cyan-400/50 focus:outline-none focus:ring-2 focus:ring-cyan-400/20 disabled:opacity-60"
-      />
-
-      <div className="grid grid-cols-2 gap-2 rounded-3xl border border-white/10 bg-slate-900/80 p-1">
-        {(["public", "private"] as const).map((option) => (
           <button
-            key={option}
             type="button"
-            onClick={() => setVisibility(option)}
+            onClick={handleClose}
             disabled={publishing}
-            className={`rounded-3xl px-4 py-2.5 text-sm font-semibold capitalize transition ${
-              visibility === option ? "bg-cyan-500 text-slate-950" : "text-slate-300 hover:bg-white/10"
-            }`}
+            className="inline-flex h-10 w-10 items-center justify-center rounded-full text-slate-300 transition hover:bg-white/10 hover:text-white disabled:opacity-50"
+            aria-label="Close"
           >
-            {option}
+            <X className="h-5 w-5" aria-hidden />
           </button>
-        ))}
-      </div>
+          <h2 className="text-sm font-semibold text-white">New post</h2>
+          <button
+            type="submit"
+            disabled={publishing}
+            className="inline-flex min-w-[5.5rem] items-center justify-center gap-1.5 rounded-full bg-primary px-4 py-2 text-sm font-semibold text-[#050816] transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {publishing ? (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                …
+              </>
+            ) : (
+              "Publish"
+            )}
+          </button>
+        </header>
 
-      {mediaPreviewUrl && mediaType ? (
-        <div className="overflow-hidden rounded-2xl border border-white/10 bg-slate-900">
-          {mediaType === "video" ? (
-            <video src={mediaPreviewUrl} controls className="max-h-72 w-full bg-black object-contain" />
-          ) : (
-            <img src={mediaPreviewUrl} alt="Selected post media preview" className="max-h-72 w-full object-cover" />
-          )}
-          <div className="flex justify-end border-t border-white/10 p-3">
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <div className="flex min-h-[40dvh] items-center justify-center bg-black">
+            {mediaType === "video" ? (
+              <video
+                src={mediaPreviewUrl}
+                controls
+                playsInline
+                className="max-h-[50dvh] w-full object-contain"
+              />
+            ) : (
+              <img
+                src={mediaPreviewUrl}
+                alt="Selected post preview"
+                className="max-h-[50dvh] w-full object-contain"
+              />
+            )}
+          </div>
+
+          <div className="space-y-4 p-4">
+            <textarea
+              value={content}
+              onChange={(event) => setContent(event.target.value)}
+              placeholder="Write a caption…"
+              rows={3}
+              disabled={publishing}
+              className="w-full resize-none rounded-2xl border border-white/10 bg-slate-900 px-4 py-3 text-sm leading-7 text-white placeholder:text-slate-500 focus:border-cyan-400/50 focus:outline-none focus:ring-2 focus:ring-cyan-400/20 disabled:opacity-60"
+            />
+
             <button
               type="button"
-              onClick={clearMedia}
+              onClick={() => void openGallery({ closeOnCancel: false })}
               disabled={publishing}
-              className="inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-medium text-slate-300 transition hover:bg-white/10 hover:text-white disabled:opacity-50"
+              className="inline-flex items-center gap-2 text-sm font-medium text-slate-400 transition hover:text-white disabled:opacity-50"
             >
-              <X className="h-3.5 w-3.5" />
-              Remove media
+              <ArrowLeft className="h-4 w-4 rotate-180" aria-hidden />
+              Choose different media
             </button>
+
+            <div className="rounded-2xl border border-white/10 bg-slate-900/80">
+              <button
+                type="button"
+                onClick={() => setShowLocation((current) => !current)}
+                disabled={publishing}
+                className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
+              >
+                <span className="inline-flex items-center gap-2 text-sm font-medium text-white">
+                  <MapPin className="h-4 w-4 text-cyan-300" aria-hidden />
+                  Add location
+                  <span className="text-xs font-normal text-slate-500">(optional)</span>
+                </span>
+                <span className="text-xs text-slate-400">{showLocation ? "On" : "Off"}</span>
+              </button>
+
+              {showLocation ? (
+                <div className="space-y-3 border-t border-white/10 px-4 pb-4 pt-3">
+                  <SpotLocationPicker
+                    locating={locating}
+                    location={location}
+                    locationSource={location ? "search" : null}
+                    matchedPlaceName={null}
+                    needsLocationChoice={!location}
+                    locationHint={locationHint}
+                    disabled={publishing}
+                    onUseCurrentLocation={() => void resolveFromDevice()}
+                    onSelectPlace={(place) => void applySearchPlace(place)}
+                  />
+                  {location ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setLocation(null);
+                        setLocationHint(null);
+                      }}
+                      disabled={publishing}
+                      className="text-xs font-medium text-slate-400 transition hover:text-white disabled:opacity-50"
+                    >
+                      Remove location
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+
+            {error ? <p className="text-sm text-red-300">{error}</p> : null}
           </div>
         </div>
-      ) : null}
-
-      <div className="flex flex-wrap items-center gap-3">
-        <label className="inline-flex cursor-pointer items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-white/10">
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*,video/*"
-            className="hidden"
-            disabled={publishing}
-            onChange={handleMediaChange}
-          />
-          <ImagePlus className="h-4 w-4 text-cyan-300" />
-          Photo
-        </label>
-        <label className="inline-flex cursor-pointer items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-white/10">
-          <input
-            type="file"
-            accept="video/*"
-            className="hidden"
-            disabled={publishing}
-            onChange={handleMediaChange}
-          />
-          <Video className="h-4 w-4 text-cyan-300" />
-          Video
-        </label>
-      </div>
-
-      {error ? <p className="text-sm text-red-300">{error}</p> : null}
-
-      <div className="flex flex-wrap gap-3">
-        <button
-          type="submit"
-          disabled={publishing}
-          className="inline-flex items-center justify-center gap-2 rounded-3xl bg-cyan-500 px-6 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {publishing ? (
-            <>
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Publishing…
-            </>
-          ) : (
-            "Publish"
-          )}
-        </button>
-        <button
-          type="button"
-          disabled={publishing}
-          onClick={() => {
-            resetForm();
-            setIsOpen(false);
-          }}
-          className="inline-flex items-center justify-center rounded-3xl border border-white/10 bg-white/5 px-6 py-3 text-sm font-semibold text-white transition hover:bg-white/10 disabled:opacity-50"
-        >
-          Cancel
-        </button>
-      </div>
-    </form>
+      </form>
+    </div>
   );
+
+  if (typeof document !== "undefined") {
+    return createPortal(preview, document.body);
+  }
+
+  return preview;
 }

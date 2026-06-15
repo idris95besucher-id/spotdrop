@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { Bookmark, BookmarkCheck, Loader2, X } from "lucide-react";
-import OfficialAIGuideBadge from "@/components/OfficialAIGuideBadge";
 import type { DiscoveryPlace } from "@/lib/discoveryMap";
 import { loadPlaceSaved, togglePlaceSaved } from "@/lib/discoveryPlaces";
 import { loadPlaceFeed, type PlaceFeedItem, type StoryRow } from "@/lib/stories";
@@ -15,10 +14,6 @@ type DiscoveryPlaceDetailProps = {
   userId: string | null;
   onClose: () => void;
 };
-
-function isGuideItem(item: PlaceFeedItem) {
-  return Boolean(item.profiles?.is_ai_guide || item.profiles?.is_official);
-}
 
 export default function DiscoveryPlaceDetail({ place, userId, onClose }: DiscoveryPlaceDetailProps) {
   const [items, setItems] = useState<PlaceFeedItem[]>([]);
@@ -186,7 +181,6 @@ export default function DiscoveryPlaceDetail({ place, userId, onClose }: Discove
                               Story
                             </span>
                           ) : null}
-                          {isGuideItem(item) ? <OfficialAIGuideBadge className="scale-75 origin-left" /> : null}
                         </div>
                         {item.content ? (
                           <p className="line-clamp-2 text-[11px] text-slate-400">{item.content}</p>

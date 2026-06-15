@@ -1,12 +1,36 @@
 import type { Session } from "@supabase/supabase-js";
+import {
+  AUTH_CONNECTION_ERROR_MESSAGE,
+  consumeIntentionalSignOut,
+  isStaleSessionError,
+  SESSION_EXPIRED_MESSAGE,
+  shouldLogAuthError,
+} from "@/lib/authMessages";
 import { supabase } from "@/lib/supabaseClient";
 
-export const AUTH_CONNECTION_ERROR_MESSAGE = "Connection problem. Please try again.";
+function isBrowserOffline() {
+  return typeof navigator !== "undefined" && !navigator.onLine;
+}
+
+export {
+  AUTH_CONNECTION_ERROR_MESSAGE,
+  INVALID_CREDENTIALS_MESSAGE,
+  SESSION_EXPIRED_MESSAGE,
+} from "@/lib/authMessages";
+export { isInvalidCredentialsError, isStaleSessionError } from "@/lib/authMessages";
+
+export const AUTH_NOTICE_STORAGE_KEY = "spotdrop_auth_notice";
 
 type AuthErrorDetails = {
   name: string | null;
   message: string | null;
   status: number | string | null;
+};
+
+export type SafeAuthSessionResult = {
+  session: Session | null;
+  error: string | null;
+  expired: boolean;
 };
 
 function authErrorDetails(error: unknown): AuthErrorDetails {
@@ -23,24 +47,107 @@ function authErrorDetails(error: unknown): AuthErrorDetails {
 }
 
 export function logAuthSessionError(error: unknown) {
+  if (!shouldLogAuthError(error)) {
+    return;
+  }
+
   console.error("Auth session error:", JSON.stringify(authErrorDetails(error), null, 2));
 }
 
-export async function getSafeAuthSession(): Promise<{
-  session: Session | null;
-  error: string | null;
-}> {
+export async function clearLocalAuthSession() {
+  try {
+    await supabase.auth.signOut({ scope: "local" });
+  } catch {
+    // Local storage may already be cleared.
+  }
+}
+
+export function setAuthNotice(message: string) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  sessionStorage.setItem(AUTH_NOTICE_STORAGE_KEY, message);
+}
+
+export function consumeAuthNotice() {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  const message = sessionStorage.getItem(AUTH_NOTICE_STORAGE_KEY);
+
+  if (message) {
+    sessionStorage.removeItem(AUTH_NOTICE_STORAGE_KEY);
+  }
+
+  return message;
+}
+
+export async function getSafeAuthSession(): Promise<SafeAuthSessionResult> {
   try {
     const { data, error } = await supabase.auth.getSession();
 
     if (error) {
-      logAuthSessionError(error);
-      return { session: null, error: AUTH_CONNECTION_ERROR_MESSAGE };
+      if (isStaleSessionError(error)) {
+        await clearLocalAuthSession();
+        return { session: null, error: null, expired: true };
+      }
+
+      return { session: null, error: AUTH_CONNECTION_ERROR_MESSAGE, expired: false };
     }
 
-    return { session: data.session ?? null, error: null };
+    const session = data.session ?? null;
+
+    if (!session) {
+      return { session: null, error: null, expired: false };
+    }
+
+    if (isBrowserOffline()) {
+      return { session, error: null, expired: false };
+    }
+
+    const { data: userData, error: userError } = await supabase.auth.getUser();
+
+    if (userError) {
+      if (isStaleSessionError(userError)) {
+        await clearLocalAuthSession();
+        return { session: null, error: null, expired: true };
+      }
+
+      return { session: null, error: AUTH_CONNECTION_ERROR_MESSAGE, expired: false };
+    }
+
+    if (!userData.user) {
+      await clearLocalAuthSession();
+      return { session: null, error: null, expired: true };
+    }
+
+    return { session, error: null, expired: false };
   } catch (error) {
-    logAuthSessionError(error);
-    return { session: null, error: AUTH_CONNECTION_ERROR_MESSAGE };
+    if (isStaleSessionError(error)) {
+      await clearLocalAuthSession();
+      return { session: null, error: null, expired: true };
+    }
+
+    if (isBrowserOffline()) {
+      try {
+        const { data } = await supabase.auth.getSession();
+        const session = data.session ?? null;
+
+        if (session) {
+          return { session, error: null, expired: false };
+        }
+      } catch {
+        // Fall through to connection error.
+      }
+    }
+
+    return { session: null, error: AUTH_CONNECTION_ERROR_MESSAGE, expired: false };
   }
+}
+
+/** Redirect helper for expired sessions (skip after intentional sign-out). */
+export function shouldHandleSessionExpiry() {
+  return !consumeIntentionalSignOut();
 }

@@ -1,3 +1,7 @@
+import type { TranslationKey } from "@/lib/i18n/messages";
+
+type TranslateFn = (key: TranslationKey, values?: Record<string, string | number>) => string;
+
 /** Local calendar day key (YYYY-MM-DD) for grouping chat messages. */
 export function getLocalDateKey(isoTimestamp: string) {
   const date = new Date(isoTimestamp);
@@ -33,7 +37,10 @@ export function shouldShowChatDateSeparator(
 }
 
 /** Telegram/WhatsApp-style label: Today, Yesterday, or "15 May 2026". */
-export function formatChatDateLabel(isoTimestamp: string) {
+export function formatChatDateLabel(
+  isoTimestamp: string,
+  options?: { t?: TranslateFn; locale?: string }
+) {
   const date = new Date(isoTimestamp);
 
   if (Number.isNaN(date.getTime())) {
@@ -44,7 +51,7 @@ export function formatChatDateLabel(isoTimestamp: string) {
   const todayKey = getLocalDateKey(new Date().toISOString());
 
   if (messageKey === todayKey) {
-    return "Today";
+    return options?.t ? options.t("common.today") : "Today";
   }
 
   const yesterday = new Date();
@@ -52,10 +59,10 @@ export function formatChatDateLabel(isoTimestamp: string) {
   const yesterdayKey = getLocalDateKey(yesterday.toISOString());
 
   if (messageKey === yesterdayKey) {
-    return "Yesterday";
+    return options?.t ? options.t("common.yesterday") : "Yesterday";
   }
 
-  return new Intl.DateTimeFormat(undefined, {
+  return new Intl.DateTimeFormat(options?.locale ?? undefined, {
     day: "numeric",
     month: "long",
     year: "numeric",

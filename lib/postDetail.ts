@@ -1,6 +1,8 @@
+import { isGuideAccountProfile } from "@/lib/guideAccounts";
 import { CLIENT_DEMO_FEED_POSTS } from "@/lib/demoFeed";
 import type { GuidePlace } from "@/lib/guidePlaces";
 import type { PostMediaFields } from "@/lib/posts";
+import { formatSpotLocationDisplay } from "@/lib/spotLocationDisplay";
 import { isDemoPostId, normalizePostId, postIdForQuery } from "@/lib/postIds";
 import { logExactLoadError, userFacingSupabaseListError } from "@/lib/safeLoad";
 import { supabase } from "@/lib/supabaseClient";
@@ -11,14 +13,38 @@ export type PostDetailRow = PostMediaFields & {
   content: string;
   created_at: string;
   updated_at?: string;
+  content_kind?: string | null;
+  spot_name?: string | null;
+  spot_address?: string | null;
+  spot_city?: string | null;
+  spot_country?: string | null;
+  spot_latitude?: number | null;
+  spot_longitude?: number | null;
+  visited_count?: number;
+  comments_count?: number;
+  collection_save_count?: number;
   profiles?: {
     username: string;
     avatar_url?: string | null;
-    is_ai_guide?: boolean | null;
-    is_official?: boolean | null;
   } | null;
   guide_places?: GuidePlace | GuidePlace[] | null;
 };
+
+export function formatPostDetailLocation(post: PostDetailRow) {
+  return formatSpotLocationDisplay({
+    content_kind: post.content_kind,
+    spot_name: post.spot_name,
+    spot_address: post.spot_address,
+    spot_city: post.spot_city,
+    spot_country: post.spot_country,
+    spot_latitude: post.spot_latitude,
+    spot_longitude: post.spot_longitude,
+  });
+}
+
+export function formatPostDetailSpotTitle(post: PostDetailRow) {
+  return post.spot_name?.trim() || null;
+}
 
 export function findDemoPost(postId: string): PostDetailRow | null {
   const demo = CLIENT_DEMO_FEED_POSTS.find((post) => post.id === postId);
@@ -37,6 +63,16 @@ export function findDemoPost(postId: string): PostDetailRow | null {
     media_url: demo.media_url ?? null,
     media_type: demo.media_type ?? null,
   };
+}
+
+async function isGuideAccountUserId(userId: string) {
+  const { data, error } = await supabase.from("profiles").select("username, name").eq("id", userId).maybeSingle();
+
+  if (error || !data) {
+    return false;
+  }
+
+  return isGuideAccountProfile(data);
 }
 
 export async function loadPostDetail(postId: string): Promise<{
@@ -75,6 +111,11 @@ export async function loadPostDetail(postId: string): Promise<{
     }
 
     const row = data as PostDetailRow & { id: string | number };
+
+    if (await isGuideAccountUserId(String(row.user_id))) {
+      return { post: null, error: "Post not found.", isDemo: false };
+    }
+
     return {
       post: { ...row, id: normalizePostId(row.id) ?? normalizedId },
       error: null,

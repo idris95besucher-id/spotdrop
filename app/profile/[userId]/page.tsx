@@ -1,6 +1,10 @@
-import { redirect } from "next/navigation";
+import { profileUserStaticParams } from "@/lib/capacitorStaticExport";
+import ProfileRedirectView from "./ProfileRedirectView";
 
-export default async function ProfilePage({ params }: { params: Promise<{ userId: string }> }) {
-  const { userId } = await params;
-  redirect(`/user/${userId}`);
+export function generateStaticParams() {
+  return profileUserStaticParams();
+}
+
+export default function ProfileUserIdRedirectPage() {
+  return <ProfileRedirectView />;
 }

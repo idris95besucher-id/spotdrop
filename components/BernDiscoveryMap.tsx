@@ -1,7 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { Filter, MapPin, Mountain } from "lucide-react";
+import { Filter, MapPin, Mountain, X } from "lucide-react";
 import {
   BERN_MAP_BOUNDS,
   DISCOVERY_CATEGORY_COLORS,
@@ -13,6 +14,7 @@ import {
   type DiscoveryRegion,
 } from "@/lib/discoveryMap";
 import { loadBernDiscoveryRegion, loadDiscoveryPlaces } from "@/lib/discoveryPlaces";
+import { loadMapSpotPins, type MapSpotPin } from "@/lib/spots";
 import DiscoveryPlaceDetail from "@/components/DiscoveryPlaceDetail";
 
 type BernDiscoveryMapProps = {
@@ -38,6 +40,8 @@ export default function BernDiscoveryMap({ userId }: BernDiscoveryMapProps) {
   const [error, setError] = useState<string | null>(null);
   const [activeCategory, setActiveCategory] = useState<DiscoveryPlaceCategory | "all">("all");
   const [selectedPlace, setSelectedPlace] = useState<DiscoveryPlace | null>(null);
+  const [spotPins, setSpotPins] = useState<MapSpotPin[]>([]);
+  const [selectedSpotPin, setSelectedSpotPin] = useState<MapSpotPin | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -58,11 +62,25 @@ export default function BernDiscoveryMap({ userId }: BernDiscoveryMapProps) {
         return;
       }
 
+      const mapBounds = {
+        north: regionResult.region.map_bounds_north,
+        south: regionResult.region.map_bounds_south,
+        east: regionResult.region.map_bounds_east,
+        west: regionResult.region.map_bounds_west,
+      };
+
+      const spotPinsResult = await loadMapSpotPins(mapBounds);
+
+      if (cancelled) {
+        return;
+      }
+
       setRegion(regionResult.region);
       if (placesResult.places.length > 0) {
         setPlaces(placesResult.places);
       }
-      setError(regionResult.error ?? placesResult.error);
+      setSpotPins(spotPinsResult.pins);
+      setError(regionResult.error ?? placesResult.error ?? spotPinsResult.error);
       setSyncing(false);
     };
 
@@ -165,6 +183,37 @@ export default function BernDiscoveryMap({ userId }: BernDiscoveryMapProps) {
           />
         </div>
 
+        {spotPins.map((pin) => {
+          const position = projectLatLngToPercent(pin.latitude, pin.longitude, bounds);
+
+          return (
+            <button
+              key={`spot-pin-${pin.id}`}
+              type="button"
+              onClick={() => {
+                setSelectedSpotPin(pin);
+                if (pin.discovery_place_id) {
+                  const matched = places.find((place) => place.id === pin.discovery_place_id);
+                  if (matched) {
+                    setSelectedPlace(matched);
+                    setSelectedSpotPin(null);
+                  }
+                }
+              }}
+              className="group absolute z-[25] -translate-x-1/2 -translate-y-full transition hover:z-30 focus:z-30 focus:outline-none"
+              style={{ left: `${position.x}%`, top: `${position.y}%` }}
+              aria-label={`Open spot ${pin.label}`}
+            >
+              <span className="relative flex h-8 w-8 items-center justify-center rounded-full border-2 border-rose-300 bg-rose-500 text-white shadow-lg shadow-black/50 transition group-hover:scale-110">
+                <MapPin className="h-3.5 w-3.5" strokeWidth={2.5} aria-hidden />
+              </span>
+              <span className="mt-1 block max-w-[88px] truncate rounded-full border border-rose-300/40 bg-slate-950/95 px-2 py-0.5 text-[10px] font-semibold text-rose-100 shadow-md">
+                {pin.label}
+              </span>
+            </button>
+          );
+        })}
+
         {filteredPlaces.map((place) => {
           const position = projectLatLngToPercent(place.latitude, place.longitude, bounds);
           const isSelected = selectedPlace?.id === place.id;
@@ -232,6 +281,41 @@ export default function BernDiscoveryMap({ userId }: BernDiscoveryMapProps) {
 
       {selectedPlace ? (
         <DiscoveryPlaceDetail place={selectedPlace} userId={userId} onClose={() => setSelectedPlace(null)} />
+      ) : null}
+
+      {selectedSpotPin && !selectedPlace ? (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-4 sm:items-center">
+          <div className="w-full max-w-sm overflow-hidden rounded-3xl border border-white/10 bg-slate-950 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-white/10 px-4 py-3">
+              <p className="text-sm font-semibold text-white">{selectedSpotPin.label}</p>
+              <button
+                type="button"
+                onClick={() => setSelectedSpotPin(null)}
+                className="rounded-full p-1 text-slate-400 hover:bg-white/10 hover:text-white"
+                aria-label="Close"
+              >
+                <X className="h-4 w-4" aria-hidden />
+              </button>
+            </div>
+            {selectedSpotPin.media_url ? (
+              <div className="bg-black">
+                {selectedSpotPin.media_type === "video" ? (
+                  <video src={selectedSpotPin.media_url} className="max-h-64 w-full object-contain" controls playsInline />
+                ) : (
+                  <img src={selectedSpotPin.media_url} alt="" className="max-h-64 w-full object-contain" />
+                )}
+              </div>
+            ) : null}
+            <div className="p-4">
+              <Link
+                href={`/posts/${selectedSpotPin.id}`}
+                className="inline-flex w-full items-center justify-center rounded-full bg-cyan-400 py-3 text-sm font-semibold text-slate-950"
+              >
+                View spot
+              </Link>
+            </div>
+          </div>
+        </div>
       ) : null}
     </div>
   );

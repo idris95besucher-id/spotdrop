@@ -1,4 +1,11 @@
 /** Normalize Supabase post id (uuid string or bigint number) for links and queries. */
+export function postIdsEqual(left: unknown, right: unknown) {
+  const a = normalizePostId(left);
+  const b = normalizePostId(right);
+
+  return a != null && b != null && a === b;
+}
+
 export function normalizePostId(value: unknown): string | null {
   if (value === null || value === undefined) {
     return null;
