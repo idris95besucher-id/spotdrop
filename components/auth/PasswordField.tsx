@@ -28,7 +28,7 @@ export default function PasswordField({
   return (
     <label htmlFor={id} className={authLabelClass}>
       {label}
-      <div className="relative">
+      <div className="relative min-w-0">
         <input
           id={id}
           type={visible ? "text" : "password"}

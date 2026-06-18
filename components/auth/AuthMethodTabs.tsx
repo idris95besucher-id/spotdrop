@@ -18,7 +18,7 @@ export default function AuthMethodTabs({ value, onChange }: AuthMethodTabsProps)
   ];
 
   return (
-    <div className="grid grid-cols-2 gap-1 rounded-xl bg-white/5 p-1">
+    <div className="grid w-full min-w-0 max-w-full grid-cols-2 gap-1 rounded-xl bg-white/5 p-1">
       {methods.map((method) => (
         <button
           key={method.id}

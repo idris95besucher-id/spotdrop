@@ -26,10 +26,12 @@ export default function Shell({
   flushTop?: boolean;
 }) {
   const pathname = usePathname();
+  const isAuth = isAuthRoute(pathname);
+  const isWelcome = pathname === "/" || pathname === "";
   const isFullScreenChat = chatThread || isChatThreadRoute(pathname);
   const showMobileNav = shouldShowMobileBottomNav(pathname);
-  const isMobileSecondary = !showMobileNav && !isFullScreenChat && !isAuthRoute(pathname);
-  const showDesktopHeader = showHeader && !isAuthRoute(pathname);
+  const isMobileSecondary = !showMobileNav && !isFullScreenChat && !isAuth;
+  const showDesktopHeader = showHeader && !isAuth;
 
   if (immersive) {
     return (
@@ -51,16 +53,18 @@ export default function Shell({
   }
 
   return (
-    <div className="min-h-[100dvh] bg-[#050816] text-white md:min-h-screen">
+    <div className="min-h-[100dvh] w-full max-w-full overflow-x-hidden bg-[#050816] text-white md:min-h-screen">
       <div
-        className={`mx-auto flex min-h-[100dvh] max-w-5xl flex-col md:min-h-screen ${
-          showMobileNav ? MOBILE_BOTTOM_NAV_PADDING : ""
-        } md:pb-0 ${
-          isMobileSecondary
-            ? "px-0 py-0 sm:px-6 sm:py-6 lg:px-8"
-            : flushTop
-              ? "px-4 pb-6 pt-0 sm:px-6 lg:px-8"
-              : "px-4 py-6 sm:px-6 lg:px-8"
+        className={`mx-auto flex min-h-[100dvh] w-full max-w-full min-w-0 flex-col overflow-x-hidden md:min-h-screen ${
+          isAuth ? "max-w-full" : "max-w-5xl"
+        } ${showMobileNav ? MOBILE_BOTTOM_NAV_PADDING : ""} md:pb-0 ${
+          isAuth || isWelcome
+            ? "px-0 py-0"
+            : isMobileSecondary
+              ? "px-0 py-0 sm:px-6 sm:py-6 lg:px-8"
+              : flushTop
+                ? "px-4 pb-6 pt-0 sm:px-6 lg:px-8"
+                : "px-4 py-6 sm:px-6 lg:px-8"
         }`}
       >
         {showDesktopHeader ? (
@@ -68,7 +72,13 @@ export default function Shell({
             <AuthStatus />
           </header>
         ) : null}
-        <main className={`flex-1 ${isMobileSecondary ? "flex min-h-0 flex-col" : ""}`}>{children}</main>
+        <main
+          className={`min-w-0 w-full max-w-full flex-1 overflow-x-hidden ${
+            isMobileSecondary ? "flex min-h-0 flex-col" : ""
+          }`}
+        >
+          {children}
+        </main>
       </div>
       {showMobileNav ? <MobileBottomNav /> : null}
     </div>

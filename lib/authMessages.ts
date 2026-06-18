@@ -11,7 +11,9 @@ export const PASSWORD_TOO_SHORT_MESSAGE = "Password must be at least 8 character
 export const RESET_LINK_INVALID_MESSAGE =
   "This reset link is invalid or expired. Please request a new password reset email.";
 export const RESET_EMAIL_SENT_MESSAGE =
-  "If an account exists for that email, we sent a password reset link. Check your inbox.";
+  "We sent a secure link to your email. Open it to create a new password.";
+export const PASSWORD_UPDATED_SUCCESS_MESSAGE =
+  "Your password has been updated. You can now log in.";
 
 const INTENTIONAL_SIGNOUT_KEY = "spotdrop_intentional_signout";
 

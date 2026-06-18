@@ -12,6 +12,7 @@ import { applyDocumentLanguage } from "@/lib/languages";
 import { loadUserSettingsPreferences } from "@/lib/settingsPreferences";
 import { applyThemeAccent } from "@/lib/themeAccent";
 import type { AppLanguageCode } from "@/lib/languages";
+import PasswordRecoveryRedirect from "@/components/PasswordRecoveryRedirect";
 
 export default function AppProviders({ children }: { children: ReactNode }) {
   useEffect(() => {
@@ -22,6 +23,7 @@ export default function AppProviders({ children }: { children: ReactNode }) {
 
   return (
     <I18nProvider>
+      <PasswordRecoveryRedirect />
       <AuthSessionGuard>
         <CreateMenuProvider>
           <ChatNotificationsProvider>

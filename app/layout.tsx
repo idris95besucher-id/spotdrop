@@ -36,9 +36,9 @@ export default function RootLayout({
       lang="en"
       data-theme="spotdrop-night-v1"
       suppressHydrationWarning
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased bg-[#050816] text-white`}
+      className={`${geistSans.variable} ${geistMono.variable} h-full max-w-full overflow-x-hidden antialiased bg-[#050816] text-white`}
     >
-      <body className="min-h-full bg-[#050816] text-white">
+      <body className="min-h-full w-full max-w-full overflow-x-hidden bg-[#050816] text-white">
         <Script id="spotdrop-theme-bootstrap" strategy="beforeInteractive">
           {THEME_BOOTSTRAP_SCRIPT}
         </Script>

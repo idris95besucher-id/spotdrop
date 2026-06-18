@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { authPrimaryButtonClass, authSecondaryButtonClass } from "@/components/auth/authStyles";
 import { useI18n } from "@/components/I18nProvider";
 import Shell from "@/components/Shell";
 
@@ -9,28 +10,30 @@ export default function Home() {
 
   return (
     <Shell showHeader={false}>
-      <section className="mx-auto flex min-h-[70vh] max-w-2xl items-center justify-center rounded-3xl border border-white/10 bg-slate-900/90 p-8 text-center shadow-2xl shadow-black/40 sm:p-12">
-        <div className="space-y-8">
-          <div className="inline-flex items-center justify-center rounded-full bg-cyan-500/10 px-5 py-3 text-sm font-semibold uppercase tracking-[0.35em] text-cyan-200">
-            SpotDrop
+      <div className="h-[100dvh] min-h-[100dvh] w-full overflow-hidden">
+        <section className="flex h-full min-h-full w-full items-center justify-center rounded-3xl border border-primary/10 bg-card px-6 py-12 shadow-2xl shadow-black/40 sm:px-8">
+          <div className="flex w-full max-w-[420px] flex-col items-center">
+            <div className="mb-10 text-center">
+              <p className="text-3xl font-bold tracking-tight text-white">
+                Spot<span className="text-primary">Drop</span>
+              </p>
+            </div>
+
+            <div className="w-full text-center">
+              <h1 className="text-xl font-semibold leading-snug text-white sm:text-2xl">{t("home.continueTitle")}</h1>
+            </div>
+
+            <div className="mt-10 flex w-full flex-col gap-3">
+              <Link href="/auth/login" className={`${authPrimaryButtonClass} text-center`}>
+                {t("home.login")}
+              </Link>
+              <Link href="/auth/register" className={`${authSecondaryButtonClass} text-center`}>
+                {t("home.register")}
+              </Link>
+            </div>
           </div>
-          <h1 className="text-3xl font-semibold tracking-tight text-white sm:text-4xl">{t("home.continueTitle")}</h1>
-          <div className="flex flex-col items-center justify-center gap-4 sm:flex-row">
-            <Link
-              href="/auth/login"
-              className="inline-flex min-w-[140px] items-center justify-center rounded-3xl bg-cyan-500 px-6 py-4 text-base font-semibold text-slate-950 transition hover:bg-cyan-400"
-            >
-              {t("home.login")}
-            </Link>
-            <Link
-              href="/auth/register"
-              className="inline-flex min-w-[140px] items-center justify-center rounded-3xl border border-white/10 bg-white/5 px-6 py-4 text-base font-semibold text-white transition hover:border-cyan-300/40 hover:bg-white/10"
-            >
-              {t("home.register")}
-            </Link>
-          </div>
-        </div>
-      </section>
+        </section>
+      </div>
     </Shell>
   );
 }
