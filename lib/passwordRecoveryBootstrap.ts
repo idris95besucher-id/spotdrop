@@ -15,6 +15,7 @@ export const PASSWORD_RECOVERY_BOOTSTRAP_SCRIPT = `
     if (search.indexOf("type=recovery") !== -1) hasRecovery = true;
     if (search.indexOf("code=") !== -1) hasRecovery = true;
     if (search.indexOf("token_hash=") !== -1) hasRecovery = true;
+    if (search.indexOf("access_token=") !== -1 && search.indexOf("refresh_token=") !== -1) hasRecovery = true;
 
     if (hasRecovery) {
       window.location.replace(resetPath + search + hash);

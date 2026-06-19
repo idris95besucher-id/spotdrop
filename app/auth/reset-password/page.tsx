@@ -52,13 +52,18 @@ export default function ResetPasswordPage() {
       setMessage("auth.checkingResetLink");
 
       try {
-        await activatePasswordRecoverySession();
+        const session = await activatePasswordRecoverySession();
 
         if (!cancelled) {
+          console.log("[SpotDrop recovery] page ready — active session", {
+            userId: session?.user?.id ?? null,
+            email: session?.user?.email ?? null,
+          });
           setStatus("ready");
         }
       } catch (recoveryError) {
         logAuthSessionError(recoveryError);
+        console.error("[SpotDrop recovery] activation failed", recoveryError);
 
         if (!cancelled) {
           setStatus("error");
