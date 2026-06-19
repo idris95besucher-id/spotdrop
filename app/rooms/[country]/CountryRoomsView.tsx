@@ -5,6 +5,7 @@ import { useParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import Shell from "@/components/Shell";
 import MobileSecondaryHeader from "@/components/MobileSecondaryHeader";
+import { MOBILE_WIDTH_SAFE_CLASS } from "@/lib/mobileLayout";
 import { useI18n } from "@/components/I18nProvider";
 import { getSafeAuthSession } from "@/lib/authSession";
 import { getCountryFlag } from "@/lib/countryFlags";
@@ -131,15 +132,15 @@ export default function CountryRoomsPage() {
 
   if (!countrySlug) {
     return (
-      <Shell>
+      <Shell showHeader={false} flushTop>
         <InvalidCountryPanel t={t} />
       </Shell>
     );
   }
 
   return (
-    <Shell>
-      <div className="flex min-h-0 flex-1 flex-col">
+    <Shell showHeader={false} flushTop>
+      <div className={`flex min-h-0 flex-1 flex-col ${MOBILE_WIDTH_SAFE_CLASS}`}>
         <MobileSecondaryHeader title={foundCountry?.name ?? t("rooms.cities")} backHref="/visit" />
         <div className="space-y-8 px-4 py-6 sm:px-0">
         <section className="rounded-3xl border border-white/10 bg-slate-900/90 p-8 text-center shadow-xl shadow-black/30">

@@ -6,6 +6,7 @@ import { useI18n } from "@/components/I18nProvider";
 import { getSafeAuthSession } from "@/lib/authSession";
 import { getCountryFlag } from "@/lib/countryFlags";
 import { localizeUserMessage } from "@/lib/i18n/localizeUserMessage";
+import { MOBILE_PANEL_SCROLL_CLASS } from "@/lib/mobileLayout";
 import { supabase } from "@/lib/supabaseClient";
 
 type Country = {
@@ -60,7 +61,7 @@ export default function VisitExplorePanel() {
   const localizedError = localizeUserMessage(t, error);
 
   return (
-    <div className="h-full overflow-y-auto">
+    <div data-mobile-panel-scroll="" className={MOBILE_PANEL_SCROLL_CLASS}>
       <div className="space-y-3 px-4 py-3 sm:px-5">
         <section className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-4 py-2 text-center">
           <h1 className="text-base font-semibold tracking-[-0.01em] text-white sm:text-[17px]">

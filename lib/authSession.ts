@@ -111,16 +111,25 @@ export async function getSafeAuthSession(): Promise<SafeAuthSessionResult> {
 
     if (userError) {
       if (isStaleSessionError(userError)) {
-        await clearLocalAuthSession();
-        return { session: null, error: null, expired: true };
+        const { data: refreshed, error: refreshError } = await supabase.auth.refreshSession();
+
+        if (refreshed.session) {
+          return { session: refreshed.session, error: null, expired: false };
+        }
+
+        if (refreshError && isStaleSessionError(refreshError)) {
+          await clearLocalAuthSession();
+          return { session: null, error: null, expired: true };
+        }
+
+        return { session, error: null, expired: false };
       }
 
-      return { session: null, error: AUTH_CONNECTION_ERROR_MESSAGE, expired: false };
+      return { session, error: AUTH_CONNECTION_ERROR_MESSAGE, expired: false };
     }
 
     if (!userData.user) {
-      await clearLocalAuthSession();
-      return { session: null, error: null, expired: true };
+      return { session, error: null, expired: false };
     }
 
     return { session, error: null, expired: false };

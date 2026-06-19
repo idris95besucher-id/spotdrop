@@ -13,6 +13,7 @@ import {
   type LiveMapUser,
 } from "@/lib/userLiveLocation";
 import { supabase } from "@/lib/supabaseClient";
+import { MOBILE_PANEL_SCROLL_CLASS } from "@/lib/mobileLayout";
 
 function locationLine(user: LiveMapUser) {
   const parts = [user.city, user.country].filter(Boolean);
@@ -197,7 +198,7 @@ export default function VisitNearbyPanel() {
   }
 
   return (
-    <div className="h-full overflow-y-auto px-4 py-4 sm:px-5">
+    <div data-mobile-panel-scroll="" className={`${MOBILE_PANEL_SCROLL_CLASS} px-4 py-4 sm:px-5`}>
       <p className="mb-4 text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">
         {t("map.onlineNearby", { count: sortedUsers.length })}
       </p>

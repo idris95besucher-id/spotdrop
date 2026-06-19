@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import PasswordField from "@/components/auth/PasswordField";
-import Shell from "@/components/Shell";
+import SettingsScreenLayout from "@/components/settings/SettingsScreenLayout";
 import { SettingsPageHeader, settingsPrimaryButtonClass } from "@/components/settings/SettingsUI";
 import { useI18n } from "@/components/I18nProvider";
 import { getSafeAuthSession } from "@/lib/authSession";
@@ -71,18 +71,15 @@ export default function ChangePasswordPage() {
 
   if (loading) {
     return (
-      <Shell>
-        <div className="mx-auto max-w-lg space-y-6 px-1 pb-10 pt-2">
+      <SettingsScreenLayout>
           <SettingsPageHeader title={t("settings.changePassword.title")} />
           <p className="text-sm text-muted">{t("common.loading")}</p>
-        </div>
-      </Shell>
+      </SettingsScreenLayout>
     );
   }
 
   return (
-    <Shell>
-      <div className="mx-auto max-w-lg space-y-6 px-1 pb-10 pt-2">
+    <SettingsScreenLayout>
         <SettingsPageHeader title={t("settings.changePassword.title")} />
 
         <div className="rounded-2xl border border-white/[0.08] bg-[#0B1026] p-5">
@@ -117,7 +114,6 @@ export default function ChangePasswordPage() {
             </button>
           </form>
         </div>
-      </div>
-    </Shell>
+    </SettingsScreenLayout>
   );
 }

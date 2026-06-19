@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import Shell from "@/components/Shell";
+import SettingsScreenLayout from "@/components/settings/SettingsScreenLayout";
 import {
   SettingsPageHeader,
   settingsDangerButtonClass,
@@ -56,18 +56,15 @@ export default function DeleteAccountPage() {
 
   if (loading) {
     return (
-      <Shell>
-        <div className="mx-auto max-w-lg space-y-6 px-1 pb-10 pt-2">
+      <SettingsScreenLayout>
           <SettingsPageHeader title={t("settings.delete.title")} />
           <p className="text-sm text-muted">{t("common.loading")}</p>
-        </div>
-      </Shell>
+      </SettingsScreenLayout>
     );
   }
 
   return (
-    <Shell>
-      <div className="mx-auto max-w-lg space-y-6 px-1 pb-10 pt-2">
+    <SettingsScreenLayout>
         <SettingsPageHeader title={t("settings.delete.title")} />
 
         <div className="rounded-2xl border border-red-500/20 bg-red-500/5 p-5">
@@ -97,7 +94,6 @@ export default function DeleteAccountPage() {
             </button>
           </form>
         </div>
-      </div>
-    </Shell>
+    </SettingsScreenLayout>
   );
 }

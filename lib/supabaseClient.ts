@@ -21,7 +21,8 @@ if (!supabaseUrl || !supabaseAnonKey) {
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
-    detectSessionInUrl: true,
+    // Recovery tokens are parsed manually on /auth/reset-password so the hash is not consumed early.
+    detectSessionInUrl: false,
     persistSession: true,
   },
 });

@@ -1,16 +1,47 @@
 {
   "name": "SpotDrop",
   "short_name": "SpotDrop",
-  "description": "City-based social spots and chat",
+  "description": "Discover city spots, join local chat rooms, and share your world.",
   "start_url": "/visit",
+  "scope": "/",
   "display": "standalone",
+  "orientation": "portrait",
   "background_color": "#050816",
   "theme_color": "#050816",
+  "lang": "en",
+  "categories": ["social", "lifestyle", "travel"],
   "icons": [
     {
-      "src": "/globe.svg",
+      "src": "/icon.svg",
       "sizes": "any",
-      "type": "image/svg+xml"
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon.png",
+      "sizes": "1024x1024",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Explore",
+      "short_name": "Explore",
+      "url": "/visit",
+      "icons": [{ "src": "/icon.svg", "sizes": "any" }]
+    },
+    {
+      "name": "Feed",
+      "short_name": "Feed",
+      "url": "/feed",
+      "icons": [{ "src": "/icon.svg", "sizes": "any" }]
+    },
+    {
+      "name": "My Profile",
+      "short_name": "Profile",
+      "url": "/profile",
+      "icons": [{ "src": "/icon.svg", "sizes": "any" }]
     }
   ]
 }

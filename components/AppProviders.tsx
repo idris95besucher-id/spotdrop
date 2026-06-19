@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, type ReactNode } from "react";
-import AuthSessionGuard from "@/components/AuthSessionGuard";
+import { AuthSessionProvider } from "@/components/AuthSessionProvider";
 import ChatNotificationsProvider from "@/components/ChatNotificationsProvider";
 import CreateMenuProvider from "@/components/CreateMenuProvider";
 import NotificationsProvider from "@/components/NotificationsProvider";
@@ -13,6 +13,9 @@ import { loadUserSettingsPreferences } from "@/lib/settingsPreferences";
 import { applyThemeAccent } from "@/lib/themeAccent";
 import type { AppLanguageCode } from "@/lib/languages";
 import PasswordRecoveryRedirect from "@/components/PasswordRecoveryRedirect";
+import { MobileBottomNav } from "@/components/MainNavigation";
+import PwaInstallBanner from "@/components/PwaInstallBanner";
+import { MOBILE_APP_ROOT_CLASS } from "@/lib/mobileLayout";
 
 export default function AppProviders({ children }: { children: ReactNode }) {
   useEffect(() => {
@@ -24,17 +27,21 @@ export default function AppProviders({ children }: { children: ReactNode }) {
   return (
     <I18nProvider>
       <PasswordRecoveryRedirect />
-      <AuthSessionGuard>
+      <AuthSessionProvider>
         <CreateMenuProvider>
           <ChatNotificationsProvider>
             <NotificationsProvider>
             <SpotLocationModalProvider>
-              <PostViewerProvider>{children}</PostViewerProvider>
+              <PostViewerProvider>
+                <div className={MOBILE_APP_ROOT_CLASS}>{children}</div>
+                <MobileBottomNav />
+                <PwaInstallBanner />
+              </PostViewerProvider>
             </SpotLocationModalProvider>
             </NotificationsProvider>
           </ChatNotificationsProvider>
         </CreateMenuProvider>
-      </AuthSessionGuard>
+      </AuthSessionProvider>
     </I18nProvider>
   );
 }

@@ -14,7 +14,7 @@ import {
   UserPen,
   Users,
 } from "lucide-react";
-import Shell from "@/components/Shell";
+import SettingsScreenLayout from "@/components/settings/SettingsScreenLayout";
 import SignOutButton from "@/components/SignOutButton";
 import { useNotifications } from "@/components/NotificationsProvider";
 import { useI18n } from "@/components/I18nProvider";
@@ -303,18 +303,15 @@ export default function SettingsPage() {
 
   if (loading) {
     return (
-      <Shell>
-        <div className="mx-auto max-w-lg space-y-6 px-1 pb-10 pt-2">
+      <SettingsScreenLayout>
           <SettingsPageHeader title={t("settings.title")} />
           <p className="px-1 text-sm text-muted">{t("settings.loading")}</p>
-        </div>
-      </Shell>
+      </SettingsScreenLayout>
     );
   }
 
   return (
-    <Shell>
-      <div className="mx-auto max-w-lg space-y-6 px-1 pb-10 pt-2">
+    <SettingsScreenLayout>
         <SettingsPageHeader title={t("settings.title")} />
 
         <SettingsSection title={t("settings.account")}>
@@ -511,7 +508,6 @@ export default function SettingsPage() {
         <p className="px-1 text-center text-[11px] text-muted">
           {t("settings.signedInAs", { identity: signedInIdentity })} {t("settings.emailPrivate")}
         </p>
-      </div>
-    </Shell>
+    </SettingsScreenLayout>
   );
 }

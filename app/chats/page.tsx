@@ -10,6 +10,7 @@ import MessageRequestItem, { type MessageRequestItemData } from "@/components/Me
 import MobileSecondaryHeader from "@/components/MobileSecondaryHeader";
 import RoomInboxListItem from "@/components/RoomInboxListItem";
 import Shell from "@/components/Shell";
+import { MOBILE_WIDTH_SAFE_CLASS } from "@/lib/mobileLayout";
 import { formatChatPreview } from "@/lib/i18n/chatPreview";
 import { localizeUserMessage } from "@/lib/i18n/localizeUserMessage";
 import { getSafeAuthSession } from "@/lib/authSession";
@@ -261,8 +262,8 @@ export default function ChatsPage() {
   );
 
   return (
-    <Shell>
-      <div className="mx-auto flex min-h-0 w-full flex-1 flex-col sm:max-w-lg">
+    <Shell showHeader={false} flushTop>
+      <div className={`mx-auto flex min-h-0 w-full max-w-lg flex-1 flex-col ${MOBILE_WIDTH_SAFE_CLASS}`}>
         <MobileSecondaryHeader title={t("chats.title")} backHref="/feed" />
 
         {session?.user && showAlerts ? (

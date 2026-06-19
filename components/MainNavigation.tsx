@@ -1,10 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
-import type { ReactNode } from "react";
-import { useEffect, useState } from "react";
-import type { Session } from "@supabase/supabase-js";
+import { usePathname } from "next/navigation";
+import { useEffect, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import {
   Globe2,
   MessageCircle,
@@ -12,19 +11,14 @@ import {
   Search as SearchIcon,
   UserRound,
 } from "lucide-react";
+import { useAuthSession } from "@/components/AuthSessionProvider";
 import { useI18n } from "@/components/I18nProvider";
-import {
-  getSafeAuthSession,
-  SESSION_EXPIRED_MESSAGE,
-  setAuthNotice,
-  shouldHandleSessionExpiry,
-} from "@/lib/authSession";
 import { useChatNotifications } from "@/components/ChatNotificationsProvider";
 import { useNotifications } from "@/components/NotificationsProvider";
 import { CreateNavButton, useCreateMenu } from "@/components/CreateMenuProvider";
 import { formatUnreadBadge } from "@/lib/chatNotifications";
 import { isMainNavActive, MAIN_NAV_ITEMS, MAIN_NAV_LEFT, MAIN_NAV_RIGHT, shouldShowMobileBottomNav } from "@/lib/mainNav";
-import { supabase } from "@/lib/supabaseClient";
+import { MOBILE_FIXED_BOTTOM_NAV_CLASS } from "@/lib/mobileLayout";
 
 const desktopIconClass =
   "h-[18px] w-[18px] shrink-0 text-muted transition-colors group-hover:text-white";
@@ -112,61 +106,8 @@ function DesktopNavLink({
   );
 }
 
-function isAuthRoute(pathname: string | null) {
-  return pathname?.startsWith("/auth") ?? false;
-}
-
 function useNavSession() {
-  const router = useRouter();
-  const pathname = usePathname();
-  const [session, setSession] = useState<Session | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    let active = true;
-
-    const loadSession = async () => {
-      const result = await getSafeAuthSession();
-
-      if (!active) {
-        return;
-      }
-
-      if (result.expired) {
-        setSession(null);
-        setLoading(false);
-
-        if (!isAuthRoute(pathname) && shouldHandleSessionExpiry()) {
-          setAuthNotice(SESSION_EXPIRED_MESSAGE);
-          router.replace("/auth/login");
-        }
-
-        return;
-      }
-
-      setSession(result.session);
-      setLoading(false);
-    };
-
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, nextSession) => {
-      if (!active) {
-        return;
-      }
-
-      setSession(nextSession);
-      setLoading(false);
-    });
-
-    void loadSession();
-
-    return () => {
-      active = false;
-      subscription.unsubscribe();
-    };
-  }, [pathname, router]);
-
+  const { session, loading } = useAuthSession();
   return { session, loading };
 }
 
@@ -266,6 +207,11 @@ export function MobileBottomNav() {
   const { unreadCount: chatUnreadCount } = useChatNotifications();
   const { unreadCount: notificationUnreadCount } = useNotifications();
   const { t } = useI18n();
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   if (!shouldShowMobileBottomNav(pathname)) {
     return null;
@@ -298,18 +244,19 @@ export function MobileBottomNav() {
     );
   };
 
-  return (
-    <nav
-      data-mobile-bottom-nav
-      className="fixed bottom-0 left-0 right-0 z-50 border-t border-primary/15 bg-[#0B1026]/95 backdrop-blur-xl md:hidden"
-      style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
-      aria-label="Main"
-    >
-      <div className="mx-auto flex h-[4.5rem] max-w-lg items-stretch justify-around px-1">
+  const nav = (
+    <nav data-mobile-bottom-nav className={MOBILE_FIXED_BOTTOM_NAV_CLASS} aria-label="Main">
+      <div className="mx-auto flex h-[54px] w-full min-w-0 max-w-lg items-stretch justify-around px-1">
         {MAIN_NAV_LEFT.map(renderItem)}
         <CreateNavButton className="min-w-0 flex-1" />
         {MAIN_NAV_RIGHT.map(renderItem)}
       </div>
     </nav>
   );
+
+  if (!mounted) {
+    return null;
+  }
+
+  return createPortal(nav, document.body);
 }

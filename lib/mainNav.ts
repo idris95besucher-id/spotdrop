@@ -1,4 +1,6 @@
 import { isChatThreadRoute } from "@/lib/chatThreadRoutes";
+import { isAuthRoute as isAuthRoutePath } from "@/lib/authRoutes";
+import { MOBILE_BOTTOM_NAV_PADDING, MOBILE_SAFE_AREA_TOP } from "@/lib/mobileLayout";
 
 import type { TranslationKey } from "@/lib/i18n/messages";
 
@@ -34,6 +36,10 @@ export function isMainNavActive(pathname: string | null, href: string) {
     return pathname === "/profile" || pathname.startsWith("/profile/");
   }
 
+  if (href === "/settings") {
+    return pathname === "/settings" || pathname.startsWith("/settings/");
+  }
+
   if (href === "/visit") {
     return (
       pathname === "/visit" ||
@@ -50,63 +56,44 @@ export function isMainNavActive(pathname: string | null, href: string) {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
-/** Routes that always hide the fixed mobile bottom nav. */
-export function shouldHideMobileBottomNav(pathname: string | null) {
-  if (!pathname) {
-    return false;
-  }
-
-  if (pathname.startsWith("/posts/")) {
-    return true;
-  }
-
-  return isChatThreadRoute(pathname);
-}
-
-/** Fixed mobile bottom nav — primary tabs + room pickers (Create is the center nav action). */
+/** Fixed mobile bottom nav — visible on all main pages except welcome, auth, and chat threads. */
 export function shouldShowMobileBottomNav(pathname: string | null) {
   if (!pathname || isAuthRoute(pathname)) {
     return false;
   }
 
-  if (shouldHideMobileBottomNav(pathname)) {
+  if (pathname === "/" || pathname === "") {
     return false;
   }
 
-  if (
-    pathname === "/visit" ||
-    pathname === "/search" ||
-    pathname.startsWith("/search/") ||
-    pathname === "/profile" ||
-    pathname.startsWith("/profile/") ||
-    pathname === "/chats" ||
-    pathname === "/notifications"
-  ) {
-    return true;
+  if (isChatThreadRoute(pathname)) {
+    return false;
   }
 
-  // Public profile pages (/user/:id or /user/:username)
-  if (pathname.startsWith("/user/")) {
-    return true;
-  }
+  return true;
+}
 
-  const segments = pathname.split("/").filter(Boolean);
-
-  // Country picker (/rooms) and city picker (/rooms/[country])
-  if (segments[0] === "rooms" && (segments.length === 1 || segments.length === 2)) {
-    return true;
-  }
-
-  return false;
+/** @deprecated Use shouldShowMobileBottomNav — kept for call sites that invert the check. */
+export function shouldHideMobileBottomNav(pathname: string | null) {
+  return !shouldShowMobileBottomNav(pathname);
 }
 
 export function isAuthRoute(pathname: string | null) {
-  return pathname?.startsWith("/auth") ?? false;
+  return isAuthRoutePath(pathname);
 }
 
-/** Space reserved for fixed mobile bottom nav + iPhone safe area */
-export const MOBILE_BOTTOM_NAV_PADDING =
-  "pb-[calc(4.5rem+env(safe-area-inset-bottom,0px))] md:pb-0";
+export function isProfileRoute(pathname: string | null) {
+  if (!pathname) {
+    return false;
+  }
+
+  return pathname === "/profile" || pathname.startsWith("/profile/") || pathname.startsWith("/user/");
+}
+
+/** Top inset for mobile headers under iPhone notch / Dynamic Island. */
+export const PROFILE_SAFE_AREA_TOP = MOBILE_SAFE_AREA_TOP;
+
+export { MOBILE_BOTTOM_NAV_PADDING, MOBILE_SAFE_AREA_TOP };
 
 /** Visit hub — explore, nearby users, live map */
 export const EXPLORE_NEARBY_HREF = "/visit";

@@ -3,13 +3,16 @@
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 import AuthStatus from "@/components/AuthStatus";
-import { MobileBottomNav } from "@/components/MainNavigation";
 import { isChatThreadRoute } from "@/lib/chatThreadRoutes";
 import {
-  isAuthRoute,
   MOBILE_BOTTOM_NAV_PADDING,
-  shouldShowMobileBottomNav,
-} from "@/lib/mainNav";
+  MOBILE_FIXED_TOP_CHROME_CLASS,
+  MOBILE_FRAME_BODY_CLASS,
+  MOBILE_FRAME_CLASS,
+  MOBILE_MAIN_SCROLL_CLASS,
+  MOBILE_WIDTH_SAFE_CLASS,
+} from "@/lib/mobileLayout";
+import { isAuthRoute, shouldShowMobileBottomNav } from "@/lib/mainNav";
 
 export default function Shell({
   children,
@@ -17,6 +20,8 @@ export default function Shell({
   chatThread = false,
   immersive = false,
   flushTop = false,
+  topBar,
+  fixedLayout = false,
 }: {
   children: ReactNode;
   showHeader?: boolean;
@@ -24,63 +29,62 @@ export default function Shell({
   immersive?: boolean;
   /** Drop default top padding (e.g. profile with its own app header). */
   flushTop?: boolean;
+  /** Fixed top chrome below the safe area — search bar, secondary headers, etc. */
+  topBar?: ReactNode;
+  /** Lock shell height; children manage internal scroll (own profile). */
+  fixedLayout?: boolean;
 }) {
   const pathname = usePathname();
   const isAuth = isAuthRoute(pathname);
   const isWelcome = pathname === "/" || pathname === "";
   const isFullScreenChat = chatThread || isChatThreadRoute(pathname);
   const showMobileNav = shouldShowMobileBottomNav(pathname);
-  const isMobileSecondary = !showMobileNav && !isFullScreenChat && !isAuth;
   const showDesktopHeader = showHeader && !isAuth;
 
-  if (immersive) {
-    return (
-      <div className="min-h-[100dvh] bg-[#050816] text-white">
-        <main className="h-[calc(100dvh-4.5rem-env(safe-area-inset-bottom,0px))] min-h-0 md:h-[100dvh]">
-          {children}
-        </main>
-        {showMobileNav ? <MobileBottomNav /> : null}
-      </div>
-    );
-  }
+  const shellPadding =
+    isAuth || isWelcome || showMobileNav || flushTop
+      ? "px-0 py-0"
+      : "px-4 py-6 sm:px-6 lg:px-8";
+
+  const contentMaxWidth = isAuth ? "max-w-full" : "max-w-5xl";
+  const scrollPadding = showMobileNav ? MOBILE_BOTTOM_NAV_PADDING : "";
 
   if (isFullScreenChat) {
     return (
-      <div className="min-h-[100dvh] bg-[#050816] text-white">
-        <main className="h-[100dvh] min-h-0">{children}</main>
+      <div className={MOBILE_FRAME_CLASS}>
+        <div className={`${MOBILE_FRAME_BODY_CLASS} ${MOBILE_WIDTH_SAFE_CLASS}`}>{children}</div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-[100dvh] w-full max-w-full overflow-x-hidden bg-[#050816] text-white md:min-h-screen">
-      <div
-        className={`mx-auto flex min-h-[100dvh] w-full max-w-full min-w-0 flex-col overflow-x-hidden md:min-h-screen ${
-          isAuth ? "max-w-full" : "max-w-5xl"
-        } ${showMobileNav ? MOBILE_BOTTOM_NAV_PADDING : ""} md:pb-0 ${
-          isAuth || isWelcome
-            ? "px-0 py-0"
-            : isMobileSecondary
-              ? "px-0 py-0 sm:px-6 sm:py-6 lg:px-8"
-              : flushTop
-                ? "px-4 pb-6 pt-0 sm:px-6 lg:px-8"
-                : "px-4 py-6 sm:px-6 lg:px-8"
-        }`}
-      >
+    <div className={MOBILE_FRAME_CLASS}>
+      <div className={`${MOBILE_FRAME_BODY_CLASS} ${contentMaxWidth} ${shellPadding}`}>
         {showDesktopHeader ? (
-          <header className="mb-4 hidden items-center justify-end gap-4 md:mb-6 md:flex">
+          <header className="mb-4 hidden shrink-0 items-center justify-end gap-4 md:mb-6 md:flex">
             <AuthStatus />
           </header>
         ) : null}
-        <main
-          className={`min-w-0 w-full max-w-full flex-1 overflow-x-hidden ${
-            isMobileSecondary ? "flex min-h-0 flex-col" : ""
-          }`}
-        >
-          {children}
-        </main>
+
+        {topBar ? <div className={MOBILE_FIXED_TOP_CHROME_CLASS}>{topBar}</div> : null}
+
+        {immersive ? (
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">{children}</div>
+        ) : fixedLayout ? (
+          <main
+            className={`flex min-h-0 flex-1 flex-col overflow-hidden ${scrollPadding} ${MOBILE_WIDTH_SAFE_CLASS}`}
+          >
+            {children}
+          </main>
+        ) : (
+          <main
+            data-mobile-main-scroll=""
+            className={`${MOBILE_MAIN_SCROLL_CLASS} ${scrollPadding} ${MOBILE_WIDTH_SAFE_CLASS}`}
+          >
+            {children}
+          </main>
+        )}
       </div>
-      {showMobileNav ? <MobileBottomNav /> : null}
     </div>
   );
 }

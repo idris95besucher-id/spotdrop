@@ -5,6 +5,7 @@ import type { LucideIcon } from "lucide-react";
 import { ChevronRight } from "lucide-react";
 import type { ReactNode } from "react";
 import { useI18n } from "@/components/I18nProvider";
+import { MOBILE_SAFE_AREA_TOP, MOBILE_WIDTH_SAFE_CLASS } from "@/lib/mobileLayout";
 
 export function SettingsPageHeader({
   title,
@@ -16,7 +17,7 @@ export function SettingsPageHeader({
   const { t } = useI18n();
 
   return (
-    <header className="flex items-center gap-3 px-1">
+    <header className={`flex items-center gap-3 px-1 ${MOBILE_SAFE_AREA_TOP} ${MOBILE_WIDTH_SAFE_CLASS}`}>
       <Link
         href={backHref}
         className="inline-flex items-center gap-1 rounded-full px-2 py-1.5 text-sm font-medium text-muted transition hover:text-white"

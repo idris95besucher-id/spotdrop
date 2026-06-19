@@ -1,6 +1,7 @@
 "use client";
 
 import { useI18n } from "@/components/I18nProvider";
+import { MOBILE_SAFE_AREA_INSET_TOP } from "@/lib/mobileLayout";
 import { VISIT_TABS, type VisitTab } from "@/lib/visitTabs";
 
 type VisitTabsProps = {
@@ -18,7 +19,7 @@ export default function VisitTabs({ activeTab, onTabChange }: VisitTabsProps) {
   const { t } = useI18n();
 
   return (
-    <div className="grid shrink-0 grid-cols-3 border-b-2 border-white/10 bg-card">
+    <div className={`grid shrink-0 grid-cols-3 border-b-2 border-white/10 bg-card ${MOBILE_SAFE_AREA_INSET_TOP}`}>
       {VISIT_TABS.map((tab) => (
         <button
           key={tab}

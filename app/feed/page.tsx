@@ -25,6 +25,7 @@ import PostMediaLink from "@/components/PostMediaLink";
 import Shell from "@/components/Shell";
 import { useI18n } from "@/components/I18nProvider";
 import { localizeUserMessage } from "@/lib/i18n/localizeUserMessage";
+import { MOBILE_PAGE_INNER_CLASS, MOBILE_SAFE_AREA_TOP } from "@/lib/mobileLayout";
 
 export default function FeedPage() {
   const { t } = useI18n();
@@ -109,9 +110,9 @@ export default function FeedPage() {
   }, []);
 
   return (
-    <Shell>
-      <div className="mx-auto w-full max-w-lg space-y-5 pb-8">
-        <header className="px-1 pt-1">
+    <Shell showHeader={false} flushTop>
+      <div className={`${MOBILE_PAGE_INNER_CLASS} space-y-5 pb-4`}>
+        <header className={`${MOBILE_SAFE_AREA_TOP} pb-1`}>
           <p className="text-xs font-semibold uppercase tracking-[0.28em] text-primary">{t("feed.explore")}</p>
           <h1 className="mt-2 flex items-center gap-2.5 text-2xl font-semibold text-white">
             <SpotDropSpotsIcon

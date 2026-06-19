@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <rect width="512" height="512" fill="#050816" rx="0"/>
+  <!-- location pin body -->
+  <path d="M256 100 C216 100 184 132 184 172 C184 212 256 320 256 320 C256 320 328 212 328 172 C328 132 296 100 256 100Z" fill="#22d3ee" opacity="0.95"/>
+  <!-- pin hole -->
+  <circle cx="256" cy="172" r="30" fill="#050816"/>
+  <!-- subtle glow ring -->
+  <circle cx="256" cy="172" r="72" fill="none" stroke="#22d3ee" stroke-width="2" opacity="0.25"/>
+  <!-- SpotDrop text -->
+  <text x="256" y="390" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="62" font-weight="800" text-anchor="middle" fill="#ffffff" letter-spacing="-2">Spot<tspan fill="#22d3ee">Drop</tspan></text>
+</svg>

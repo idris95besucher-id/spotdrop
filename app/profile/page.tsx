@@ -25,7 +25,8 @@ import { NotificationsBellLink } from "@/components/NotificationsProvider";
 import { useSpotDrafts } from "@/components/SpotDraftsProvider";
 import ShareProfileSheet from "@/components/ShareProfileSheet";
 import ProfileCollectionsTab from "@/components/ProfileCollectionsTab";
-import ProfileContentTabs, { type ProfileContentTab } from "@/components/ProfileContentTabs";
+import { ProfileContentTabBar, ProfileContentGridPanel, type ProfileContentTab } from "@/components/ProfileContentTabs";
+import ProfileAppHeader from "@/components/profile/ProfileAppHeader";
 import Shell from "@/components/Shell";
 import { useI18n } from "@/components/I18nProvider";
 import { localizeError } from "@/lib/i18n/localizeError";
@@ -77,7 +78,6 @@ export default function ProfilePage() {
   const [shareProfileOpen, setShareProfileOpen] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const successTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const contentSectionRef = useRef<HTMLElement | null>(null);
 
   const showSuccessMessage = useCallback((message: string) => {
     if (successTimeoutRef.current) {
@@ -352,9 +352,6 @@ export default function ProfilePage() {
   const handleOpenCollections = useCallback(() => {
     setActiveProfileSection("posts");
     setActiveContentTab("collections");
-    window.requestAnimationFrame(() => {
-      contentSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-    });
   }, []);
 
   const profileMenuItems = useMemo(
@@ -371,39 +368,42 @@ export default function ProfilePage() {
   );
 
   return (
-    <Shell flushTop>
+    <Shell
+      flushTop
+      fixedLayout
+      topBar={
+        <ProfileAppHeader
+          actions={
+            session?.user && !loading && !error ? (
+              <div className="flex shrink-0 items-center gap-0.5">
+                <NotificationsBellLink className="inline-flex h-8 w-8 items-center justify-center rounded-full text-white transition hover:bg-white/10 active:opacity-80" />
+                <button
+                  type="button"
+                  onClick={() => setProfileMenuOpen(true)}
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-full text-white transition hover:bg-white/10 active:opacity-80"
+                  aria-label={t("profile.openProfileMenu")}
+                >
+                  <Menu className="h-4 w-4" strokeWidth={1.75} aria-hidden />
+                </button>
+              </div>
+            ) : undefined
+          }
+        />
+      }
+    >
       {successMessage ? (
-        <div className="fixed inset-x-4 top-4 z-50 mx-auto max-w-sm rounded-3xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-center text-sm font-medium text-emerald-200 shadow-lg shadow-black/30">
+        <div className="fixed inset-x-4 top-[calc(env(safe-area-inset-top,0px)+1rem)] z-50 mx-auto max-w-sm rounded-3xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-center text-sm font-medium text-emerald-200 shadow-lg shadow-black/30">
           {successMessage}
         </div>
       ) : null}
 
-      <div className="mx-auto max-w-lg px-4 pb-6 pt-0 sm:max-w-xl">
-        <header className="flex items-center justify-between pb-3 pt-[max(0.375rem,env(safe-area-inset-top))]">
-          <h1 className="text-[1.75rem] font-bold tracking-[-0.03em] text-white">
-            Spot<span className="text-primary">Drop</span>
-          </h1>
-          {session?.user && !loading && !error ? (
-            <div className="flex items-center gap-1">
-              <NotificationsBellLink className="inline-flex h-9 w-9 items-center justify-center rounded-full text-white transition hover:bg-white/10 active:opacity-80" />
-              <button
-                type="button"
-                onClick={() => setProfileMenuOpen(true)}
-                className="inline-flex h-9 w-9 items-center justify-center rounded-full text-white transition hover:bg-white/10 active:opacity-80"
-                aria-label={t("profile.openProfileMenu")}
-              >
-                <Menu className="h-5 w-5" strokeWidth={1.75} aria-hidden />
-              </button>
-            </div>
-          ) : (
-            <span className="h-9 w-9 shrink-0" aria-hidden />
-          )}
-        </header>
-
+      {/* ① Identity — always visible, never scrolls */}
+      <div className="shrink-0 mx-auto w-full min-w-0 max-w-lg px-4 pt-2 pb-2">
         <section className="text-center">
-          <div className="flex flex-col items-center gap-1.5">
+          <div className="flex flex-col items-center gap-0.5">
             {session?.user && !loading ? (
               <ProfileAvatarActions
+                compact
                 userId={session.user.id}
                 avatarUrl={profile?.avatar_url}
                 uploadingAvatar={uploadingAvatar}
@@ -411,59 +411,59 @@ export default function ProfilePage() {
                 onStoryCreated={() => showSuccessMessage(t("profile.storyShared"))}
               />
             ) : (
-              <div className="flex h-24 w-24 items-center justify-center overflow-hidden rounded-full border border-primary/20 bg-card shadow-lg shadow-primary/10 sm:h-28 sm:w-28" />
+              <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-full border border-primary/20 bg-card shadow-lg shadow-primary/10" />
             )}
 
             {!loading && profile?.username ? (
-              <h1 className="max-w-full truncate text-lg font-semibold text-white">
+              <h1 className="max-w-full truncate text-base font-semibold text-white">
                 {publicProfileUsername(profile.username)}
               </h1>
             ) : null}
 
             {session?.user && !loading && !error ? (
-              <div className="flex items-center justify-center gap-7 sm:gap-9">
+              <div className="flex items-center justify-center gap-5">
                 <button
                   type="button"
                   onClick={() => {
                     setActiveProfileSection("posts");
                     setActiveContentTab("spots");
                   }}
-                  className={`flex min-w-[3.25rem] flex-col items-center gap-0.5 transition ${
+                  className={`flex min-w-[3rem] flex-col items-center gap-0 transition ${
                     activeProfileSection === "posts" ? "text-white" : "text-muted hover:text-white"
                   }`}
                 >
-                  <span className="text-base font-semibold tabular-nums text-white sm:text-lg">{spotPostsCount}</span>
-                  <span className="text-xs">{t("profile.spots")}</span>
+                  <span className="text-sm font-semibold tabular-nums text-white">{spotPostsCount}</span>
+                  <span className="text-[11px]">{t("profile.spots")}</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => setActiveProfileSection("followers")}
-                  className={`flex min-w-[3.25rem] flex-col items-center gap-0.5 transition ${
+                  className={`flex min-w-[3rem] flex-col items-center gap-0 transition ${
                     activeProfileSection === "followers" ? "text-white" : "text-muted hover:text-white"
                   }`}
                 >
-                  <span className="text-base font-semibold tabular-nums text-white sm:text-lg">{followersCount}</span>
-                  <span className="text-xs">{t("profile.followers")}</span>
+                  <span className="text-sm font-semibold tabular-nums text-white">{followersCount}</span>
+                  <span className="text-[11px]">{t("profile.followers")}</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => setActiveProfileSection("friends")}
-                  className={`flex min-w-[3.25rem] flex-col items-center gap-0.5 transition ${
+                  className={`flex min-w-[3rem] flex-col items-center gap-0 transition ${
                     activeProfileSection === "friends" ? "text-white" : "text-muted hover:text-white"
                   }`}
                 >
-                  <span className="text-base font-semibold tabular-nums text-white sm:text-lg">{friendsCount}</span>
-                  <span className="text-xs">{t("profile.friends")}</span>
+                  <span className="text-sm font-semibold tabular-nums text-white">{friendsCount}</span>
+                  <span className="text-[11px]">{t("profile.friends")}</span>
                 </button>
               </div>
             ) : null}
 
             {profile?.bio ? (
-              <p className="max-w-sm line-clamp-2 text-xs leading-relaxed text-slate-400">{profile.bio}</p>
+              <p className="max-w-sm line-clamp-1 text-[11px] leading-snug text-slate-400">{profile.bio}</p>
             ) : null}
 
             {locationLine ? (
-              <p className="max-w-sm truncate text-xs font-medium text-slate-400">{locationLine}</p>
+              <p className="max-w-sm truncate text-[11px] text-slate-400">{locationLine}</p>
             ) : null}
 
             {loading ? (
@@ -491,17 +491,17 @@ export default function ProfilePage() {
                 </Link>
               </div>
             ) : (
-              <div className="flex flex-wrap items-center justify-center gap-2 pt-0.5">
+              <div className="flex flex-wrap items-center justify-center gap-1.5">
                 <Link
                   href="/profile/edit"
-                  className="inline-flex shrink-0 items-center justify-center rounded-full border border-white/15 px-3.5 py-1.5 text-xs font-medium text-slate-200 transition hover:border-white/25 hover:bg-white/5 hover:text-white"
+                  className="inline-flex shrink-0 items-center justify-center rounded-full border border-white/15 px-3 py-1 text-[11px] font-medium text-slate-200 transition hover:border-white/25 hover:bg-white/5 hover:text-white"
                 >
                   {t("profile.editProfile")}
                 </Link>
                 <button
                   type="button"
                   onClick={() => setShareProfileOpen(true)}
-                  className="inline-flex shrink-0 items-center justify-center rounded-full border border-primary/30 bg-primary/10 px-3.5 py-1.5 text-xs font-medium text-primary transition hover:border-primary/50 hover:bg-primary/15"
+                  className="inline-flex shrink-0 items-center justify-center rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-[11px] font-medium text-primary transition hover:border-primary/50 hover:bg-primary/15"
                 >
                   {t("profile.shareProfile")}
                 </button>
@@ -509,9 +509,15 @@ export default function ProfilePage() {
             )}
           </div>
         </section>
+      </div>
 
+      {/* ② Scrollable area — connections or (sticky tabs + grid). Only this part scrolls. */}
+      <div
+        data-mobile-main-scroll=""
+        className="flex-1 min-h-0 w-full min-w-0 max-w-full overflow-x-hidden overflow-y-auto touch-pan-y [-webkit-overflow-scrolling:touch]"
+      >
         {session?.user && activeProfileSection && activeProfileSection !== "posts" ? (
-          <section className="mt-3 space-y-2">
+          <section className="mt-3 space-y-2 px-4">
             {loadingConnections ? (
               <div className="grid gap-4 sm:grid-cols-2">
                 {Array.from({ length: 4 }).map((_, index) => (
@@ -542,7 +548,7 @@ export default function ProfilePage() {
                   <Link
                     key={person.id}
                     href={`/user/${person.id}`}
-                    className="flex items-center gap-4 rounded-3xl border border-white/10 bg-slate-900 p-5 transition hover:-translate-y-0.5 hover:border-cyan-300/40 hover:bg-slate-900/80"
+                    className="flex items-center gap-4 rounded-3xl border border-white/10 bg-slate-900 p-5 transition hover:border-cyan-300/40 hover:bg-slate-900/80"
                   >
                     <div className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-full bg-slate-800 text-lg font-semibold text-white">
                       {person.avatar_url ? (
@@ -565,9 +571,9 @@ export default function ProfilePage() {
         ) : null}
 
         {session?.user && (activeProfileSection === "posts" || activeProfileSection === null) ? (
-          <section ref={contentSectionRef} className="-mx-4 mt-2 scroll-mt-2 sm:mx-0">
+          <>
             {postsError ? (
-              <div className="mx-4 mb-2 rounded-2xl border border-amber-500/25 bg-amber-500/10 px-3 py-3 text-xs text-amber-100 sm:mx-0">
+              <div className="mb-2 mx-4 rounded-2xl border border-amber-500/25 bg-amber-500/10 px-3 py-3 text-xs text-amber-100">
                 <p>{localizeError(t, postsError) ?? postsError}</p>
                 <button
                   type="button"
@@ -578,10 +584,17 @@ export default function ProfilePage() {
                 </button>
               </div>
             ) : null}
-            <ProfileContentTabs
+            {/* Tab bar is sticky within the scroll container — no overflow-hidden ancestor between them */}
+            <div className="sticky top-0 z-10 bg-[#050816]">
+              <ProfileContentTabBar
+                compact
+                activeTab={activeContentTab}
+                onTabChange={setActiveContentTab}
+              />
+            </div>
+            <ProfileContentGridPanel
               compact
               activeTab={activeContentTab}
-              onTabChange={setActiveContentTab}
               personalPosts={personalPosts}
               spotPosts={spotPosts}
               loading={loadingPosts}
@@ -601,7 +614,7 @@ export default function ProfilePage() {
                 <ProfileCollectionsTab userId={session.user.id} viewerId={session.user.id} isOwner />
               }
             />
-          </section>
+          </>
         ) : null}
       </div>
 

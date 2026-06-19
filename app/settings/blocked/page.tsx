@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { UserRound } from "lucide-react";
-import Shell from "@/components/Shell";
+import SettingsScreenLayout from "@/components/settings/SettingsScreenLayout";
 import { SettingsPageHeader } from "@/components/settings/SettingsUI";
 import { useI18n } from "@/components/I18nProvider";
 import { getSafeAuthSession } from "@/lib/authSession";
@@ -78,8 +78,7 @@ export default function BlockedUsersPage() {
   };
 
   return (
-    <Shell>
-      <div className="mx-auto max-w-lg space-y-6 px-1 pb-10 pt-2">
+    <SettingsScreenLayout>
         <SettingsPageHeader title={t("settings.blocked.title")} />
 
         <div className="rounded-2xl border border-white/[0.08] bg-[#0B1026]">
@@ -119,7 +118,6 @@ export default function BlockedUsersPage() {
             </ul>
           )}
         </div>
-      </div>
-    </Shell>
+    </SettingsScreenLayout>
   );
 }

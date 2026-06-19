@@ -19,6 +19,7 @@ import {
   resolveProfileLocation,
   type ResolvedProfileLocation,
 } from "@/lib/profileLocation";
+import ProfileScreenLayout from "@/components/profile/ProfileScreenLayout";
 import Shell from "@/components/Shell";
 import { supabase } from "@/lib/supabaseClient";
 
@@ -289,8 +290,8 @@ export default function UserPage() {
   const locationLine = formatProfileLocationLine(location);
 
   return (
-    <Shell>
-      <div className="flex w-full min-w-0 flex-col gap-4 md:mx-auto md:max-w-2xl md:gap-6">
+    <Shell flushTop>
+      <ProfileScreenLayout safeTop>
         {loading ? (
           <div className="w-full rounded-2xl border border-dashed border-slate-700 bg-slate-950 p-8 text-center text-slate-400 sm:rounded-3xl">
             {t("profile.loading")}
@@ -394,7 +395,7 @@ export default function UserPage() {
               </div>
             ) : null}
 
-            <section className="-mx-4 w-[calc(100%+2rem)] overflow-hidden border-y border-white/10 bg-slate-950/60 sm:mx-0 sm:w-full sm:rounded-3xl sm:border sm:border-white/10">
+            <section className="w-full min-w-0 overflow-hidden border-y border-white/10 bg-slate-950/60 sm:rounded-3xl sm:border sm:border-white/10">
               <ProfileContentTabs
                 activeTab={activeContentTab}
                 onTabChange={setActiveContentTab}
@@ -430,7 +431,7 @@ export default function UserPage() {
             {t("profile.userNotFound")}
           </div>
         )}
-      </div>
+      </ProfileScreenLayout>
     </Shell>
   );
 }

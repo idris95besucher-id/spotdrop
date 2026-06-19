@@ -51,21 +51,77 @@ html[data-theme="spotdrop-night-v1"] {
   --font-mono: var(--font-geist-mono);
 }
 
+/*
+ * --sd-safe-top / --sd-safe-bottom
+ *
+ * In Safari / PWA: = env(safe-area-inset-*) — each component handles its own inset.
+ * In Capacitor iOS: = 0px — the .sd-app-root root wrapper handles the inset instead,
+ *   so no component doubles it up.
+ */
+:root {
+  --sd-safe-top: env(safe-area-inset-top, 0px);
+  --sd-safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+
 html {
   background-color: var(--sd-background);
   color: var(--sd-text);
-  overflow-x: hidden;
+  height: 100%;
+  width: 100%;
   max-width: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+/* Capacitor iOS: delegate safe areas to the root wrapper */
+html[data-capacitor-platform="ios"] {
+  --sd-safe-top: 0px;
+  --sd-safe-bottom: 0px;
+}
+
+html[data-capacitor-platform="ios"] .sd-app-root {
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  box-sizing: border-box;
 }
 
 body {
-  min-height: 100%;
+  height: 100%;
   width: 100%;
   max-width: 100%;
-  overflow-x: hidden;
+  margin: 0;
+  overflow: hidden;
+  overscroll-behavior: none;
   background-color: var(--sd-background);
   color: var(--sd-text);
   font-family: var(--font-geist-sans), system-ui, -apple-system, sans-serif;
+}
+
+.sd-app-root {
+  width: 100%;
+  max-width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+[data-mobile-main-scroll],
+[data-mobile-panel-scroll] {
+  overflow-x: hidden;
+  overscroll-behavior-x: none;
+  overscroll-behavior-y: auto;
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
+}
+
+[data-mobile-bottom-nav] {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
 body::before {

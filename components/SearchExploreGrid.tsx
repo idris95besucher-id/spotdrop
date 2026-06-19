@@ -11,6 +11,7 @@ import {
   loadExploreSpotPostsPage,
   type FeedSpotRow,
 } from "@/lib/feed";
+import { MOBILE_WIDTH_SAFE_CLASS } from "@/lib/mobileLayout";
 import { localizeUserMessage } from "@/lib/i18n/localizeUserMessage";
 import { feedRowsToViewerItems } from "@/lib/postViewer";
 import { normalizePostId } from "@/lib/postIds";
@@ -133,7 +134,7 @@ export default function SearchExploreGrid({ onPostsChange }: SearchExploreGridPr
 
   if (loading) {
     return (
-      <div className="grid grid-cols-3 gap-0.5">
+      <div className={`grid w-full min-w-0 max-w-full grid-cols-3 gap-0.5 ${MOBILE_WIDTH_SAFE_CLASS}`}>
         {Array.from({ length: 9 }).map((_, index) => (
           <div
             key={`search-explore-skeleton-${index}`}
@@ -196,8 +197,8 @@ export default function SearchExploreGrid({ onPostsChange }: SearchExploreGridPr
   let globalIndex = 0;
 
   return (
-    <div className="space-y-3">
-      <div className="grid grid-cols-3 gap-0.5">
+    <div className={`space-y-3 ${MOBILE_WIDTH_SAFE_CLASS}`}>
+      <div className="grid w-full min-w-0 max-w-full grid-cols-3 gap-0.5">
         {columns.map((column, columnIndex) => (
           <div key={`search-explore-column-${columnIndex}`} className="flex flex-col gap-0.5">
             {column.map((post) => {

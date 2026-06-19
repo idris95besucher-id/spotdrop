@@ -14,6 +14,8 @@ type ProfileAvatarActionsProps = {
   uploadingAvatar?: boolean;
   onAvatarUpload: (event: ChangeEvent<HTMLInputElement>) => void;
   onStoryCreated: () => void;
+  compact?: boolean;
+  tiny?: boolean;
 };
 
 export default function ProfileAvatarActions({
@@ -22,6 +24,8 @@ export default function ProfileAvatarActions({
   uploadingAvatar = false,
   onAvatarUpload,
   onStoryCreated,
+  compact = false,
+  tiny = false,
 }: ProfileAvatarActionsProps) {
   const { t } = useI18n();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -76,12 +80,16 @@ export default function ProfileAvatarActions({
     });
   };
 
-  const avatarSizeClass = "h-24 w-24 sm:h-28 sm:w-28";
+  const avatarSizeClass = tiny ? "h-12 w-12" : compact ? "h-14 w-14" : "h-24 w-24 sm:h-28 sm:w-28";
 
   const avatarImage = avatarUrl ? (
     <img src={avatarUrl} alt="" className="h-full w-full object-cover" />
   ) : (
-    <UserRound className="h-11 w-11 text-slate-500 sm:h-12 sm:w-12" strokeWidth={1.25} aria-hidden />
+    <UserRound
+      className={`text-slate-500 ${tiny ? "h-5 w-5" : compact ? "h-6 w-6" : "h-11 w-11 sm:h-12 sm:w-12"}`}
+      strokeWidth={1.25}
+      aria-hidden
+    />
   );
 
   return (

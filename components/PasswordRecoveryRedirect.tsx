@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import {
   getPasswordRecoveryForwardUrl,
+  hasPasswordRecoveryTokens,
   isPasswordRecoveryPending,
   isResetPasswordPath,
   markPasswordRecoveryPending,
@@ -36,7 +37,15 @@ export default function PasswordRecoveryRedirect() {
         return;
       }
 
-      if (isPasswordRecoveryPending()) {
+      if (
+        isPasswordRecoveryPending() &&
+        (pathname === "/" ||
+          pathname === "" ||
+          hasPasswordRecoveryTokens({
+            search: window.location.search,
+            hash: window.location.hash,
+          }))
+      ) {
         redirectToResetPassword();
         return;
       }
