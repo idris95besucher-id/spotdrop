@@ -1,20 +1,64 @@
 "use client";
 
 import { useEffect } from "react";
-import { getPasswordRecoveryForwardUrl } from "@/lib/authPasswordReset";
+import {
+  getPasswordRecoveryForwardUrl,
+  isPasswordRecoveryPending,
+  isResetPasswordPath,
+  markPasswordRecoveryPending,
+} from "@/lib/authPasswordReset";
+import { supabase } from "@/lib/supabaseClient";
 
-/** Sends misrouted Supabase recovery links (e.g. Site URL `/`) to `/` reset password page. */
+function redirectToResetPassword() {
+  const target = `/auth/reset-password${window.location.search}${window.location.hash}`;
+
+  if (window.location.pathname + window.location.search + window.location.hash === target) {
+    return;
+  }
+
+  window.location.replace(target);
+}
+
+/** Keeps recovery links on /auth/reset-password even when Supabase lands on `/`. */
 export default function PasswordRecoveryRedirect() {
   useEffect(() => {
-    const forwardUrl = getPasswordRecoveryForwardUrl({
-      pathname: window.location.pathname,
-      search: window.location.search,
-      hash: window.location.hash,
+    const pathname = window.location.pathname;
+
+    if (!isResetPasswordPath(pathname)) {
+      const forwardUrl = getPasswordRecoveryForwardUrl({
+        pathname,
+        search: window.location.search,
+        hash: window.location.hash,
+      });
+
+      if (forwardUrl) {
+        window.location.replace(forwardUrl);
+        return;
+      }
+
+      if (isPasswordRecoveryPending()) {
+        redirectToResetPassword();
+        return;
+      }
+    }
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event) => {
+      if (event !== "PASSWORD_RECOVERY") {
+        return;
+      }
+
+      markPasswordRecoveryPending();
+
+      if (!isResetPasswordPath(window.location.pathname)) {
+        redirectToResetPassword();
+      }
     });
 
-    if (forwardUrl) {
-      window.location.replace(forwardUrl);
-    }
+    return () => {
+      subscription.unsubscribe();
+    };
   }, []);
 
   return null;

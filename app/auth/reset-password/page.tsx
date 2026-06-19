@@ -8,7 +8,7 @@ import AuthShell from "@/components/auth/AuthShell";
 import PasswordField from "@/components/auth/PasswordField";
 import { useI18n } from "@/components/I18nProvider";
 import { authPrimaryButtonClass, authSecondaryButtonClass } from "@/components/auth/authStyles";
-import { activatePasswordRecoverySession } from "@/lib/authPasswordReset";
+import { activatePasswordRecoverySession, clearPasswordRecoveryPending } from "@/lib/authPasswordReset";
 import {
   mapAuthError,
   PASSWORD_MISMATCH_MESSAGE,
@@ -98,6 +98,7 @@ export default function ResetPasswordPage() {
       }
 
       await clearLocalAuthSession();
+      clearPasswordRecoveryPending();
       setAuthNotice(PASSWORD_UPDATED_SUCCESS_MESSAGE);
       setStatus("success");
       setMessage("auth.passwordUpdatedSuccess");

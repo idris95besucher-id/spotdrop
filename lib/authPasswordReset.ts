@@ -2,6 +2,7 @@ import {
   RESET_LINK_INVALID_MESSAGE,
 } from "@/lib/authMessages";
 import { clearLocalAuthSession } from "@/lib/authSession";
+import { PASSWORD_RECOVERY_SESSION_KEY } from "@/lib/passwordRecoveryBootstrap";
 import { supabase } from "@/lib/supabaseClient";
 
 /** Must match Supabase Auth → URL Configuration → Redirect URLs allow list. */
@@ -11,6 +12,30 @@ export const PASSWORD_RESET_REDIRECT_URL =
 
 export function getPasswordResetRedirectUrl() {
   return PASSWORD_RESET_REDIRECT_URL;
+}
+
+export function markPasswordRecoveryPending() {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  sessionStorage.setItem(PASSWORD_RECOVERY_SESSION_KEY, "1");
+}
+
+export function clearPasswordRecoveryPending() {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  sessionStorage.removeItem(PASSWORD_RECOVERY_SESSION_KEY);
+}
+
+export function isPasswordRecoveryPending() {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  return sessionStorage.getItem(PASSWORD_RECOVERY_SESSION_KEY) === "1";
 }
 
 type UrlParts = {
@@ -25,6 +50,10 @@ function getHashParams(hash: string) {
 
 function getSearchParams(search: string) {
   return new URLSearchParams(search.replace(/^\?/, ""));
+}
+
+export function isResetPasswordPath(pathname: string) {
+  return pathname === "/auth/reset-password" || pathname === "/auth/reset-password/";
 }
 
 export function hasPasswordRecoveryTokens({ search, hash }: Pick<UrlParts, "search" | "hash">) {
@@ -44,7 +73,7 @@ export function hasPasswordRecoveryTokens({ search, hash }: Pick<UrlParts, "sear
     return true;
   }
 
-  if (fragment.get("access_token") && fragment.get("refresh_token") && fragment.get("type") === "recovery") {
+  if (fragment.get("access_token") && fragment.get("refresh_token")) {
     return true;
   }
 
@@ -57,13 +86,11 @@ export function getPasswordRecoveryForwardUrl(location: UrlParts) {
     return null;
   }
 
-  const resetPath = "/auth/reset-password";
-
-  if (location.pathname === resetPath || location.pathname === `${resetPath}/`) {
+  if (isResetPasswordPath(location.pathname)) {
     return null;
   }
 
-  return `${resetPath}${location.search}${location.hash}`;
+  return `/auth/reset-password${location.search}${location.hash}`;
 }
 
 export async function activatePasswordRecoverySession() {
@@ -86,6 +113,7 @@ export async function activatePasswordRecoverySession() {
       throw error;
     }
 
+    markPasswordRecoveryPending();
     window.history.replaceState(null, "", window.location.pathname);
     return;
   }
@@ -106,6 +134,7 @@ export async function activatePasswordRecoverySession() {
       throw error;
     }
 
+    markPasswordRecoveryPending();
     window.history.replaceState(null, "", window.location.pathname);
     return;
   }
@@ -113,7 +142,7 @@ export async function activatePasswordRecoverySession() {
   const accessToken = hash.get("access_token");
   const refreshToken = hash.get("refresh_token");
 
-  if (accessToken && refreshToken && hashType === "recovery") {
+  if (accessToken && refreshToken) {
     await clearLocalAuthSession();
 
     const { error } = await supabase.auth.setSession({
@@ -125,6 +154,7 @@ export async function activatePasswordRecoverySession() {
       throw error;
     }
 
+    markPasswordRecoveryPending();
     window.history.replaceState(null, "", window.location.pathname);
     return;
   }
@@ -138,4 +168,6 @@ export async function activatePasswordRecoverySession() {
   if (!data.session?.user) {
     throw new Error(RESET_LINK_INVALID_MESSAGE);
   }
+
+  markPasswordRecoveryPending();
 }
