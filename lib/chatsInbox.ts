@@ -17,6 +17,7 @@ export type ChatPreviewMessage = Pick<
   DirectMessageRow,
   "body" | "message_type" | "spot_share_id" | "post_id"
 >;
+import { loadDmInboxPreferences } from "@/lib/chatInboxPreferences";
 import { formatUnreadBadge } from "@/lib/chatNotifications";
 import type { MessageRequestItemData } from "@/components/MessageRequestItem";
 import { isGuideAccountUsername, publicProfileUsername } from "@/lib/publicProfile";
@@ -32,6 +33,7 @@ export type InboxChatRow = {
   lastAt: string;
   unreadCount: number;
   unreadBadge: string | null;
+  isMuted: boolean;
 };
 
 export type InboxItem =
@@ -148,6 +150,12 @@ export async function loadChatsInbox(userId: string) {
   const firstByPartner = buildFirstMessageByPartner(messages, userId);
   const unreadByPartner = await countUnreadByPartner(userId);
 
+  const { preferences: dmPreferences, error: preferencesError } = await loadDmInboxPreferences(userId);
+
+  if (preferencesError) {
+    console.error("[chats-inbox] failed to load DM preferences:", preferencesError);
+  }
+
   const { profiles, error: profilesError } = await loadProfilesByIds(allPartnerIds);
 
   if (profilesError) {
@@ -184,8 +192,15 @@ export async function loadChatsInbox(userId: string) {
       continue;
     }
 
+    const preference = dmPreferences.get(partnerId);
+
+    if (preference?.hidden) {
+      continue;
+    }
+
     const latest = latestByPartner.get(partnerId);
-    const unreadCount = unreadByPartner.get(partnerId) ?? 0;
+    const isMuted = preference?.muted ?? false;
+    const unreadCount = isMuted ? 0 : (unreadByPartner.get(partnerId) ?? 0);
 
     chats.push({
       partnerId,
@@ -196,11 +211,18 @@ export async function loadChatsInbox(userId: string) {
       lastAt: latest?.created_at ?? row.updated_at,
       unreadCount,
       unreadBadge: formatUnreadBadge(unreadCount),
+      isMuted,
     });
   }
 
   for (const partnerId of messagePartnerIds) {
     if (conversationMap.has(partnerId)) {
+      continue;
+    }
+
+    const preference = dmPreferences.get(partnerId);
+
+    if (preference?.hidden) {
       continue;
     }
 
@@ -216,7 +238,8 @@ export async function loadChatsInbox(userId: string) {
       continue;
     }
 
-    const unreadCount = unreadByPartner.get(partnerId) ?? 0;
+    const isMuted = preference?.muted ?? false;
+    const unreadCount = isMuted ? 0 : (unreadByPartner.get(partnerId) ?? 0);
 
     chats.push({
       partnerId,
@@ -227,6 +250,7 @@ export async function loadChatsInbox(userId: string) {
       lastAt: latest.created_at,
       unreadCount,
       unreadBadge: formatUnreadBadge(unreadCount),
+      isMuted,
     });
   }
 

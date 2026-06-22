@@ -23,6 +23,7 @@ import {
   markDirectMessagesReadInThread,
 } from "@/lib/chatNotifications";
 import { CHATS_INBOX_REFRESH_EVENT } from "@/lib/chatsInbox";
+import { isDmMuted } from "@/lib/chatInboxPreferences";
 import { buildRoomHref, fetchRoomMembershipForCity } from "@/lib/roomMemberships";
 import { supabase } from "@/lib/supabaseClient";
 
@@ -182,10 +183,14 @@ export default function ChatNotificationsProvider({ children }: { children: Reac
             return;
           }
 
-          void refreshUnreadCount();
-          window.dispatchEvent(new Event(CHATS_INBOX_REFRESH_EVENT));
-
           void (async () => {
+            void refreshUnreadCount();
+            window.dispatchEvent(new Event(CHATS_INBOX_REFRESH_EVENT));
+
+            if (await isDmMuted(userId, row.sender_id)) {
+              return;
+            }
+
             const { username } = await fetchProfileUsername(row.sender_id);
             const senderName = username === "Someone" ? t("common.someone") : username;
             const message = buildIncomingMessageToast(

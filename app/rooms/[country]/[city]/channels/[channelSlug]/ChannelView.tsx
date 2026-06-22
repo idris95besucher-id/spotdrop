@@ -1,7 +1,7 @@
 "use client";
 
 import { useParams } from "next/navigation";
-import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
 import type { Session } from "@supabase/supabase-js";
 import CityRoomChatComposer from "@/components/CityRoomChatComposer";
@@ -116,6 +116,7 @@ export default function CityChannelPage() {
     syncMessagesScroll,
     markForceScroll,
     resetChatScroll,
+    scrollRequestId,
   } = useChatScroll();
 
   const loadMessages = useCallback(async (channelId: string) => {
@@ -286,6 +287,10 @@ export default function CityChannelPage() {
           }
 
           setMessages((currentMessages) => mergeMessages(currentMessages, [buildMessage(insertedMessage, senderProfile)]));
+
+          if (insertedMessage.user_id === session?.user?.id) {
+            markForceScroll();
+          }
         }
       )
       .subscribe();
@@ -293,15 +298,15 @@ export default function CityChannelPage() {
     return () => {
       void supabase.removeChannel(realtimeChannel);
     };
-  }, [channel?.id, session?.user]);
+  }, [channel?.id, markForceScroll, session?.user]);
 
   const chatLoading = loading || loadingMessages;
 
-  useChatScrollEffect(syncMessagesScroll, messages.length, chatLoading);
-
-  useEffect(() => {
+  useLayoutEffect(() => {
     resetChatScroll();
   }, [channelSlug, citySlug, countrySlug, resetChatScroll]);
+
+  useChatScrollEffect(syncMessagesScroll, messages.length, chatLoading, scrollRequestId);
 
   const sendChannelContent = async (content: string) => {
     setSendError(null);
@@ -373,16 +378,6 @@ export default function CityChannelPage() {
     () => (country ? getCountryFlag(country.slug, country.emoji, country.code) : "🌍"),
     [country]
   );
-  const placeSearchScope = useMemo(
-    () => ({
-      countrySlug: country?.slug ?? countrySlug,
-      countryName: country?.name ?? countrySlug,
-      citySlug: city?.slug ?? citySlug,
-      cityName: city?.name ?? citySlug,
-      region: null as string | null,
-    }),
-    [country, city, countrySlug, citySlug]
-  );
 
   const localizedError = localizeUserMessage(t, error);
 
@@ -417,7 +412,7 @@ export default function CityChannelPage() {
           <div
             ref={messagesContainerRef}
             onScroll={handleScroll}
-            className={`relative z-10 min-h-0 flex-1 overflow-y-auto px-3 py-3 ${CHAT_MESSAGES_BOTTOM_PADDING}`}
+            className={`relative z-10 min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-3 py-3 ${CHAT_MESSAGES_BOTTOM_PADDING}`}
           >
             {chatLoading ? (
               <div className="rounded-3xl border border-dashed border-white/10 bg-slate-950/55 p-8 text-center text-slate-300 backdrop-blur-md">
@@ -473,9 +468,6 @@ export default function CityChannelPage() {
             value={draft}
             onChange={setDraft}
             onSubmit={handleSend}
-            onSendPlaceContent={sendChannelContent}
-            placeSearchScope={placeSearchScope}
-            userId={session?.user?.id}
             sending={sending}
             sendDisabled={sending || !session?.user?.id || !draft.trim() || Boolean(error)}
             sendError={sendError}

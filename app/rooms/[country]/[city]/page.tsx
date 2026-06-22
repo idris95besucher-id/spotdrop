@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { cityStaticParams } from "@/lib/capacitorStaticExport";
 import CityRoomView from "./CityRoomView";
 
@@ -6,5 +7,9 @@ export async function generateStaticParams() {
 }
 
 export default function CityRoomPage() {
-  return <CityRoomView />;
+  return (
+    <Suspense fallback={null}>
+      <CityRoomView />
+    </Suspense>
+  );
 }

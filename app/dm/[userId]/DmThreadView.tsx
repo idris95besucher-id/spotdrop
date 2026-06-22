@@ -89,6 +89,7 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
     syncMessagesScroll,
     markForceScroll,
     resetChatScroll,
+    scrollRequestId,
   } = useChatScroll();
   const { refreshUnreadCount } = useChatNotifications();
   const currentUserId = session?.user?.id ?? null;
@@ -99,7 +100,7 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
   const sendPermission = canSendDirectMessage(conversation, currentUserId ?? "");
   const canSendMessages = sendPermission.allowed && !messagePrivacyBlockKey;
 
-  useChatScrollEffect(syncMessagesScroll, messages.length, loading);
+  useChatScrollEffect(syncMessagesScroll, messages.length, loading, scrollRequestId);
 
   useEffect(() => {
     resetChatScroll();

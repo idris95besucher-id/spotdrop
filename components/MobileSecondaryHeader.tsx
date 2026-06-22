@@ -7,12 +7,14 @@ import { MOBILE_SAFE_AREA_INSET_TOP, MOBILE_WIDTH_SAFE_CLASS } from "@/lib/mobil
 type MobileSecondaryHeaderProps = {
   title: string;
   backHref: string;
+  onBack?: () => void;
   className?: string;
 };
 
 export default function MobileSecondaryHeader({
   title,
   backHref,
+  onBack,
   className = "",
 }: MobileSecondaryHeaderProps) {
   const router = useRouter();
@@ -23,7 +25,10 @@ export default function MobileSecondaryHeader({
     >
       <button
         type="button"
-        onClick={() => router.push(backHref)}
+        onClick={() => {
+          onBack?.();
+          router.push(backHref);
+        }}
         className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-white transition hover:bg-white/10 active:opacity-80"
         aria-label={`Back to ${title}`}
       >

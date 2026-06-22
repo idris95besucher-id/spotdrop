@@ -16,8 +16,10 @@ import { useI18n } from "@/components/I18nProvider";
 import { useChatNotifications } from "@/components/ChatNotificationsProvider";
 import { CreateNavButton, useCreateMenu } from "@/components/CreateMenuProvider";
 import { formatUnreadBadge } from "@/lib/chatNotifications";
-import { isMainNavActive, MAIN_NAV_ITEMS, MAIN_NAV_LEFT, MAIN_NAV_RIGHT, shouldShowMobileBottomNav } from "@/lib/mainNav";
+import { isMainNavActive, MAIN_NAV_ITEMS, MAIN_NAV_LEFT, MAIN_NAV_RIGHT, shouldShowMobileBottomNav, shouldShowMobileCreateButton } from "@/lib/mainNav";
 import { MOBILE_FIXED_BOTTOM_NAV_CLASS } from "@/lib/mobileLayout";
+
+const MOBILE_BOTTOM_NAV_TOUCH_CLASS = "select-none touch-manipulation";
 
 const desktopIconClass =
   "h-[18px] w-[18px] shrink-0 text-muted transition-colors group-hover:text-white";
@@ -36,14 +38,14 @@ function NavBadge({ count }: { count: number }) {
   }
 
   return (
-    <span className="absolute -right-1.5 -top-1.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold leading-none text-white ring-2 ring-[#0B1026]">
+    <span className="pointer-events-none absolute -right-1.5 -top-1.5 flex h-[18px] min-w-[18px] select-none items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold leading-none text-white ring-2 ring-[#0B1026]">
       {label}
     </span>
   );
 }
 
 function navIcon(href: string, active: boolean, badgeCount = 0) {
-  const className = `h-6 w-6 shrink-0 transition-colors ${
+  const className = `pointer-events-none h-6 w-6 shrink-0 select-none transition-colors ${
     active ? "text-primary [filter:drop-shadow(0_0_8px_var(--sd-primary-glow))]" : "text-muted group-hover:text-slate-300"
   }`;
 
@@ -72,7 +74,7 @@ function navIcon(href: string, active: boolean, badgeCount = 0) {
 
   if (href === "/chats") {
     return (
-      <span className="relative inline-flex">
+      <span className="pointer-events-none relative inline-flex select-none">
         {icon}
         <NavBadge count={badgeCount} />
       </span>
@@ -139,12 +141,13 @@ function MobileNavLink({
   return (
     <Link
       href={href}
-      className="group flex min-w-0 flex-1 flex-col items-center justify-center gap-1 px-1 py-2"
+      className={`group flex min-w-0 flex-1 flex-col items-center justify-center gap-1 px-1 py-2 ${MOBILE_BOTTOM_NAV_TOUCH_CLASS}`}
       aria-current={active ? "page" : undefined}
+      draggable={false}
     >
       {navIcon(href, active, badgeCount)}
       <span
-        className={`max-w-full truncate text-[10px] font-medium leading-none ${
+        className={`pointer-events-none max-w-full truncate text-[10px] font-medium leading-none select-none ${
           active ? "text-primary" : "text-muted group-hover:text-slate-300"
         }`}
       >
@@ -234,10 +237,16 @@ export function MobileBottomNav() {
   };
 
   const nav = (
-    <nav data-mobile-bottom-nav className={MOBILE_FIXED_BOTTOM_NAV_CLASS} aria-label="Main">
-      <div className="mx-auto flex h-[54px] w-full min-w-0 max-w-lg items-stretch justify-around px-1">
+    <nav
+      data-mobile-bottom-nav
+      className={`${MOBILE_FIXED_BOTTOM_NAV_CLASS} ${MOBILE_BOTTOM_NAV_TOUCH_CLASS}`}
+      aria-label="Main"
+    >
+      <div className={`mx-auto flex h-[54px] w-full min-w-0 max-w-lg items-stretch justify-around px-1 ${MOBILE_BOTTOM_NAV_TOUCH_CLASS}`}>
         {MAIN_NAV_LEFT.map(renderItem)}
-        <CreateNavButton className="min-w-0 flex-1" />
+        {shouldShowMobileCreateButton(pathname) ? (
+          <CreateNavButton className="min-w-0 flex-1" />
+        ) : null}
         {MAIN_NAV_RIGHT.map(renderItem)}
       </div>
     </nav>

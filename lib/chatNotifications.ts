@@ -2,6 +2,7 @@ import type { DirectMessageType } from "@/lib/directConversations";
 import type { TranslationKey } from "@/lib/i18n/messages";
 import { publicProfileUsername } from "@/lib/publicProfile";
 import { countUnreadRoomMessages } from "@/lib/roomMemberships";
+import { loadMutedDmPartnerIds } from "@/lib/chatInboxPreferences";
 import { supabase } from "@/lib/supabaseClient";
 
 type TranslateFn = (key: TranslationKey, values?: Record<string, string | number>) => string;
@@ -18,20 +19,26 @@ export function formatUnreadBadge(count: number) {
   return String(count);
 }
 
-/** Unread incoming DMs (includes spot_share_request). */
+/** Unread incoming DMs (includes spot_share_request). Respects muted chats. */
 export async function countUnreadDirectMessages(userId: string) {
-  const { count, error } = await supabase
-    .from("direct_messages")
-    .select("id", { count: "exact", head: true })
-    .eq("recipient_id", userId)
-    .is("read_at", null)
-    .neq("sender_id", userId);
+  const [{ data, error }, mutedResult] = await Promise.all([
+    supabase
+      .from("direct_messages")
+      .select("sender_id")
+      .eq("recipient_id", userId)
+      .is("read_at", null)
+      .neq("sender_id", userId),
+    loadMutedDmPartnerIds(userId),
+  ]);
 
   if (error) {
     return { count: 0, error: error.message };
   }
 
-  return { count: count ?? 0, error: null as string | null };
+  const mutedPartners = mutedResult.partnerIds;
+  const count = (data ?? []).filter((row) => !mutedPartners.has(String(row.sender_id))).length;
+
+  return { count, error: null as string | null };
 }
 
 export async function countUnreadSpotShareRequests(userId: string) {

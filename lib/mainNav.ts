@@ -79,6 +79,21 @@ export function isMainNavActive(pathname: string | null, href: string) {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
+/** Room hub and city/group/channel chat routes — hide global create button. */
+export function isRoomsNavRoute(pathname: string | null) {
+  if (!pathname) {
+    return false;
+  }
+
+  const normalized = normalizeNavPathname(pathname);
+
+  return normalized === "/rooms" || normalized.startsWith("/rooms/");
+}
+
+export function shouldShowMobileCreateButton(pathname: string | null) {
+  return !isRoomsNavRoute(pathname);
+}
+
 /** Spot/post detail and reel viewer — fullscreen, no bottom tab bar. */
 export function isPostReelRoute(pathname: string | null) {
   if (!pathname) {

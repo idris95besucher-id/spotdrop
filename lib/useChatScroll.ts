@@ -4,9 +4,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 const NEAR_BOTTOM_THRESHOLD_PX = 120;
 
-/** Clears space for fixed/absolute chat composer + safe area */
+/** Space for absolute room composer: p-3 + min-h-11 textarea + bottom safe area */
 export const CHAT_MESSAGES_BOTTOM_PADDING =
-  "pb-[calc(5.25rem+env(safe-area-inset-bottom,0px))]";
+  "pb-[calc(4.5rem+env(safe-area-inset-bottom,0px))]";
 
 type UseChatScrollOptions = {
   nearBottomThreshold?: number;
@@ -18,14 +18,43 @@ function scrollAfterRender(callback: () => void) {
   });
 }
 
+function scrollContainerToBottom(container: HTMLDivElement, behavior: ScrollBehavior = "auto") {
+  const targetTop = Math.max(0, container.scrollHeight - container.clientHeight);
+
+  if (behavior === "auto") {
+    container.scrollTop = targetTop;
+    return;
+  }
+
+  try {
+    container.scrollTo({ top: targetTop, behavior });
+  } catch {
+    container.scrollTop = targetTop;
+  }
+}
+
 export function useChatScroll(options: UseChatScrollOptions = {}) {
   const threshold = options.nearBottomThreshold ?? NEAR_BOTTOM_THRESHOLD_PX;
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const [showNewMessages, setShowNewMessages] = useState(false);
+  const [scrollRequestId, setScrollRequestId] = useState(0);
   const previousLengthRef = useRef(0);
   const initialScrollDoneRef = useRef(false);
+  const wasLoadingRef = useRef(true);
   const forceScrollRef = useRef(false);
+  const resizeObserverRef = useRef<ResizeObserver | null>(null);
+  const resizeObserverTimerRef = useRef<number | null>(null);
+
+  const stopResizeObserver = useCallback(() => {
+    if (resizeObserverTimerRef.current !== null) {
+      window.clearTimeout(resizeObserverTimerRef.current);
+      resizeObserverTimerRef.current = null;
+    }
+
+    resizeObserverRef.current?.disconnect();
+    resizeObserverRef.current = null;
+  }, []);
 
   const getIsNearBottom = useCallback(() => {
     const container = messagesContainerRef.current;
@@ -37,50 +66,66 @@ export function useChatScroll(options: UseChatScrollOptions = {}) {
     return container.scrollHeight - container.scrollTop - container.clientHeight <= threshold;
   }, [threshold]);
 
-  const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = "auto") => {
     const container = messagesContainerRef.current;
-    const end = messagesEndRef.current;
 
-    if (end) {
-      end.scrollIntoView({ behavior, block: "end" });
-    } else if (container) {
-      container.scrollTo({
-        top: container.scrollHeight,
-        behavior,
-      });
+    if (!container) {
+      return;
     }
 
+    scrollContainerToBottom(container, behavior);
     setShowNewMessages(false);
   }, []);
 
-  const scrollToBottomAfterRender = useCallback(
-    (behavior: ScrollBehavior = "auto", retry = false) => {
-      scrollAfterRender(() => {
-        scrollToBottom(behavior);
+  const scheduleScrollToBottom = useCallback(
+    (behavior: ScrollBehavior = "auto", watchResize = false) => {
+      const run = () => scrollToBottom(behavior);
 
-        if (!retry) {
-          return;
-        }
+      scrollAfterRender(run);
+      window.setTimeout(run, 0);
+      window.setTimeout(run, 64);
+      window.setTimeout(run, 200);
+      window.setTimeout(run, 400);
+      window.setTimeout(run, 600);
 
-        if (!getIsNearBottom()) {
-          window.setTimeout(() => scrollToBottom("auto"), 64);
-          window.setTimeout(() => scrollToBottom("auto"), 200);
-        }
+      if (!watchResize) {
+        return;
+      }
+
+      const container = messagesContainerRef.current;
+      if (!container) {
+        return;
+      }
+
+      stopResizeObserver();
+
+      const observer = new ResizeObserver(() => {
+        scrollToBottom("auto");
       });
+
+      observer.observe(container);
+      resizeObserverRef.current = observer;
+      resizeObserverTimerRef.current = window.setTimeout(() => {
+        stopResizeObserver();
+      }, 900);
     },
-    [getIsNearBottom, scrollToBottom]
+    [scrollToBottom, stopResizeObserver]
   );
 
   const markForceScroll = useCallback(() => {
     forceScrollRef.current = true;
-  }, []);
+    setScrollRequestId((current) => current + 1);
+    scheduleScrollToBottom("auto", true);
+  }, [scheduleScrollToBottom]);
 
   const resetChatScroll = useCallback(() => {
+    stopResizeObserver();
     previousLengthRef.current = 0;
     initialScrollDoneRef.current = false;
+    wasLoadingRef.current = true;
     forceScrollRef.current = false;
     setShowNewMessages(false);
-  }, []);
+  }, [stopResizeObserver]);
 
   const handleScroll = useCallback(() => {
     if (getIsNearBottom()) {
@@ -91,18 +136,23 @@ export function useChatScroll(options: UseChatScrollOptions = {}) {
   const syncMessagesScroll = useCallback(
     (messageCount: number, loading: boolean) => {
       if (loading) {
+        wasLoadingRef.current = true;
         return;
       }
+
+      const justFinishedLoading = wasLoadingRef.current;
+      wasLoadingRef.current = false;
 
       if (forceScrollRef.current) {
-        scrollToBottomAfterRender("smooth");
+        scheduleScrollToBottom("auto", true);
         forceScrollRef.current = false;
         previousLengthRef.current = messageCount;
+        initialScrollDoneRef.current = true;
         return;
       }
 
-      if (!initialScrollDoneRef.current && messageCount > 0) {
-        scrollToBottomAfterRender("auto", true);
+      if (justFinishedLoading || !initialScrollDoneRef.current) {
+        scheduleScrollToBottom("auto", true);
         initialScrollDoneRef.current = true;
         previousLengthRef.current = messageCount;
         return;
@@ -110,7 +160,7 @@ export function useChatScroll(options: UseChatScrollOptions = {}) {
 
       if (messageCount > previousLengthRef.current) {
         if (getIsNearBottom()) {
-          scrollToBottomAfterRender("smooth");
+          scheduleScrollToBottom("auto", true);
           setShowNewMessages(false);
         } else {
           setShowNewMessages(true);
@@ -119,13 +169,14 @@ export function useChatScroll(options: UseChatScrollOptions = {}) {
 
       previousLengthRef.current = messageCount;
     },
-    [getIsNearBottom, scrollToBottomAfterRender]
+    [getIsNearBottom, scheduleScrollToBottom]
   );
 
   return {
     messagesContainerRef,
     messagesEndRef,
     showNewMessages,
+    scrollRequestId,
     scrollToBottom,
     handleScroll,
     syncMessagesScroll,
@@ -137,9 +188,10 @@ export function useChatScroll(options: UseChatScrollOptions = {}) {
 export function useChatScrollEffect(
   syncMessagesScroll: (messageCount: number, loading: boolean) => void,
   messageCount: number,
-  loading: boolean
+  loading: boolean,
+  scrollRequestId = 0
 ) {
   useEffect(() => {
     syncMessagesScroll(messageCount, loading);
-  }, [syncMessagesScroll, messageCount, loading]);
+  }, [syncMessagesScroll, messageCount, loading, scrollRequestId]);
 }

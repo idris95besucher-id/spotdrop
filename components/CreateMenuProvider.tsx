@@ -325,11 +325,11 @@ export function CreateNavButton({ className = "" }: { className?: string }) {
     <button
       type="button"
       onClick={openCreateMenu}
-      className={`group flex flex-col items-center justify-center gap-1 px-1 py-2 ${className}`}
+      className={`group flex select-none touch-manipulation flex-col items-center justify-center gap-1 px-1 py-2 ${className}`}
       aria-label={t("nav.create")}
     >
-      <span className="relative -top-2 flex h-[3.25rem] w-[3.25rem] items-center justify-center rounded-full bg-primary text-[#050816] shadow-lg shadow-primary/25 ring-4 ring-[#0B1026] transition group-active:scale-95">
-        <Plus className="h-7 w-7" strokeWidth={2.5} aria-hidden />
+      <span className="pointer-events-none relative -top-2 flex h-[3.25rem] w-[3.25rem] select-none items-center justify-center rounded-full bg-primary text-[#050816] shadow-lg shadow-primary/25 ring-4 ring-[#0B1026] transition group-active:scale-95">
+        <Plus className="pointer-events-none h-7 w-7 select-none" strokeWidth={2.5} aria-hidden />
       </span>
     </button>
   );

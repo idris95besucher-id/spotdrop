@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useParams } from "next/navigation";
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useParams, usePathname, useSearchParams } from "next/navigation";
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import type { RealtimeChannel, Session } from "@supabase/supabase-js";
 import { Users } from "lucide-react";
@@ -29,7 +29,16 @@ import {
 } from "@/lib/cityRoomChatGrouping";
 import { localizeUserMessage } from "@/lib/i18n/localizeUserMessage";
 import { CHATS_INBOX_REFRESH_EVENT } from "@/lib/chatsInbox";
-import { markRoomAsRead, upsertRoomMembershipOnMessage } from "@/lib/roomMemberships";
+import {
+  markRoomAsRead,
+  clearRoomReturnNavigation,
+  isRoomOpenedFromMessages,
+  parseInAppReferrerPath,
+  readRoomNavigationFromWindowSearch,
+  readRoomReturnNavigation,
+  resolveRoomBackHref,
+  upsertRoomMembershipOnMessage,
+} from "@/lib/roomMemberships";
 import { useChatScroll, useChatScrollEffect, CHAT_MESSAGES_BOTTOM_PADDING } from "@/lib/useChatScroll";
 
 type Country = {
@@ -133,9 +142,26 @@ function countPresencePeers(channel: RealtimeChannel) {
 
 export default function RoomChatPage() {
   const { t } = useI18n();
+  const pathname = usePathname();
   const params = useParams<{ country: string; city: string }>();
+  const searchParams = useSearchParams();
   const citySlug = String(params.city ?? "").toLowerCase();
   const countrySlug = String(params.country ?? "").toLowerCase();
+  const roomFromParam = searchParams.get("from");
+  const roomReturnToParam = searchParams.get("returnTo");
+  const [referrerPath] = useState(() =>
+    typeof document !== "undefined" ? parseInAppReferrerPath(document.referrer) : null
+  );
+  const [windowNavigation, setWindowNavigation] = useState(readRoomNavigationFromWindowSearch);
+  const [sessionNavigation, setSessionNavigation] = useState(readRoomReturnNavigation);
+
+  useEffect(() => {
+    setWindowNavigation(readRoomNavigationFromWindowSearch());
+    setSessionNavigation(readRoomReturnNavigation());
+  }, [pathname, roomFromParam, roomReturnToParam]);
+
+  const roomFrom = roomFromParam ?? windowNavigation.from;
+  const roomReturnTo = roomReturnToParam ?? windowNavigation.returnTo;
   console.log("[Rooms route] city params", { rawCountry: params.country, rawCity: params.city, countrySlug, citySlug });
   const [country, setCountry] = useState<Country | null>(null);
   const [city, setCity] = useState<City | null>(null);
@@ -163,6 +189,7 @@ export default function RoomChatPage() {
     syncMessagesScroll,
     markForceScroll,
     resetChatScroll,
+    scrollRequestId,
   } = useChatScroll();
   const [inRoomCount, setInRoomCount] = useState<number | null>(null);
   const [presenceUsable, setPresenceUsable] = useState(false);
@@ -385,6 +412,10 @@ export default function RoomChatPage() {
             setMessages((currentMessages) =>
               mergeMessages(currentMessages, [buildMessage(insertedMessage, senderProfile)])
             );
+
+            if (insertedMessage.user_id === session?.user?.id) {
+              markForceScroll();
+            }
           }
         )
         .on(
@@ -432,7 +463,7 @@ export default function RoomChatPage() {
         void supabase.removeChannel(channel);
       };
     }
-  }, [cityId, loadMessages, session?.user?.id, currentUsername, currentUserAvatarUrl, countrySlug, citySlug]);
+  }, [cityId, loadMessages, markForceScroll, session?.user?.id, currentUsername, currentUserAvatarUrl, countrySlug, citySlug]);
 
   useEffect(() => {
     if (!cityId) {
@@ -609,11 +640,11 @@ export default function RoomChatPage() {
 
   const chatLoading = loadingRoom || loadingMessages;
 
-  useChatScrollEffect(syncMessagesScroll, messages.length, chatLoading);
-
-  useEffect(() => {
+  useLayoutEffect(() => {
     resetChatScroll();
   }, [citySlug, countrySlug, resetChatScroll]);
+
+  useChatScrollEffect(syncMessagesScroll, messages.length, chatLoading, scrollRequestId);
 
   useEffect(() => {
     if (showJoinMessage) {
@@ -705,16 +736,6 @@ export default function RoomChatPage() {
   const countryFlag = useMemo(
     () => (country ? getCountryFlag(country.slug, country.emoji, country.code) : "🌍"),
     [country]
-  );
-  const placeSearchScope = useMemo(
-    () => ({
-      countrySlug: country?.slug ?? countrySlug,
-      countryName: country?.name ?? countrySlug,
-      citySlug: city?.slug ?? citySlug,
-      cityName: city?.name ?? citySlug,
-      region: null as string | null,
-    }),
-    [country, city, countrySlug, citySlug]
   );
   const onlineIndicator = useMemo((): { kind: "count"; n: number } | { kind: "unknown" } => {
     if (presenceUsable && inRoomCount !== null) {
@@ -852,12 +873,81 @@ export default function RoomChatPage() {
     setDeletingMessage(false);
   };
 
+  const openedFromMessages = useMemo(
+    () =>
+      isRoomOpenedFromMessages({
+        from: roomFrom,
+        returnTo: roomReturnTo,
+        referrerPath,
+        sessionReturnSource: sessionNavigation.sessionReturnSource,
+      }),
+    [referrerPath, roomFrom, roomReturnTo, sessionNavigation.sessionReturnSource]
+  );
+
+  const roomBackHref = useMemo(
+    () =>
+      resolveRoomBackHref({
+        from: roomFrom,
+        returnTo: roomReturnTo,
+        countrySlug: country?.slug ?? countrySlug,
+        referrerPath,
+        sessionReturnSource: sessionNavigation.sessionReturnSource,
+        sessionReturnHref: sessionNavigation.sessionReturnHref,
+      }),
+    [
+      country?.slug,
+      countrySlug,
+      referrerPath,
+      roomFrom,
+      roomReturnTo,
+      sessionNavigation.sessionReturnHref,
+      sessionNavigation.sessionReturnSource,
+    ]
+  );
+
+  const roomHeaderTitle = openedFromMessages
+    ? t("chats.title")
+    : (country?.name ?? countrySlug);
+
+  useEffect(() => {
+    console.log("[Room back debug]", {
+      pathname,
+      searchParams: windowNavigation.windowSearch,
+      from: roomFrom,
+      returnTo: roomReturnTo,
+      fromParam: roomFromParam,
+      returnToParam: roomReturnToParam,
+      sessionReturnSource: sessionNavigation.sessionReturnSource,
+      sessionReturnHref: sessionNavigation.sessionReturnHref,
+      openedFromMessages,
+      backLabel: roomHeaderTitle,
+      backHref: roomBackHref,
+    });
+  }, [
+    openedFromMessages,
+    pathname,
+    roomBackHref,
+    roomFrom,
+    roomFromParam,
+    roomHeaderTitle,
+    roomReturnTo,
+    roomReturnToParam,
+    sessionNavigation.sessionReturnHref,
+    sessionNavigation.sessionReturnSource,
+    windowNavigation.windowSearch,
+  ]);
+
+  const handleRoomBack = useCallback(() => {
+    clearRoomReturnNavigation();
+  }, []);
+
   return (
     <Shell chatThread>
       <ChatThreadShell>
         <MobileSecondaryHeader
-          title={country?.name ?? countrySlug}
-          backHref={`/rooms/${country?.slug ?? countrySlug}`}
+          title={roomHeaderTitle}
+          backHref={roomBackHref}
+          onBack={handleRoomBack}
         />
 
         <div className="shrink-0 border-b border-white/10 bg-slate-900/95 px-4 py-2.5 backdrop-blur-xl">
@@ -896,7 +986,7 @@ export default function RoomChatPage() {
           <div
             ref={messagesContainerRef}
             onScroll={handleScroll}
-            className={`relative z-10 min-h-0 flex-1 overflow-y-auto px-3 py-3 ${CHAT_MESSAGES_BOTTOM_PADDING}`}
+            className={`relative z-10 min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-3 py-3 ${CHAT_MESSAGES_BOTTOM_PADDING}`}
           >
             {chatLoading ? (
               <div className="rounded-3xl border border-dashed border-white/10 bg-slate-950/55 p-8 text-center text-slate-300 backdrop-blur-md">
@@ -953,9 +1043,11 @@ export default function RoomChatPage() {
                     </Fragment>
                   );
                 })}
-                <div ref={messagesEndRef} aria-hidden className="h-px w-full shrink-0" />
               </>
             )}
+            {!chatLoading ? (
+              <div ref={messagesEndRef} aria-hidden className="h-px w-full shrink-0" />
+            ) : null}
           </div>
 
           {showNewMessages ? (
@@ -971,9 +1063,6 @@ export default function RoomChatPage() {
             value={newMessage}
             onChange={setNewMessage}
             onSubmit={handleSend}
-            onSendPlaceContent={sendRoomContent}
-            placeSearchScope={placeSearchScope}
-            userId={session?.user?.id}
             sending={sending}
             sendDisabled={isSendDisabled}
             sendError={sendError}

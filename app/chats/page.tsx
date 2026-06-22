@@ -1,99 +1,37 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
-import { UserRound } from "lucide-react";
+import ChatInboxActionSheet, {
+  type ChatInboxActionSheetTarget,
+} from "@/components/ChatInboxActionSheet";
 import { useChatNotifications } from "@/components/ChatNotificationsProvider";
+import DmInboxListItem from "@/components/DmInboxListItem";
 import { useI18n } from "@/components/I18nProvider";
 import MessageRequestItem, { type MessageRequestItemData } from "@/components/MessageRequestItem";
 import MobileSecondaryHeader from "@/components/MobileSecondaryHeader";
 import RoomInboxListItem from "@/components/RoomInboxListItem";
 import Shell from "@/components/Shell";
+import { hideDmChat, setDmMuted } from "@/lib/chatInboxPreferences";
 import { MOBILE_WIDTH_SAFE_CLASS } from "@/lib/mobileLayout";
-import { formatChatPreview } from "@/lib/i18n/chatPreview";
 import { localizeUserMessage } from "@/lib/i18n/localizeUserMessage";
 import { getSafeAuthSession } from "@/lib/authSession";
 import { formatUnreadBadge } from "@/lib/chatNotifications";
-import { CHATS_INBOX_REFRESH_EVENT, loadChatsInbox, type InboxChatRow, type InboxItem } from "@/lib/chatsInbox";
-import { publicProfileUsername } from "@/lib/publicProfile";
+import {
+  CHATS_INBOX_REFRESH_EVENT,
+  loadChatsInbox,
+  type InboxChatRow,
+  type InboxItem,
+} from "@/lib/chatsInbox";
 import { hideRoomFromMessages, setRoomMuted, type RoomInboxRow } from "@/lib/roomMemberships";
 import { supabase } from "@/lib/supabaseClient";
 
 type ChatsTab = "chats" | "requests";
 
-function formatChatTime(createdAt: string) {
-  const date = new Date(createdAt);
-
-  if (Number.isNaN(date.getTime())) {
-    return "";
-  }
-
-  const now = new Date();
-  const isToday =
-    date.getFullYear() === now.getFullYear() &&
-    date.getMonth() === now.getMonth() &&
-    date.getDate() === now.getDate();
-
-  if (isToday) {
-    return new Intl.DateTimeFormat(undefined, { timeStyle: "short" }).format(date);
-  }
-
-  return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(date);
-}
-
-function ChatListItem({ chat }: { chat: InboxChatRow }) {
-  const { t } = useI18n();
-  const hasUnread = chat.unreadCount > 0;
-  const preview = chat.lastMessage
-    ? formatChatPreview(chat.lastMessage, t)
-    : t("chats.preview.noMessages");
-
-  return (
-    <li>
-      <Link
-        href={`/dm?id=${chat.partnerId}`}
-        className={`flex items-center gap-3 px-4 py-3.5 transition sm:gap-4 sm:px-5 sm:py-4 ${
-          hasUnread ? "bg-primary/[0.06]" : "hover:bg-white/[0.03]"
-        }`}
-      >
-        <div className="relative shrink-0">
-          <div className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-full bg-white/[0.06] sm:h-16 sm:w-16">
-            {chat.avatarUrl ? (
-              <img src={chat.avatarUrl} alt="" className="h-full w-full object-cover" />
-            ) : (
-              <UserRound className="h-6 w-6 text-muted" strokeWidth={1.5} aria-hidden />
-            )}
-          </div>
-          {hasUnread ? (
-            <span className="absolute -right-0.5 -top-0.5 h-3.5 w-3.5 rounded-full border-2 border-[#0B1026] bg-primary" />
-          ) : null}
-        </div>
-
-        <div className="min-w-0 flex-1">
-          <div className="flex items-baseline justify-between gap-2">
-            <p className={`truncate text-[15px] sm:text-base ${hasUnread ? "font-bold text-white" : "font-semibold text-white"}`}>
-              {publicProfileUsername(chat.username)}
-            </p>
-            <time className={`shrink-0 text-xs ${hasUnread ? "font-semibold text-primary" : "text-muted"}`}>
-              {formatChatTime(chat.lastAt)}
-            </time>
-          </div>
-          <div className="mt-0.5 flex items-center justify-between gap-2">
-            <p className={`truncate text-sm ${hasUnread ? "font-medium text-slate-200" : "text-muted"}`}>
-              {preview}
-            </p>
-            {chat.unreadBadge ? (
-              <span className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-primary px-1.5 text-[11px] font-bold text-[#050816]">
-                {chat.unreadBadge}
-              </span>
-            ) : null}
-          </div>
-        </div>
-      </Link>
-    </li>
-  );
-}
+type ActionTarget =
+  | { kind: "dm"; chat: InboxChatRow }
+  | { kind: "room"; room: RoomInboxRow };
 
 export default function ChatsPage() {
   const { t } = useI18n();
@@ -105,6 +43,7 @@ export default function ChatsPage() {
   const [requests, setRequests] = useState<MessageRequestItemData[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  const [actionTarget, setActionTarget] = useState<ActionTarget | null>(null);
   const { unreadCount, refreshUnreadCount } = useChatNotifications();
 
   const refresh = useCallback(() => {
@@ -224,6 +163,13 @@ export default function ChatsPage() {
           refresh();
         }
       )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "chat_inbox_preferences", filter: `user_id=eq.${userId}` },
+        () => {
+          refresh();
+        }
+      )
       .subscribe();
 
     return () => {
@@ -237,29 +183,62 @@ export default function ChatsPage() {
   const showAlerts = pendingCount > 0 || unreadCount > 0;
   const hasInboxItems = items.length > 0;
 
-  const handleMuteRoom = useCallback(
-    async (room: RoomInboxRow, muted: boolean) => {
-      if (!session?.user?.id) {
-        return;
-      }
+  const actionSheetTarget = useMemo((): ChatInboxActionSheetTarget | null => {
+    if (!actionTarget) {
+      return null;
+    }
 
-      await setRoomMuted(session.user.id, room.countrySlug, room.citySlug, muted);
-      refresh();
-    },
-    [refresh, session?.user?.id]
-  );
+    if (actionTarget.kind === "dm") {
+      return {
+        kind: "dm",
+        title: actionTarget.chat.username,
+        isMuted: actionTarget.chat.isMuted,
+      };
+    }
 
-  const handleHideRoom = useCallback(
-    async (room: RoomInboxRow) => {
-      if (!session?.user?.id) {
-        return;
-      }
+    return {
+      kind: "room",
+      title: actionTarget.room.cityName,
+      isMuted: actionTarget.room.isMuted,
+    };
+  }, [actionTarget]);
 
-      await hideRoomFromMessages(session.user.id, room.countrySlug, room.citySlug);
-      refresh();
-    },
-    [refresh, session?.user?.id]
-  );
+  const handleToggleMute = useCallback(async () => {
+    if (!session?.user?.id || !actionTarget) {
+      return;
+    }
+
+    if (actionTarget.kind === "dm") {
+      await setDmMuted(session.user.id, actionTarget.chat.partnerId, !actionTarget.chat.isMuted);
+    } else {
+      await setRoomMuted(
+        session.user.id,
+        actionTarget.room.countrySlug,
+        actionTarget.room.citySlug,
+        !actionTarget.room.isMuted
+      );
+    }
+
+    refresh();
+  }, [actionTarget, refresh, session?.user?.id]);
+
+  const handleRemove = useCallback(async () => {
+    if (!session?.user?.id || !actionTarget) {
+      return;
+    }
+
+    if (actionTarget.kind === "dm") {
+      await hideDmChat(session.user.id, actionTarget.chat.partnerId);
+    } else {
+      await hideRoomFromMessages(
+        session.user.id,
+        actionTarget.room.countrySlug,
+        actionTarget.room.citySlug
+      );
+    }
+
+    refresh();
+  }, [actionTarget, refresh, session?.user?.id]);
 
   return (
     <Shell showHeader={false} flushTop>
@@ -385,22 +364,32 @@ export default function ChatsPage() {
             )}
           </div>
         ) : (
-          <ul className="min-h-0 flex-1 divide-y divide-white/[0.06] overflow-y-auto">
+          <ul className="min-h-0 flex-1 divide-y divide-white/[0.06] overflow-y-auto select-none">
             {items.map((item) =>
               item.kind === "room" ? (
                 <RoomInboxListItem
                   key={`room-${item.room.membershipId}`}
                   room={item.room}
-                  onMute={handleMuteRoom}
-                  onHide={handleHideRoom}
+                  onLongPress={(room) => setActionTarget({ kind: "room", room })}
                 />
               ) : (
-                <ChatListItem key={item.chat.partnerId} chat={item.chat} />
+                <DmInboxListItem
+                  key={item.chat.partnerId}
+                  chat={item.chat}
+                  onLongPress={(chat) => setActionTarget({ kind: "dm", chat })}
+                />
               )
             )}
           </ul>
         )}
       </div>
+
+      <ChatInboxActionSheet
+        target={actionSheetTarget}
+        onClose={() => setActionTarget(null)}
+        onToggleMute={() => void handleToggleMute()}
+        onRemove={() => void handleRemove()}
+      />
     </Shell>
   );
 }

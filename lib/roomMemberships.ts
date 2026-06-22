@@ -68,8 +68,144 @@ function isMissingRoomMembershipsTable(error: { code?: string; message?: string 
   );
 }
 
-export function buildRoomHref(countrySlug: string, citySlug: string) {
-  return `/rooms/${countrySlug}/${citySlug}`;
+export const ROOM_FROM_MESSAGES = "messages";
+export const ROOM_RETURN_SOURCE_KEY = "roomReturnSource";
+export const ROOM_RETURN_HREF_KEY = "roomReturnHref";
+export const ROOM_RETURN_SOURCE_MESSAGES = "messages";
+export const ROOM_RETURN_HREF_CHATS = "/chats";
+
+export type BuildRoomHrefOptions = {
+  from?: typeof ROOM_FROM_MESSAGES;
+};
+
+export function setRoomReturnToMessages() {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  sessionStorage.setItem(ROOM_RETURN_SOURCE_KEY, ROOM_RETURN_SOURCE_MESSAGES);
+  sessionStorage.setItem(ROOM_RETURN_HREF_KEY, ROOM_RETURN_HREF_CHATS);
+}
+
+export function clearRoomReturnNavigation() {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  sessionStorage.removeItem(ROOM_RETURN_SOURCE_KEY);
+  sessionStorage.removeItem(ROOM_RETURN_HREF_KEY);
+}
+
+export function readRoomReturnNavigation() {
+  if (typeof window === "undefined") {
+    return {
+      sessionReturnSource: null as string | null,
+      sessionReturnHref: null as string | null,
+    };
+  }
+
+  return {
+    sessionReturnSource: sessionStorage.getItem(ROOM_RETURN_SOURCE_KEY),
+    sessionReturnHref: sessionStorage.getItem(ROOM_RETURN_HREF_KEY),
+  };
+}
+
+export function readRoomNavigationFromWindowSearch() {
+  if (typeof window === "undefined") {
+    return {
+      windowSearch: "",
+      from: null as string | null,
+      returnTo: null as string | null,
+    };
+  }
+
+  const windowSearch = window.location.search;
+  const params = new URLSearchParams(windowSearch);
+
+  return {
+    windowSearch,
+    from: params.get("from"),
+    returnTo: params.get("returnTo"),
+  };
+}
+
+export function buildRoomHref(
+  countrySlug: string,
+  citySlug: string,
+  options?: BuildRoomHrefOptions
+) {
+  const base = `/rooms/${countrySlug}/${citySlug}`;
+
+  if (options?.from === ROOM_FROM_MESSAGES) {
+    return `${base}?from=${ROOM_FROM_MESSAGES}`;
+  }
+
+  return base;
+}
+
+export function parseInAppReferrerPath(referrer: string) {
+  if (!referrer) {
+    return null;
+  }
+
+  try {
+    return new URL(referrer).pathname;
+  } catch {
+    return null;
+  }
+}
+
+export function isMessagesReferrerPath(pathname: string | null) {
+  if (!pathname) {
+    return false;
+  }
+
+  const normalized = pathname.replace(/\/+$/, "") || "/";
+
+  return (
+    normalized === "/chats" ||
+    normalized.startsWith("/chats/") ||
+    normalized === "/messages" ||
+    normalized.startsWith("/messages/")
+  );
+}
+
+export function isRoomOpenedFromMessages(input: {
+  from: string | null;
+  returnTo?: string | null;
+  referrerPath?: string | null;
+  sessionReturnSource?: string | null;
+}) {
+  if (input.from === ROOM_FROM_MESSAGES) {
+    return true;
+  }
+
+  if (input.sessionReturnSource === ROOM_RETURN_SOURCE_MESSAGES) {
+    return true;
+  }
+
+  const returnTo = input.returnTo?.replace(/\/+$/, "") || null;
+
+  if (returnTo === ROOM_RETURN_HREF_CHATS || returnTo === "/messages") {
+    return true;
+  }
+
+  return isMessagesReferrerPath(input.referrerPath ?? null);
+}
+
+export function resolveRoomBackHref(input: {
+  from: string | null;
+  returnTo?: string | null;
+  countrySlug: string;
+  referrerPath?: string | null;
+  sessionReturnSource?: string | null;
+  sessionReturnHref?: string | null;
+}) {
+  if (isRoomOpenedFromMessages(input)) {
+    return input.sessionReturnHref ?? ROOM_RETURN_HREF_CHATS;
+  }
+
+  return `/rooms/${input.countrySlug}`;
 }
 
 export async function upsertRoomMembershipOnMessage(
