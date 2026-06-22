@@ -740,7 +740,13 @@ export default function SpotLiveMap({ userId, embedded = false }: SpotLiveMapPro
         </div>
       </div>
 
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 flex flex-col items-center gap-2 p-4 pb-2">
+      <div
+        className={`pointer-events-none absolute inset-x-0 bottom-0 z-20 flex flex-col items-center gap-2 px-4 pt-4 ${
+          embedded
+            ? "pb-[calc(54px+env(safe-area-inset-bottom,0px)+16px)]"
+            : "pb-4"
+        }`}
+      >
         <p className="pointer-events-none text-center text-xs font-medium text-slate-300">
           {isLive ? t("map.visibleOnMap") : t("map.hiddenFromMap")}
         </p>
