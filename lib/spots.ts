@@ -7,10 +7,11 @@ import {
 } from "@/lib/discoveryMap";
 import { formatSpotLocationDisplay } from "@/lib/spotLocationDisplay";
 import { haversineKm, type SpotGeoLocation } from "@/lib/spotLocation";
-import { hasSpotPublishLocation, SPOT_LOCATION_REQUIRED_MESSAGE } from "@/lib/spotPublish";
+import { hasSpotPublishLocation, resolveSpotName, SPOT_LOCATION_REQUIRED_MESSAGE } from "@/lib/spotPublish";
 import { POST_AUTHOR_PROFILES_INNER } from "@/lib/posts";
 import { uploadPostMedia } from "@/lib/postMedia";
 import { uploadVideoCoverForPublish } from "@/lib/publishVideoCover";
+import { spotUploadTime } from "@/lib/spotUploadLog";
 import { isGuideAccountUsername, publicProfileUsername } from "@/lib/publicProfile";
 import { addSpotToCollection, loadCollectionById, spotVisibilityForCollection } from "@/lib/collections";
 import { supabase } from "@/lib/supabaseClient";
@@ -54,6 +55,11 @@ export type CreateSpotInput = {
   coverFile?: File | null;
   /** Optional collection to add this spot into after publish. */
   collectionId?: string | null;
+  /** Skip discovery_regions query when places were preloaded in the camera flow. */
+  discoveryPlaces?: DiscoveryPlace[];
+  accessToken?: string;
+  onMediaUploadProgress?: (percent: number) => void;
+  onCoverUploadProgress?: (percent: number) => void;
 };
 
 const NEAREST_PLACE_KM = 8;
@@ -155,19 +161,70 @@ function isMissingVideoCoverColumn(error: { code?: string; message?: string } | 
   );
 }
 
+function isInsertSelectError(error: { code?: string; message?: string } | null) {
+  if (!error) {
+    return false;
+  }
+
+  return error.code === "PGRST116" || error.message?.includes("JSON object requested") === true;
+}
+
+async function fetchInsertedPost(userId: string, mediaUrl: string) {
+  const { data, error } = await supabase
+    .from("posts")
+    .select("id, spot_name, media_url, video_url, thumbnail_url, video_cover_url, media_type, image_url")
+    .eq("user_id", userId)
+    .eq("media_url", mediaUrl)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  return { data, error };
+}
+
 export async function createGeoSpot(input: CreateSpotInput) {
   if (!hasSpotPublishLocation(input.location)) {
     return { postId: null, matchedPlace: null, error: SPOT_LOCATION_REQUIRED_MESSAGE };
   }
 
-  const upload = await uploadPostMedia(input.userId, input.file);
+  const uploadOptions = {
+    accessToken: input.accessToken,
+  };
+
+  let upload: Awaited<ReturnType<typeof uploadPostMedia>>;
   let videoCoverUrl: string | null = null;
 
-  if (input.mediaType === "video") {
-    videoCoverUrl = await uploadVideoCoverForPublish(input.userId, input.file, input.coverFile);
+  try {
+    const finishMediaUpload = spotUploadTime("storage media");
+    upload = await uploadPostMedia(input.userId, input.file, {
+      ...uploadOptions,
+      onProgress: input.onMediaUploadProgress,
+    });
+    finishMediaUpload();
+
+    if (input.mediaType === "video") {
+      const finishCoverUpload = spotUploadTime("storage cover");
+      videoCoverUrl = await uploadVideoCoverForPublish(input.userId, input.file, input.coverFile ?? null, {
+        ...uploadOptions,
+        onProgress: input.onCoverUploadProgress,
+      });
+      finishCoverUpload();
+    } else {
+      input.onCoverUploadProgress?.(100);
+    }
+  } catch (uploadError) {
+    const message = uploadError instanceof Error ? uploadError.message : "Unable to upload media.";
+    console.log("UPLOAD FILE RESULT", { step: "createGeoSpot", failed: true, error: message });
+    return { postId: null, matchedPlace: null, error: message };
   }
 
-  const places = await loadDiscoveryPlacesForMatching();
+  const finishLocation = spotUploadTime("location");
+  const places =
+    input.discoveryPlaces && input.discoveryPlaces.length > 0
+      ? input.discoveryPlaces
+      : await loadDiscoveryPlacesForMatching();
+  finishLocation();
+
   const manualPlace =
     input.manualPlaceId && !input.manualPlaceId.startsWith("fallback-")
       ? places.find((place) => place.id === input.manualPlaceId) ?? null
@@ -192,7 +249,7 @@ export async function createGeoSpot(input: CreateSpotInput) {
   const row = {
     user_id: input.userId,
     content: "",
-    spot_name: input.spotName.trim(),
+    spot_name: resolveSpotName(input.spotName),
     visibility: spotVisibility,
     published_to_spots: publishedToSpots,
     content_kind: "spot" as const,
@@ -210,50 +267,106 @@ export async function createGeoSpot(input: CreateSpotInput) {
     spot_country: input.location.country,
   };
 
-  let { data, error } = await supabase.from("posts").insert(row).select("id").single();
+  console.log("POST INSERT payload", {
+    storage_path: upload.storagePath,
+    media_url: row.media_url,
+    video_url: row.video_url,
+    thumbnail_url: row.thumbnail_url,
+    video_cover_url: row.video_cover_url,
+    spot_name: row.spot_name,
+    media_type: row.media_type,
+  });
 
-  if (error && isMissingVideoCoverColumn(error)) {
-    const {
-      video_cover_url: _videoCover,
-      thumbnail_url: _thumb,
-      ...legacyRow
-    } = row as typeof row & { video_cover_url?: string | null; thumbnail_url?: string | null };
-    const retry = await supabase.from("posts").insert(legacyRow).select("id").single();
-    data = retry.data;
-    error = retry.error;
-  }
+  const finishDbInsert = spotUploadTime("db insert");
 
-  if (error) {
-    if (isMissingSpotNameColumn(error)) {
+  try {
+    let insertRow: typeof row | Omit<typeof row, "video_cover_url" | "thumbnail_url"> = row;
+    let { error: insertError } = await supabase.from("posts").insert(insertRow);
+
+    if (insertError && isMissingVideoCoverColumn(insertError)) {
+      const {
+        video_cover_url: _videoCover,
+        thumbnail_url: _thumb,
+        ...legacyRow
+      } = row;
+      insertRow = legacyRow;
+      const retry = await supabase.from("posts").insert(legacyRow);
+      insertError = retry.error;
+    }
+
+    let { data, error: fetchError } = await fetchInsertedPost(input.userId, upload.mediaUrl);
+
+    if (!data && !fetchError && insertError && isInsertSelectError(insertError)) {
+      ({ data, error: fetchError } = await fetchInsertedPost(input.userId, upload.mediaUrl));
+    }
+
+    console.log("POST INSERT RESULT", {
+      insertError,
+      fetchError,
+      storage_path: upload.storagePath,
+      media_url: data?.media_url ?? row.media_url,
+      video_url: data?.video_url ?? row.video_url,
+      thumbnail_url: data?.thumbnail_url ?? row.thumbnail_url,
+      video_cover_url: data?.video_cover_url ?? row.video_cover_url,
+      spot_name: data?.spot_name ?? row.spot_name,
+      media_type: data?.media_type ?? row.media_type,
+      postId: data?.id ?? null,
+    });
+
+    if (insertError && !data) {
+      if (isMissingSpotNameColumn(insertError)) {
+        return {
+          postId: null,
+          matchedPlace,
+          error: "Run database/add-spot-name.sql in Supabase to enable spot names.",
+        };
+      }
+
+      if (isMissingSpotColumns(insertError)) {
+        return {
+          postId: null,
+          matchedPlace,
+          error: "Run database/add-spot-location.sql in Supabase to enable geo spots.",
+        };
+      }
+
+      return { postId: null, matchedPlace, error: insertError.message };
+    }
+
+    if (fetchError && !data) {
       return {
         postId: null,
         matchedPlace,
-        error: "Run database/add-spot-name.sql in Supabase to enable spot names.",
+        error: fetchError.message || "Post was saved but could not be loaded.",
       };
     }
 
-    if (isMissingSpotColumns(error)) {
+    const postId = data?.id ? String(data.id) : null;
+
+    if (!postId) {
       return {
         postId: null,
         matchedPlace,
-        error: "Run database/add-spot-location.sql in Supabase to enable geo spots.",
+        error: "Post insert succeeded but no id was returned.",
       };
     }
 
-    return { postId: null, matchedPlace, error: error.message };
-  }
+    if (postId && input.collectionId) {
+      const addResult = await addSpotToCollection(input.collectionId, postId, input.userId);
 
-  const postId = data?.id ? String(data.id) : null;
-
-  if (postId && input.collectionId) {
-    const addResult = await addSpotToCollection(input.collectionId, postId, input.userId);
-
-    if (addResult.error) {
-      return { postId, matchedPlace, error: addResult.error };
+      if (addResult.error) {
+        console.warn("POST INSERT collection add failed (non-fatal)", {
+          postId,
+          collectionId: input.collectionId,
+          error: addResult.error,
+        });
+      }
     }
-  }
 
-  return { postId, matchedPlace, error: null };
+    return { postId, matchedPlace, error: null };
+  } finally {
+    finishDbInsert();
+  }
 }
 
 function withinBounds(lat: number, lng: number, bounds: MapBounds) {

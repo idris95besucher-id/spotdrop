@@ -9,7 +9,6 @@ import SpotCapturePreviewScreen from "@/components/SpotCapturePreviewScreen";
 import SpotVideoEditorScreen from "@/components/SpotVideoEditorScreen";
 import { loadUserCollections, type CollectionWithMeta } from "@/lib/collections";
 import {
-  createGeoSpot,
   findNearestDiscoveryPlace,
   loadDiscoveryPlacesForMatching,
 } from "@/lib/spots";
@@ -41,10 +40,13 @@ import {
 import {
   createMediaEditorItem,
   getActiveMediaEditorItem,
-  prepareMediaFileForPublish,
   revokeMediaEditorItems,
   type MediaEditorItem,
 } from "@/lib/mediaEditor";
+import {
+  publishSpotWithProgress,
+  type SpotUploadProgress,
+} from "@/lib/spotUploadPipeline";
 import { setImmersiveOverlayActive } from "@/lib/immersiveOverlay";
 import { type SpotLocationSourceKind } from "@/components/SpotLocationPicker";
 
@@ -83,6 +85,8 @@ export default function CreateSpotForm({
   const [locationHint, setLocationHint] = useState<string | null>(null);
   const [locating, setLocating] = useState(false);
   const [publishing, setPublishing] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<SpotUploadProgress | null>(null);
+  const [uploadFailed, setUploadFailed] = useState(false);
   const [savingDraft, setSavingDraft] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loadingDraft, setLoadingDraft] = useState(false);
@@ -189,6 +193,8 @@ export default function CreateSpotForm({
     setCollectionId("");
     setLocating(false);
     setPublishing(false);
+    setUploadProgress(null);
+    setUploadFailed(false);
     setSavingDraft(false);
     setError(null);
     setLoadingDraft(false);
@@ -359,19 +365,29 @@ export default function CreateSpotForm({
     setError(null);
   };
 
-  const applyResolvedLocation = async (
+  const applyResolvedLocation = (
     latitude: number,
     longitude: number,
     source: SpotLocationSourceKind
   ) => {
-    const resolved = await spotLocationFromCoordinates(latitude, longitude);
-    const matched = findNearestDiscoveryPlace(resolved, places);
+    const coordsOnly: SpotGeoLocation = {
+      latitude,
+      longitude,
+      address: null,
+      city: null,
+      country: null,
+    };
 
-    setLocation(resolved);
+    setLocation(coordsOnly);
     setLocationSource(source);
     setNeedsLocationChoice(false);
     setLocationHint(null);
-    setMatchedPlaceName(matched?.name ?? null);
+
+    void spotLocationFromCoordinates(latitude, longitude).then((resolved) => {
+      const matched = findNearestDiscoveryPlace(resolved, places);
+      setLocation(resolved);
+      setMatchedPlaceName(matched?.name ?? null);
+    });
   };
 
   const resolveFromDevice = async () => {
@@ -380,7 +396,7 @@ export default function CreateSpotForm({
 
     try {
       const detected = await requestDeviceLocation();
-      await applyResolvedLocation(detected.latitude, detected.longitude, "device");
+      applyResolvedLocation(detected.latitude, detected.longitude, "device");
     } catch (caught) {
       setNeedsLocationChoice(true);
       setLocationHint(
@@ -396,7 +412,7 @@ export default function CreateSpotForm({
     setLocationHint(null);
 
     try {
-      await applyResolvedLocation(place.latitude, place.longitude, "search");
+      applyResolvedLocation(place.latitude, place.longitude, "search");
     } catch (caught) {
       setLocationHint(
         caught instanceof Error ? caught.message : "Unable to use the selected place."
@@ -418,14 +434,14 @@ export default function CreateSpotForm({
     try {
       // Use the pre-warmed cached location if available — no wait, instant result.
       // Otherwise do a fast low-accuracy lookup (≤2 s) so the user is never blocked.
-      const fast = cachedLocationRef.current ?? await requestDeviceLocationFast();
+      const fast = cachedLocationRef.current ?? (await requestDeviceLocationFast());
       cachedLocationRef.current = null;
-      await applyResolvedLocation(fast.latitude, fast.longitude, "device");
+      applyResolvedLocation(fast.latitude, fast.longitude, "device");
 
       // Refine in background with high-accuracy GPS — updates location silently.
       void requestDeviceLocation()
         .then((precise) => {
-          void applyResolvedLocation(precise.latitude, precise.longitude, "device");
+          applyResolvedLocation(precise.latitude, precise.longitude, "device");
         })
         .catch(() => {
           // Background refinement failed — keep the fast result, no disruption.
@@ -518,33 +534,22 @@ export default function CreateSpotForm({
     }
 
     setPublishing(true);
+    setUploadFailed(false);
     setError(null);
+    setUploadProgress(null);
 
     try {
-      const publishFile = await prepareMediaFileForPublish(activeMedia);
-
-      const result = await createGeoSpot({
+      const result = await publishSpotWithProgress({
         userId,
-        file: publishFile,
-        mediaType: activeMedia.mediaType,
+        mediaItem: activeMedia,
         spotName: resolveSpotName(spotName),
         location: location!,
         collectionId: collectionId || null,
-        manualPlaceId: null,
-        coverFile: activeMedia.mediaType === "video" ? activeMedia.coverFile : null,
+        discoveryPlaces: places,
+        onProgress: (progress) => {
+          setUploadProgress(progress);
+        },
       });
-
-      if (result.error) {
-        if (isLikelyNetworkError(new Error(result.error))) {
-          await persistDraft({ uploadStatus: "ready", uploadError: result.error });
-          setError("Upload failed. Your Spot was saved as a draft on this device.");
-        } else {
-          setError(result.error);
-        }
-
-        setPublishing(false);
-        return;
-      }
 
       if (currentDraftIdRef.current) {
         await getSpotDraftStorage().deleteDraft(currentDraftIdRef.current);
@@ -560,18 +565,21 @@ export default function CreateSpotForm({
         router.push(`/posts?id=${encodeURIComponent(postId)}`);
       }
     } catch (caught) {
+      const message = caught instanceof Error ? caught.message : "Unable to publish spot.";
+      setUploadFailed(true);
+
       if (isLikelyNetworkError(caught)) {
         await persistDraft({
           uploadStatus: "ready",
-          uploadError: caught instanceof Error ? caught.message : null,
+          uploadError: message,
         });
-        setError("Upload failed. Your Spot was saved as a draft on this device.");
+        setError("Upload failed. Your Spot was saved as a draft on this device. Tap Publish to retry.");
       } else {
-        setError(caught instanceof Error ? caught.message : "Unable to publish spot.");
+        setError(message);
       }
+    } finally {
+      setPublishing(false);
     }
-
-    setPublishing(false);
   };
 
   const updateActiveItem = useCallback(
@@ -635,6 +643,8 @@ export default function CreateSpotForm({
           needsLocationChoice={needsLocationChoice}
           locationHint={locationHint}
           publishing={publishing}
+          uploadProgress={uploadProgress}
+          uploadFailed={uploadFailed}
           publishStatusMessage={publishStatusMessage}
           offlineMode={offlineMode}
           error={error}
@@ -668,6 +678,8 @@ export default function CreateSpotForm({
           needsLocationChoice={needsLocationChoice}
           locationHint={locationHint}
           publishing={publishing}
+          uploadProgress={uploadProgress}
+          uploadFailed={uploadFailed}
           publishStatusMessage={publishStatusMessage}
           offlineMode={offlineMode}
           error={error}

@@ -140,6 +140,18 @@ body[data-immersive-overlay] [data-mobile-bottom-nav] {
   display: none !important;
 }
 
+body[data-immersive-overlay] .sd-app-root {
+  visibility: hidden;
+}
+
+body:has([data-spot-reel-screen]) [data-mobile-bottom-nav] {
+  display: none !important;
+}
+
+body:has([data-spot-reel-screen]) .sd-app-root {
+  visibility: hidden;
+}
+
 .sd-theme-proof {
   background: linear-gradient(90deg, var(--sd-primary) 0%, var(--sd-accent) 100%);
   color: #050816;

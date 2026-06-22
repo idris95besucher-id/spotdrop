@@ -105,6 +105,7 @@ export default function PostViewerSlide({
   const [reactionsLoading, setReactionsLoading] = useState(false);
   const [reactionsError, setReactionsError] = useState<string | null>(null);
   const [authHint, setAuthHint] = useState<string | null>(null);
+  const [authResolved, setAuthResolved] = useState(false);
   const [commentCount, setCommentCount] = useState(item.comments_count ?? 0);
   const [spotStats, setSpotStats] = useState<SpotPublicStats>(() =>
     normalizeSpotPublicStats(item)
@@ -133,6 +134,7 @@ export default function PostViewerSlide({
     setSavedCollectionIds([]);
     setCommentCount(item.comments_count ?? 0);
     setSpotStats(normalizeSpotPublicStats(item));
+    setAuthResolved(false);
   }, [item.id, item.media_url, item.thumbnail_url, item.video_url, item.image_url, item.comments_count, item.visited_count, item.saved_count, item.collection_save_count]);
 
   useEffect(() => {
@@ -213,6 +215,8 @@ export default function PostViewerSlide({
         setAuthHint(sessionResult.error);
       }
 
+      setAuthResolved(true);
+
       const reactionsResult = await loadPostReactions(item.id, sessionResult.session?.user?.id ?? null);
 
       if (cancelled) {
@@ -236,8 +240,13 @@ export default function PostViewerSlide({
       return;
     }
 
-    void recordSpotOpen(item.id, Boolean(userId));
-  }, [isActive, isSpot, item.id, userId]);
+    void recordSpotOpen({
+      postId: item.id,
+      viewerId: userId,
+      ownerId: item.user_id ?? null,
+      authResolved,
+    });
+  }, [authResolved, isActive, isSpot, item.id, item.user_id, userId]);
 
   useEffect(() => {
     const handleStatsUpdated = (event: Event) => {

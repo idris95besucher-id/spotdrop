@@ -3,9 +3,11 @@
 import { useState } from "react";
 import { ArrowLeft, ChevronRight, Globe, Lock, MapPin } from "lucide-react";
 import SpotLocationPicker, { type SpotLocationSourceKind } from "@/components/SpotLocationPicker";
+import SpotUploadProgressOverlay from "@/components/SpotUploadProgressOverlay";
 import type { CollectionWithMeta } from "@/lib/collections";
 import type { MediaEditorItem } from "@/lib/mediaEditor";
 import type { PlaceSearchResult, SpotGeoLocation } from "@/lib/spotLocation";
+import type { SpotUploadProgress } from "@/lib/spotUploadPipeline";
 
 type SpotCapturePreviewScreenProps = {
   item: MediaEditorItem;
@@ -20,6 +22,8 @@ type SpotCapturePreviewScreenProps = {
   needsLocationChoice: boolean;
   locationHint: string | null;
   publishing: boolean;
+  uploadProgress?: SpotUploadProgress | null;
+  uploadFailed?: boolean;
   publishStatusMessage: string | null;
   offlineMode?: boolean;
   error: string | null;
@@ -45,6 +49,8 @@ export default function SpotCapturePreviewScreen({
   needsLocationChoice,
   locationHint,
   publishing,
+  uploadProgress = null,
+  uploadFailed = false,
   publishStatusMessage,
   offlineMode = false,
   error,
@@ -78,13 +84,12 @@ export default function SpotCapturePreviewScreen({
       className="fixed inset-0 z-[130] bg-black text-white select-none overflow-hidden"
       style={{ WebkitTapHighlightColor: "transparent" }}
     >
-      {publishing ? (
-        <div className="pointer-events-none absolute inset-0 z-50 flex flex-col items-center justify-center gap-3 bg-black/85 px-6">
-          <p className="text-sm font-medium text-white">
-            {offlineMode ? "Saving draft…" : "Publishing spot…"}
-          </p>
-        </div>
-      ) : null}
+      <SpotUploadProgressOverlay
+        visible={publishing}
+        progress={uploadProgress}
+        showDetailed={!offlineMode}
+        offlineMode={offlineMode}
+      />
 
       {/* ── Fullscreen photo ── */}
       <img
@@ -239,8 +244,14 @@ export default function SpotCapturePreviewScreen({
           }`}
         >
           {publishing
-            ? offlineMode ? "Saving…" : "Publishing…"
-            : offlineMode ? "Save offline draft" : "Share Spot"}
+            ? offlineMode
+              ? "Saving…"
+              : "Publishing…"
+            : uploadFailed
+              ? "Retry upload"
+              : offlineMode
+                ? "Save offline draft"
+                : "Share Spot"}
           {!publishing ? <ChevronRight className="h-4 w-4" aria-hidden /> : null}
         </button>
       </div>

@@ -1,4 +1,10 @@
 import { MAX_TRIM_CLIP_SECONDS } from "@/lib/videoTrim";
+import { isIosSafari } from "@/lib/cameraCapture";
+import { isCapacitorNative } from "@/lib/capacitorUtils";
+
+function isIosPlaybackTarget() {
+  return isIosSafari() || isCapacitorNative();
+}
 
 type VideoWithCaptureStream = HTMLVideoElement & {
   captureStream?: () => MediaStream;
@@ -28,8 +34,18 @@ export type ExportVideoOptions = {
  * Prefer vp8+opus so audio is preserved. Falls back to bare webm, then empty
  * (browser default) if nothing is supported.
  */
-function pickExportMimeType(): string {
-  if (typeof MediaRecorder === "undefined") return "";
+function pickExportMimeType(sourceFile: File): string {
+  if (typeof MediaRecorder === "undefined") {
+    return "";
+  }
+
+  if (isIosPlaybackTarget()) {
+    return "";
+  }
+
+  if (sourceFile.type.includes("mp4") || sourceFile.name.toLowerCase().endsWith(".mp4")) {
+    return "";
+  }
 
   const candidates = [
     "video/webm;codecs=vp8,opus",
@@ -56,12 +72,17 @@ export async function exportVideoFile(file: File, options: ExportVideoOptions) {
     throw new Error("Choose a longer clip.");
   }
 
-  const mimeType = pickExportMimeType();
+  const mimeType = pickExportMimeType(file);
 
   if (!mimeType) {
     if (options.mute) {
       throw new Error("Muted export is not supported in this browser.");
     }
+
+    console.log("[Spot Upload] export skipped — reusing source file", {
+      fileName: file.name,
+      fileType: file.type,
+    });
 
     return file;
   }

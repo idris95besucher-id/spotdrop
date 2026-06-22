@@ -23,13 +23,36 @@ export const MAIN_NAV_RIGHT: MainNavItem[] = [
 
 export const MAIN_NAV_ITEMS: MainNavItem[] = [...MAIN_NAV_LEFT, ...MAIN_NAV_RIGHT];
 
+function normalizeNavPathname(pathname: string) {
+  return pathname.replace(/\/+$/, "") || "/";
+}
+
+/** Inbox + DM thread routes that should highlight the Messages tab. */
+export function isMessagesNavRoute(pathname: string | null) {
+  if (!pathname) {
+    return false;
+  }
+
+  const normalized = normalizeNavPathname(pathname);
+
+  return (
+    normalized === "/chats" ||
+    normalized === "/chat" ||
+    normalized.startsWith("/chat/") ||
+    normalized === "/dm" ||
+    normalized.startsWith("/dm/") ||
+    normalized === "/messages" ||
+    normalized.startsWith("/messages/")
+  );
+}
+
 export function isMainNavActive(pathname: string | null, href: string) {
   if (!pathname) {
     return false;
   }
 
   if (href === "/chats") {
-    return pathname === "/chats";
+    return isMessagesNavRoute(pathname);
   }
 
   if (href === "/profile") {
@@ -56,7 +79,18 @@ export function isMainNavActive(pathname: string | null, href: string) {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
-/** Fixed mobile bottom nav — visible on all main pages except welcome, auth, and chat threads. */
+/** Spot/post detail and reel viewer — fullscreen, no bottom tab bar. */
+export function isPostReelRoute(pathname: string | null) {
+  if (!pathname) {
+    return false;
+  }
+
+  const normalized = pathname.replace(/\/+$/, "") || "/";
+
+  return normalized === "/posts" || normalized.startsWith("/posts/");
+}
+
+/** Fixed mobile bottom nav — visible on all main pages except welcome, auth, chat threads, and post reels. */
 export function shouldShowMobileBottomNav(pathname: string | null) {
   if (!pathname || isAuthRoute(pathname)) {
     return false;
@@ -67,6 +101,10 @@ export function shouldShowMobileBottomNav(pathname: string | null) {
   }
 
   if (isChatThreadRoute(pathname)) {
+    return false;
+  }
+
+  if (isPostReelRoute(pathname)) {
     return false;
   }
 

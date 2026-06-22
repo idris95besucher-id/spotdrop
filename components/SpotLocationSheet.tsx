@@ -3,8 +3,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Copy, ExternalLink, X } from "lucide-react";
-import { recordSpotVisited } from "@/lib/spotRanking";
-import { dispatchSpotStatsUpdated } from "@/lib/spotStatsEvents";
 import { bottomSheetLayout, useBottomSheetScrollLock } from "@/lib/bottomSheetScrollLock";
 import {
   formatSpotLocationDisplay,
@@ -79,23 +77,6 @@ export default function SpotLocationSheet({
       }
     };
   }, []);
-
-  useEffect(() => {
-    const postId = spot?.id?.trim();
-
-    if (!postId) {
-      return;
-    }
-
-    void recordSpotVisited(postId).then((result) => {
-      if (result.visitedCount != null) {
-        dispatchSpotStatsUpdated({
-          postId,
-          visited_count: result.visitedCount,
-        });
-      }
-    });
-  }, [spot?.id]);
 
   if (!spot || !mounted) {
     return null;
@@ -220,22 +201,6 @@ export default function SpotLocationSheet({
               href={mapsUrl}
               target="_blank"
               rel="noopener noreferrer"
-              onClick={() => {
-                const postId = spot.id?.trim();
-
-                if (!postId) {
-                  return;
-                }
-
-                void recordSpotVisited(postId).then((result) => {
-                  if (result.visitedCount != null) {
-                    dispatchSpotStatsUpdated({
-                      postId,
-                      visited_count: result.visitedCount,
-                    });
-                  }
-                });
-              }}
               className="flex w-full items-center justify-center gap-2 rounded-2xl bg-primary py-3 text-sm font-semibold text-background transition hover:brightness-110 active:opacity-90"
             >
               <ExternalLink className="h-4 w-4" aria-hidden />

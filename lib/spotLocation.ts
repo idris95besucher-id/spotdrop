@@ -1,4 +1,5 @@
 import { isCapacitorNative } from "@/lib/capacitorUtils";
+import { spotUploadTime } from "@/lib/spotUploadLog";
 
 export const SPOT_MAX_VIDEO_SECONDS = 60;
 
@@ -52,8 +53,11 @@ export async function spotLocationFromCoordinates(
   latitude: number,
   longitude: number
 ): Promise<SpotGeoLocation> {
+  const finishLocation = spotUploadTime("location");
+
   try {
     const geocoded = await reverseGeocode(latitude, longitude);
+    finishLocation();
 
     return {
       latitude,
@@ -63,6 +67,8 @@ export async function spotLocationFromCoordinates(
       country: geocoded.country,
     };
   } catch {
+    finishLocation();
+
     return {
       latitude,
       longitude,

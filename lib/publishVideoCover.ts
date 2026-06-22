@@ -1,13 +1,31 @@
-import { uploadPostMedia } from "@/lib/postMedia";
+import { uploadPostMedia, type UploadProgressCallback } from "@/lib/postMedia";
 import { resolveVideoCoverFile } from "@/lib/videoCover";
+
+type UploadVideoCoverOptions = {
+  accessToken?: string;
+  onProgress?: UploadProgressCallback;
+};
 
 export async function uploadVideoCoverForPublish(
   userId: string,
   videoSource: File | string,
-  pickedCover?: File | null
+  pickedCover: File | null | undefined,
+  options: UploadVideoCoverOptions = {}
 ) {
-  const coverFile = await resolveVideoCoverFile(videoSource, pickedCover ?? null, 1);
-  const upload = await uploadPostMedia(userId, coverFile);
+  if (pickedCover) {
+    const upload = await uploadPostMedia(userId, pickedCover, {
+      accessToken: options.accessToken,
+      onProgress: options.onProgress,
+    });
+
+    return upload.mediaUrl;
+  }
+
+  const coverFile = await resolveVideoCoverFile(videoSource, null, 1);
+  const upload = await uploadPostMedia(userId, coverFile, {
+    accessToken: options.accessToken,
+    onProgress: options.onProgress,
+  });
 
   return upload.mediaUrl;
 }

@@ -1,10 +1,10 @@
-import { prepareMediaFileForPublish } from "@/lib/mediaEditor";
-import { hasSpotPublishLocation, resolveSpotName, SPOT_LOCATION_REQUIRED_MESSAGE } from "@/lib/spotPublish";
-import { mediaEditorItemFromDraft } from "@/lib/spotDraft/helpers";
 import { getSpotDraftStorage } from "@/lib/spotDraft/indexedDbStorage";
-import { isLikelyNetworkError } from "@/lib/spotDraft/online";
+import { mediaEditorItemFromDraft } from "@/lib/spotDraft/helpers";
 import type { SpotDraftRecord } from "@/lib/spotDraft/types";
-import { createGeoSpot } from "@/lib/spots";
+import { hasSpotPublishLocation, SPOT_LOCATION_REQUIRED_MESSAGE } from "@/lib/spotPublish";
+import { publishSpotWithProgress } from "@/lib/spotUploadPipeline";
+import { isLikelyNetworkError } from "@/lib/spotDraft/online";
+import type { DiscoveryPlace } from "@/lib/discoveryMap";
 
 export type SpotDraftUploadResult = {
   postId: string | null;
@@ -13,7 +13,8 @@ export type SpotDraftUploadResult = {
 
 export async function uploadSpotDraftRecord(
   draft: SpotDraftRecord,
-  userId: string
+  userId: string,
+  options: { discoveryPlaces?: DiscoveryPlace[] } = {}
 ): Promise<SpotDraftUploadResult> {
   if (draft.userId !== userId) {
     return { postId: null, error: "This draft belongs to another account." };
@@ -39,27 +40,15 @@ export async function uploadSpotDraftRecord(
 
     const coverBlob = await storage.getDraftBlob(draft.id, "cover");
     const mediaItem = await mediaEditorItemFromDraft(draft, mediaBlob, coverBlob);
-    const publishFile = await prepareMediaFileForPublish(mediaItem);
 
-    const result = await createGeoSpot({
+    const result = await publishSpotWithProgress({
       userId,
-      file: publishFile,
-      mediaType: draft.media.mediaType,
-      spotName: resolveSpotName(draft.spotName),
+      mediaItem,
+      spotName: draft.spotName,
       location: draft.location!,
       collectionId: draft.collectionId,
-      manualPlaceId: null,
-      coverFile: draft.media.mediaType === "video" ? mediaItem.coverFile : null,
+      discoveryPlaces: options.discoveryPlaces,
     });
-
-    if (result.error) {
-      await storage.updateDraft(draft.id, {
-        uploadStatus: "failed",
-        uploadError: result.error,
-      });
-
-      return { postId: null, error: result.error };
-    }
 
     await storage.deleteDraft(draft.id);
     return { postId: result.postId, error: null };
@@ -80,7 +69,8 @@ export async function uploadSpotDraftRecord(
 
 export async function uploadSpotDraftById(
   draftId: string,
-  userId: string
+  userId: string,
+  options: { discoveryPlaces?: DiscoveryPlace[] } = {}
 ): Promise<SpotDraftUploadResult> {
   const storage = getSpotDraftStorage();
   const draft = await storage.getDraft(draftId);
@@ -89,5 +79,5 @@ export async function uploadSpotDraftById(
     return { postId: null, error: "Spot draft not found." };
   }
 
-  return uploadSpotDraftRecord(draft, userId);
+  return uploadSpotDraftRecord(draft, userId, options);
 }

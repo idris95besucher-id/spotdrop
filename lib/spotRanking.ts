@@ -90,13 +90,22 @@ export function isMissingSpotRankingColumns(error: { code?: string; message?: st
   );
 }
 
-export async function recordSpotVisited(postId: string): Promise<{
+type RecordSpotViewResult = {
   visitedCount: number | null;
   incremented: boolean;
   error: string | null;
-}> {
+};
+
+const spotViewInFlight = new Set<string>();
+const spotViewRecorded = new Set<string>();
+
+function spotViewSessionKey(postId: string, viewerId: string) {
+  return `${postId}:${viewerId}`;
+}
+
+async function recordUniqueSpotView(postId: string): Promise<RecordSpotViewResult> {
   try {
-    const { data, error } = await supabase.rpc("record_spot_visited", {
+    const { data, error } = await supabase.rpc("record_spot_view", {
       p_post_id: postIdForQuery(postId),
     });
 
@@ -108,7 +117,20 @@ export async function recordSpotVisited(postId: string): Promise<{
       return { visitedCount: null, incremented: false, error: error.message };
     }
 
-    const payload = data as { ok?: boolean; visited_count?: number; incremented?: boolean } | null;
+    const payload = data as {
+      ok?: boolean;
+      visited_count?: number;
+      incremented?: boolean;
+      error?: string;
+    } | null;
+
+    if (payload?.ok === false) {
+      return {
+        visitedCount: null,
+        incremented: false,
+        error: payload.error ?? "view_not_recorded",
+      };
+    }
 
     return {
       visitedCount:
@@ -121,9 +143,39 @@ export async function recordSpotVisited(postId: string): Promise<{
   }
 }
 
-export async function recordSpotOpen(postId: string, isAuthenticated: boolean): Promise<void> {
-  if (isAuthenticated) {
-    const result = await recordSpotVisited(postId);
+export type RecordSpotOpenInput = {
+  postId: string;
+  viewerId: string | null;
+  ownerId?: string | null;
+  /** Wait until auth session is resolved so we never fire as anonymous then again as signed-in. */
+  authResolved?: boolean;
+};
+
+export async function recordSpotOpen({
+  postId,
+  viewerId,
+  ownerId = null,
+  authResolved = true,
+}: RecordSpotOpenInput): Promise<void> {
+  if (!authResolved || !viewerId) {
+    return;
+  }
+
+  if (ownerId && viewerId === ownerId) {
+    return;
+  }
+
+  const sessionKey = spotViewSessionKey(postId, viewerId);
+
+  if (spotViewRecorded.has(sessionKey) || spotViewInFlight.has(sessionKey)) {
+    return;
+  }
+
+  spotViewInFlight.add(sessionKey);
+
+  try {
+    const result = await recordUniqueSpotView(postId);
+    spotViewRecorded.add(sessionKey);
 
     if (result.visitedCount != null) {
       dispatchSpotStatsUpdated({
@@ -131,23 +183,43 @@ export async function recordSpotOpen(postId: string, isAuthenticated: boolean): 
         visited_count: result.visitedCount,
       });
     }
-
-    return;
+  } finally {
+    spotViewInFlight.delete(sessionKey);
   }
-
-  await recordSpotView(postId);
 }
 
-export async function recordSpotView(postId: string): Promise<void> {
-  try {
-    const { error } = await supabase.rpc("record_spot_view", {
-      p_post_id: postIdForQuery(postId),
-    });
+/** @deprecated Use recordSpotOpen — kept for SpotLocationSheet maps action. */
+export async function recordSpotVisited(
+  postId: string,
+  options: { viewerId?: string | null; ownerId?: string | null; authResolved?: boolean } = {}
+): Promise<RecordSpotViewResult> {
+  const { viewerId = null, ownerId = null, authResolved = true } = options;
 
-    if (error && !isMissingSpotRankingColumns(error) && error.code !== "42883") {
-      console.error("record_spot_view failed:", error);
-    }
-  } catch (error) {
-    console.error("record_spot_view failed:", error);
+  if (!authResolved || !viewerId) {
+    return { visitedCount: null, incremented: false, error: null };
+  }
+
+  if (ownerId && viewerId === ownerId) {
+    return { visitedCount: null, incremented: false, error: null };
+  }
+
+  const sessionKey = spotViewSessionKey(postId, viewerId);
+
+  if (spotViewRecorded.has(sessionKey)) {
+    return { visitedCount: null, incremented: false, error: null };
+  }
+
+  if (spotViewInFlight.has(sessionKey)) {
+    return { visitedCount: null, incremented: false, error: null };
+  }
+
+  spotViewInFlight.add(sessionKey);
+
+  try {
+    const result = await recordUniqueSpotView(postId);
+    spotViewRecorded.add(sessionKey);
+    return result;
+  } finally {
+    spotViewInFlight.delete(sessionKey);
   }
 }

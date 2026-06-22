@@ -14,7 +14,6 @@ import {
   Loader2,
   Lock,
   MapPin,
-  Pause,
   Play,
   Scissors,
   Volume2,
@@ -22,6 +21,7 @@ import {
 } from "lucide-react";
 import SpotVideoPreviewExitSheet from "@/components/SpotVideoPreviewExitSheet";
 import SpotLocationPicker, { type SpotLocationSourceKind } from "@/components/SpotLocationPicker";
+import SpotUploadProgressOverlay from "@/components/SpotUploadProgressOverlay";
 import type { CollectionWithMeta } from "@/lib/collections";
 import { getVideoPreviewContinueBlockReason } from "@/lib/mediaEditor/continueReasons";
 import type { MediaEditorItem } from "@/lib/mediaEditor";
@@ -35,6 +35,7 @@ import {
 } from "@/lib/mediaEditor/trimTimeline";
 import { requiresTrimForVideo } from "@/lib/mediaEditor/trimValidation";
 import type { PlaceSearchResult, SpotGeoLocation } from "@/lib/spotLocation";
+import type { SpotUploadProgress } from "@/lib/spotUploadPipeline";
 import { captureVideoFrameBlob, coverBlobToFile } from "@/lib/videoCover";
 import {
   generateFilmstripFrames,
@@ -68,6 +69,8 @@ type SpotVideoEditorScreenProps = {
   needsLocationChoice: boolean;
   locationHint: string | null;
   publishing: boolean;
+  uploadProgress?: SpotUploadProgress | null;
+  uploadFailed?: boolean;
   publishStatusMessage: string | null;
   offlineMode?: boolean;
   error: string | null;
@@ -97,6 +100,8 @@ export default function SpotVideoEditorScreen({
   needsLocationChoice,
   locationHint,
   publishing,
+  uploadProgress = null,
+  uploadFailed = false,
   publishStatusMessage,
   offlineMode = false,
   error,
@@ -151,6 +156,7 @@ export default function SpotVideoEditorScreen({
     ? offlineMode ? "Saving offline draft…" : "Publishing spot…"
     : offlineMode ? null : trimBlockReason ?? publishStatusMessage;
   const publishBlocked = publishDisableReason !== null;
+  const isUploading = publishing && !offlineMode;
 
   const playheadRatio = timeToRatio(currentTime, sourceDuration);
   const coverRatio = timeToRatio(coverTime, sourceDuration);
@@ -493,6 +499,18 @@ export default function SpotVideoEditorScreen({
     void applyCoverFromTime(time);
   };
 
+  useEffect(() => {
+    if (!isUploading) {
+      return;
+    }
+
+    const video = videoRef.current;
+    if (video) {
+      video.pause();
+      setIsPlaying(false);
+    }
+  }, [isUploading]);
+
   // ── Location label ────────────────────────────────────────────────────────
 
   const locationLabel = locating
@@ -510,23 +528,15 @@ export default function SpotVideoEditorScreen({
       style={{ WebkitTapHighlightColor: "transparent" }}
     >
       {/* Publishing overlay */}
-      {publishing ? (
-        <div className="pointer-events-none absolute inset-0 z-50 flex flex-col items-center justify-center gap-3 bg-black/85 px-6">
-          <Loader2 className="h-9 w-9 animate-spin text-white" aria-hidden />
-          <p className="text-sm font-medium text-white">
-            {offlineMode ? "Saving draft…" : "Publishing spot…"}
-          </p>
-        </div>
-      ) : null}
+      <SpotUploadProgressOverlay
+        visible={publishing}
+        progress={uploadProgress}
+        showDetailed={!offlineMode}
+        offlineMode={offlineMode}
+      />
 
-      {/* ── Fullscreen video (tap to play/pause) ── */}
-      <button
-        type="button"
-        onClick={() => void togglePlayback()}
-        className="absolute inset-0 z-0 h-full w-full focus:outline-none"
-        style={{ pointerEvents: isDraggingTrim ? "none" : "auto" }}
-        aria-label={isPlaying ? "Pause" : "Play"}
-      >
+      {/* ── Fullscreen video ── */}
+      <div className="absolute inset-0 z-0 h-full w-full">
         <video
           ref={videoRef}
           src={item.previewUrl}
@@ -536,6 +546,7 @@ export default function SpotVideoEditorScreen({
           muted
           preload="auto"
           disablePictureInPicture
+          onClick={isUploading ? undefined : () => void togglePlayback()}
           onLoadedMetadata={(e) => {
             const v = e.currentTarget;
             v.setAttribute("playsinline", "true");
@@ -543,27 +554,30 @@ export default function SpotVideoEditorScreen({
             v.muted = true;
             void prepareAndAutoplay();
           }}
-          onCanPlay={() => { if (!isReady) void prepareAndAutoplay(); }}
+          onCanPlay={() => {
+            if (!isReady) void prepareAndAutoplay();
+          }}
           onPlay={() => setIsPlaying(true)}
           onPause={() => setIsPlaying(false)}
         />
 
-        {!isReady ? (
+        {!isUploading && !isReady ? (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/50">
             <Loader2 className="h-10 w-10 animate-spin text-white/80" aria-hidden />
           </div>
         ) : null}
 
-        {/* Play/pause icon — fades out while playing */}
-        <span
-          className={`pointer-events-none absolute inset-0 flex items-center justify-center transition-opacity duration-200 ${isPlaying ? "opacity-0" : "opacity-100"}`}
-        >
-          <span className="flex h-16 w-16 items-center justify-center rounded-full bg-black/55 backdrop-blur-sm ring-2 ring-white/60">
-            <Play className="ml-1 h-7 w-7" fill="currentColor" aria-hidden />
+        {!isUploading && isReady && !isPlaying ? (
+          <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
+            <span className="flex h-16 w-16 items-center justify-center rounded-full bg-black/55 backdrop-blur-sm ring-2 ring-white/60">
+              <Play className="ml-1 h-7 w-7" fill="currentColor" aria-hidden />
+            </span>
           </span>
-        </span>
-      </button>
+        ) : null}
+      </div>
 
+      {!isUploading ? (
+        <>
       {/* ── Gradient overlays ── */}
       <div
         aria-hidden
@@ -605,7 +619,8 @@ export default function SpotVideoEditorScreen({
         <button
           type="button"
           onClick={() => setMuted(!previewMuted)}
-          className="flex h-11 w-11 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur-sm"
+          disabled={publishing}
+          className="flex h-11 w-11 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur-sm disabled:opacity-50"
           aria-label={previewMuted ? "Unmute preview" : "Mute preview"}
         >
           {previewMuted ? (
@@ -622,7 +637,8 @@ export default function SpotVideoEditorScreen({
         <button
           type="button"
           onClick={() => setShowTrim((v) => !v)}
-          className={`flex h-11 w-11 items-center justify-center rounded-full text-white backdrop-blur-sm transition ${
+          disabled={publishing}
+          className={`flex h-11 w-11 items-center justify-center rounded-full text-white backdrop-blur-sm transition disabled:opacity-50 ${
             showTrim ? "bg-white/30 ring-2 ring-white/50" : "bg-black/50"
           }`}
           aria-label="Trim video"
@@ -910,11 +926,19 @@ export default function SpotVideoEditorScreen({
           }`}
         >
           {publishing
-            ? offlineMode ? "Saving…" : "Publishing…"
-            : offlineMode ? "Save offline draft" : "Share Spot"}
+            ? offlineMode
+              ? "Saving…"
+              : "Publishing…"
+            : uploadFailed
+              ? "Retry upload"
+              : offlineMode
+                ? "Save offline draft"
+                : "Share Spot"}
           {!publishing ? <ChevronRight className="h-4 w-4" aria-hidden /> : null}
         </button>
       </div>
+        </>
+      ) : null}
     </div>
 
     <SpotVideoPreviewExitSheet

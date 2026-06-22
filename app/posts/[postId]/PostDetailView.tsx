@@ -2,15 +2,16 @@
 
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { ArrowLeft, UserRound } from "lucide-react";
-import SpotDropSpotsIcon from "@/components/icons/SpotDropSpotsIcon";
 import SpotLocationSummary from "@/components/SpotLocationSummary";
 import { useSpotLocationModal } from "@/components/SpotLocationModalProvider";
 import GuidePlaceCard from "@/components/GuidePlaceCard";
 import OwnContentMenu from "@/components/OwnContentMenu";
 import PostCommentsSection from "@/components/PostCommentsSection";
 import PostDetailActionRail from "@/components/PostDetailActionRail";
+import PostReelMedia from "@/components/PostReelMedia";
 import SaveToCollectionSheet from "@/components/SaveToCollectionSheet";
 import SendSpotSheet from "@/components/SendSpotSheet";
 import PostMediaViewer from "@/components/PostMediaViewer";
@@ -24,7 +25,13 @@ import { getSafeAuthSession } from "@/lib/authSession";
 import { isGuideAccountProfile } from "@/lib/guideAccounts";
 import { isDemoPostId, normalizePostId, postIdForQuery } from "@/lib/postIds";
 import { loadPostReactions, type PostReactionState } from "@/lib/postReactions";
-import { formatPostTime, getPostMedia, inferMediaTypeFromUrl, POST_AUTHOR_PROFILES_FKEY } from "@/lib/posts";
+import {
+  formatPostTime,
+  getPostMedia,
+  getPostThumbnailUrl,
+  inferMediaTypeFromUrl,
+  POST_AUTHOR_PROFILES_FKEY,
+} from "@/lib/posts";
 import { isGuidePlaceRelationMissing, normalizeGuidePlace } from "@/lib/guidePlaces";
 import { publicProfileUsername } from "@/lib/publicProfile";
 import { getErrorMessage, logExactLoadError, userFacingSupabaseListError } from "@/lib/safeLoad";
@@ -32,9 +39,14 @@ import { shouldShowSpotLocation, isSpotContent } from "@/lib/spotLocationDisplay
 import { normalizeSpotPublicStats, recordSpotOpen, EMPTY_SPOT_PUBLIC_STATS, type SpotPublicStats } from "@/lib/spotRanking";
 import { dispatchSpotStatsUpdated, SPOT_STATS_UPDATED_EVENT, type SpotStatsUpdatedDetail } from "@/lib/spotStatsEvents";
 import { loadSpotCollectionSaveState } from "@/lib/collections";
+import { setImmersiveOverlayActive } from "@/lib/immersiveOverlay";
 import { useI18n } from "@/components/I18nProvider";
 import { localizeUserMessage } from "@/lib/i18n/localizeUserMessage";
 import { supabase } from "@/lib/supabaseClient";
+
+const REEL_TOP_INSET = "top-[max(0.75rem,env(safe-area-inset-top))]";
+const REEL_ICON_BUTTON_CLASS =
+  "flex h-10 w-10 items-center justify-center rounded-full bg-black/50 text-white ring-1 ring-white/15 backdrop-blur-md transition hover:bg-black/70";
 
 const EMPTY_REACTIONS: PostReactionState = {
   likeCount: 0,
@@ -68,14 +80,14 @@ function ShimmerBlock({ className }: { className: string }) {
 
 function PostDetailSkeleton() {
   return (
-    <div className="relative flex flex-1 flex-col">
+    <div className="absolute inset-0 bg-black">
       <ShimmerBlock className="absolute inset-0 bg-slate-900" />
-      <div className="relative z-10 mt-auto space-y-2 px-4 pb-28 pr-16">
-        <ShimmerBlock className="h-4 w-32 rounded-full" />
-        <ShimmerBlock className="h-3 w-48 rounded-full" />
-        <ShimmerBlock className="h-4 w-full rounded-full" />
+      <div className="absolute inset-x-0 bottom-0 z-10 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-28 pr-16">
+        <ShimmerBlock className="mb-3 h-8 w-8 rounded-full" />
+        <ShimmerBlock className="mb-2 h-4 w-40 rounded-full" />
+        <ShimmerBlock className="h-3 w-56 rounded-full" />
       </div>
-      <div className="absolute bottom-28 right-3 z-10 flex flex-col gap-4">
+      <div className="absolute bottom-28 right-2 z-10 flex flex-col gap-4">
         {Array.from({ length: 4 }).map((_, index) => (
           <ShimmerBlock key={`rail-skeleton-${index}`} className="h-10 w-10 rounded-full" />
         ))}
@@ -159,6 +171,44 @@ export default function PostDetailPage({ postIdOverride }: PostDetailPageProps =
   const [savedCollectionIds, setSavedCollectionIds] = useState<string[]>([]);
   const [saveStateLoading, setSaveStateLoading] = useState(false);
   const [shareUrl, setShareUrl] = useState("");
+  const [mounted, setMounted] = useState(false);
+
+  useLayoutEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    setImmersiveOverlayActive(true);
+
+    const previousBodyOverflow = document.body.style.overflow;
+    const previousHtmlOverflow = document.documentElement.style.overflow;
+    const previousBodyOverscroll = document.body.style.overscrollBehavior;
+    const previousHtmlOverscroll = document.documentElement.style.overscrollBehavior;
+    const previousBodyPosition = document.body.style.position;
+    const previousBodyWidth = document.body.style.width;
+    const previousBodyTop = document.body.style.top;
+    const scrollY = window.scrollY;
+
+    document.body.style.overflow = "hidden";
+    document.documentElement.style.overflow = "hidden";
+    document.body.style.overscrollBehavior = "none";
+    document.documentElement.style.overscrollBehavior = "none";
+    document.body.style.position = "fixed";
+    document.body.style.width = "100%";
+    document.body.style.top = `-${scrollY}px`;
+
+    return () => {
+      setImmersiveOverlayActive(false);
+      document.body.style.overflow = previousBodyOverflow;
+      document.documentElement.style.overflow = previousHtmlOverflow;
+      document.body.style.overscrollBehavior = previousBodyOverscroll;
+      document.documentElement.style.overscrollBehavior = previousHtmlOverscroll;
+      document.body.style.position = previousBodyPosition;
+      document.body.style.width = previousBodyWidth;
+      document.body.style.top = previousBodyTop;
+      window.scrollTo(0, scrollY);
+    };
+  }, []);
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -228,6 +278,33 @@ export default function PostDetailPage({ postIdOverride }: PostDetailPageProps =
         const { data, error: postError } = isGuidePlaceRelationMissing(primaryResult.error)
           ? await supabase.from("posts").select(POST_DETAIL_SELECT_LEGACY).eq("id", queryId).single()
           : primaryResult;
+
+        const fetchRow = data as Record<string, unknown> | null;
+
+        console.log("POST FETCH RESULT", {
+          paramsPostId: postId,
+          queryId,
+          media_url: fetchRow?.media_url ?? null,
+          video_url: fetchRow?.video_url ?? null,
+          thumbnail_url: fetchRow?.thumbnail_url ?? null,
+          video_cover_url: fetchRow?.video_cover_url ?? null,
+          image_url: fetchRow?.image_url ?? null,
+          spot_name: fetchRow?.spot_name ?? null,
+          media_type: fetchRow?.media_type ?? null,
+          storage_path: fetchRow?.media_url
+            ? (() => {
+                try {
+                  const pathname = new URL(String(fetchRow.media_url)).pathname;
+                  const marker = "/post-media/";
+                  const index = pathname.indexOf(marker);
+                  return index >= 0 ? pathname.slice(index + marker.length) : null;
+                } catch {
+                  return null;
+                }
+              })()
+            : null,
+          error: postError,
+        });
 
         if (cancelled) {
           return;
@@ -370,8 +447,13 @@ export default function PostDetailPage({ postIdOverride }: PostDetailPageProps =
       return;
     }
 
-    void recordSpotOpen(postId, Boolean(userId));
-  }, [engagementReady, isDemo, isSpotPost, postId, userId]);
+    void recordSpotOpen({
+      postId,
+      viewerId: userId,
+      ownerId: post?.user_id ?? null,
+      authResolved: sessionReady,
+    });
+  }, [engagementReady, isDemo, isSpotPost, post?.user_id, postId, sessionReady, userId]);
 
   useEffect(() => {
     if (!engagementReady || isDemo || !isSpotPost || !postId || !userId) {
@@ -463,6 +545,7 @@ export default function PostDetailPage({ postIdOverride }: PostDetailPageProps =
   };
 
   const { mediaUrl, mediaType } = post ? getDetailMedia(post) : { mediaUrl: null, mediaType: null };
+  const posterUrl = post ? getPostThumbnailUrl(post) : null;
   const postAuthor = post?.profiles;
   const authorUsername = publicProfileUsername(postAuthor?.username);
   const guidePlace = normalizeGuidePlace(post?.guide_places);
@@ -508,65 +591,58 @@ export default function PostDetailPage({ postIdOverride }: PostDetailPageProps =
     return `/posts/${postId}`;
   }, [postId, shareUrl]);
 
-  return (
-    <div className="fixed inset-0 z-40 flex flex-col bg-black text-white">
-      <header className="absolute inset-x-0 top-0 z-30 flex items-center justify-between gap-3 bg-gradient-to-b from-black/80 via-black/40 to-transparent px-4 pb-6 pt-[max(0.75rem,env(safe-area-inset-top))]">
-        <button
-          type="button"
-          onClick={handleBack}
-          className="inline-flex items-center gap-2 rounded-full bg-black/45 px-4 py-2.5 text-sm font-semibold text-white ring-1 ring-white/15 backdrop-blur-md transition hover:bg-black/60"
-          aria-label={t("post.goBack")}
-        >
-          <ArrowLeft className="h-4 w-4" aria-hidden />
-          {t("post.back")}
-        </button>
-        <div className="flex items-center gap-2">
-          {isOwnPost && isSpotPost ? (
-            <OwnContentMenu
-              triggerClassName="bg-black/45 ring-1 ring-white/15 backdrop-blur-md"
-              deleteMenuLabel={t("content.deleteSpot")}
-              confirmTitle={t("content.deleteSpotTitle")}
-              confirmBody={t("content.deleteSpotBody")}
-              deletedToast={t("content.spotDeleted")}
-              onDelete={async () => {
-                console.log("DELETE SPOT HANDLER CALLED", {
-                  postId: post!.id,
-                  userId,
-                  postUserId: post!.user_id,
-                });
+  const immersiveView = (
+    <div
+      data-spot-reel-screen
+      className="fixed inset-0 z-[120] flex h-[100dvh] w-full flex-col overscroll-none bg-black text-white"
+    >
+      <button
+        type="button"
+        onClick={handleBack}
+        className={`absolute left-3 ${REEL_TOP_INSET} z-50 ${REEL_ICON_BUTTON_CLASS}`}
+        aria-label={t("post.goBack")}
+      >
+        <ArrowLeft className="h-5 w-5" aria-hidden />
+      </button>
 
-                if (!userId) {
-                  return { ok: false, error: "Sign in required." };
-                }
+      {isOwnPost && isSpotPost ? (
+        <div className={`absolute right-3 ${REEL_TOP_INSET} z-50`}>
+          <OwnContentMenu
+            triggerClassName="bg-black/50 ring-1 ring-white/15 backdrop-blur-md"
+            deleteMenuLabel={t("content.deleteSpot")}
+            confirmTitle={t("content.deleteSpotTitle")}
+            confirmBody={t("content.deleteSpotBody")}
+            deletedToast={t("content.spotDeleted")}
+            onDelete={async () => {
+              console.log("DELETE SPOT HANDLER CALLED", {
+                postId: post!.id,
+                userId,
+                postUserId: post!.user_id,
+              });
 
-                setSendSpotSheetOpen(false);
-                return deleteOwnedSpot(String(post!.id), userId);
-              }}
-              onDeleted={() => {
-                if (window.history.length > 1) {
-                  router.back();
-                  return;
-                }
+              if (!userId) {
+                return { ok: false, error: "Sign in required." };
+              }
 
-                router.push("/profile");
-              }}
-            />
-          ) : null}
-          <Link
-            href="/feed"
-            className="inline-flex items-center gap-2 rounded-full bg-cyan-500/20 px-4 py-2.5 text-sm font-semibold text-cyan-100 ring-1 ring-cyan-400/35 backdrop-blur-md transition hover:bg-cyan-500/30"
-            aria-label={t("post.goToSpots")}
-          >
-            <SpotDropSpotsIcon className="h-4 w-4" strokeWidth={1.75} aria-hidden />
-            {t("nav.spots")}
-          </Link>
+              setSendSpotSheetOpen(false);
+              return deleteOwnedSpot(String(post!.id), userId);
+            }}
+            onDeleted={() => {
+              if (window.history.length > 1) {
+                router.back();
+                return;
+              }
+
+              router.push("/profile");
+            }}
+          />
         </div>
-      </header>
+      ) : null}
 
       {loading ? (
         <PostDetailSkeleton />
       ) : error || !post ? (
-        <div className="flex flex-1 flex-col items-center justify-center gap-4 p-8 text-center">
+        <div className="flex flex-1 flex-col items-center justify-center gap-4 px-8 text-center">
           <p className="text-sm text-red-300">{localizeUserMessage(t, error) ?? t("post.notFound")}</p>
           <button
             type="button"
@@ -578,25 +654,35 @@ export default function PostDetailPage({ postIdOverride }: PostDetailPageProps =
         </div>
       ) : (
         <>
-          <div className="relative flex min-h-0 flex-1 flex-col">
+          <div className="relative min-h-0 flex-1 overflow-hidden">
             {guidePlace && !mediaUrl ? (
-              <div className="flex min-h-0 flex-1 items-center justify-center overflow-y-auto px-4 pb-36 pt-20">
+              <div className="absolute inset-0 flex items-center justify-center overflow-y-auto px-4 pb-36 pt-16">
                 <div className="w-full max-w-md">
                   <GuidePlaceCard place={guidePlace} postId={post.id} />
                 </div>
+              </div>
+            ) : mediaUrl && mediaType && isSpotPost ? (
+              <div className="absolute inset-0">
+                <PostReelMedia
+                  mediaUrl={mediaUrl}
+                  mediaType={mediaType}
+                  posterUrl={posterUrl}
+                  isActive
+                  alt={spotTitle ?? post.content ?? ""}
+                />
               </div>
             ) : mediaUrl && mediaType ? (
               <div className="absolute inset-0">
                 <PostMediaViewer mediaUrl={mediaUrl} mediaType={mediaType} alt={spotTitle ?? post.content ?? ""} />
               </div>
             ) : (
-              <div className="flex flex-1 items-center justify-center px-6 pb-36 pt-20 text-center text-sm text-slate-500">
+              <div className="absolute inset-0 flex items-center justify-center px-6 text-center text-sm text-slate-500">
                 {t("post.noMedia")}
               </div>
             )}
 
             {showActionRail ? (
-              <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 bg-gradient-to-t from-black/90 via-black/55 to-transparent px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-24 pr-16">
+              <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 bg-gradient-to-t from-black/95 via-black/60 to-transparent px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-28 pr-16">
                 <div className="pointer-events-auto space-y-2">
                   {postAuthor ? (
                     <Link href={`/user?id=${post.user_id}`} className="inline-flex max-w-full items-center gap-2">
@@ -652,7 +738,7 @@ export default function PostDetailPage({ postIdOverride }: PostDetailPageProps =
 
             {showActionRail ? (
               <div
-                className="pointer-events-auto absolute bottom-28 right-2 z-30"
+                className="pointer-events-auto absolute bottom-[max(6.5rem,calc(env(safe-area-inset-bottom)+5.5rem))] right-2 z-30"
                 onClick={(event) => event.stopPropagation()}
                 onTouchStart={(event) => event.stopPropagation()}
                 onTouchEnd={(event) => event.stopPropagation()}
@@ -683,7 +769,7 @@ export default function PostDetailPage({ postIdOverride }: PostDetailPageProps =
             ) : null}
 
             {guidePlace && mediaUrl ? (
-              <div className="absolute left-4 right-16 top-20 z-20 max-h-28 overflow-hidden rounded-2xl border border-white/10 bg-black/55 backdrop-blur-md">
+              <div className="absolute left-4 right-16 top-16 z-20 max-h-24 overflow-hidden rounded-2xl border border-white/10 bg-black/55 backdrop-blur-md">
                 <GuidePlaceCard place={guidePlace} postId={post.id} />
               </div>
             ) : null}
@@ -734,4 +820,10 @@ export default function PostDetailPage({ postIdOverride }: PostDetailPageProps =
       )}
     </div>
   );
+
+  if (!mounted) {
+    return null;
+  }
+
+  return createPortal(immersiveView, document.body);
 }

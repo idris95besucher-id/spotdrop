@@ -71,7 +71,7 @@ export function getSpotPublishBlockReason(options: {
     return "media";
   }
 
-  if (options.locating) {
+  if (options.locating && !hasSpotPublishLocation(options.location)) {
     return "location_loading";
   }
 

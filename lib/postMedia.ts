@@ -7,9 +7,23 @@ import {
 } from "@/lib/storageUpload";
 import { supabase } from "@/lib/supabaseClient";
 
+export type UploadProgressCallback = (percent: number) => void;
+
+type UploadPostMediaOptions = {
+  onProgress?: UploadProgressCallback;
+  /** Pass from publish pipeline to skip a second auth round-trip. */
+  accessToken?: string;
+};
+
 export { POST_MEDIA_BUCKET };
 
 export type PostMediaType = "image" | "video";
+
+export type UploadPostMediaResult = {
+  mediaUrl: string;
+  mediaType: PostMediaType;
+  storagePath: string;
+};
 
 export function getPostMediaType(file: File): PostMediaType | null {
   if (file.type.startsWith("image/")) {
@@ -18,6 +32,14 @@ export function getPostMediaType(file: File): PostMediaType | null {
 
   if (file.type.startsWith("video/")) {
     return "video";
+  }
+
+  if (/\.(mp4|mov|m4v|webm)(\?|#|$)/i.test(file.name)) {
+    return /\.(mp4|mov|m4v)(\?|#|$)/i.test(file.name) ? "video" : "video";
+  }
+
+  if (/\.(jpe?g|png|gif|webp|heic|heif|avif)(\?|#|$)/i.test(file.name)) {
+    return "image";
   }
 
   return null;
@@ -32,10 +54,81 @@ export function formatPostMediaPath(userId: string, file: File) {
   return `${userId}/${prefix}-${Date.now()}.${safeExtension}`;
 }
 
-export async function uploadPostMedia(userId: string, file: File) {
+async function verifyStorageBucket(bucket: string) {
+  const { data, error } = await supabase.storage.listBuckets();
+
+  const exists = Boolean(data?.some((entry) => entry.name === bucket || entry.id === bucket));
+
+  console.log("STORAGE BUCKET CHECK", {
+    bucket,
+    exists,
+    buckets: data?.map((entry) => entry.name) ?? null,
+    error,
+  });
+
+  return exists;
+}
+
+async function verifyStorageObjectExists(bucket: string, storagePath: string) {
+  const folder = storagePath.includes("/") ? storagePath.slice(0, storagePath.lastIndexOf("/")) : "";
+  const filename = storagePath.includes("/") ? storagePath.slice(storagePath.lastIndexOf("/") + 1) : storagePath;
+
+  const { data, error } = await supabase.storage.from(bucket).list(folder, {
+    limit: 100,
+    search: filename,
+  });
+
+  const exists = Boolean(data?.some((entry) => entry.name === filename));
+
+  console.log("STORAGE OBJECT CHECK", {
+    bucket,
+    storage_path: storagePath,
+    exists,
+    listed: data?.map((entry) => entry.name) ?? null,
+    error,
+  });
+
+  return exists;
+}
+
+async function verifyPublicMediaUrl(publicUrl: string, storagePath: string) {
+  try {
+    const response = await fetch(publicUrl, { method: "HEAD" });
+
+    console.log("PUBLIC URL RESULT", {
+      storage_path: storagePath,
+      publicUrl,
+      status: response.status,
+      ok: response.ok,
+      contentType: response.headers.get("content-type"),
+      contentLength: response.headers.get("content-length"),
+      phase: "head",
+    });
+
+    return response.ok;
+  } catch (error) {
+    console.log("PUBLIC URL RESULT", {
+      storage_path: storagePath,
+      publicUrl,
+      ok: false,
+      phase: "head",
+      error,
+    });
+
+    return false;
+  }
+}
+
+export async function uploadPostMedia(
+  userId: string,
+  file: File,
+  options: UploadPostMediaOptions = {}
+): Promise<UploadPostMediaResult> {
   assertPostMediaBucket(POST_MEDIA_BUCKET);
 
-  await requireAuthenticatedUser(userId);
+  if (!options.accessToken) {
+    await requireAuthenticatedUser(userId);
+  }
 
   const mediaType = getPostMediaType(file);
 
@@ -43,32 +136,71 @@ export async function uploadPostMedia(userId: string, file: File) {
     throw new Error("Only images and videos are allowed.");
   }
 
-  const path = formatPostMediaPath(userId, file);
-  const { error: uploadError } = await supabase.storage.from(POST_MEDIA_BUCKET).upload(path, file, {
+  const storagePath = formatPostMediaPath(userId, file);
+
+  await verifyStorageBucket(POST_MEDIA_BUCKET);
+
+  options.onProgress?.(0);
+
+  const { data, error } = await supabase.storage.from(POST_MEDIA_BUCKET).upload(storagePath, file, {
     cacheControl: "3600",
     upsert: false,
-    contentType: file.type,
+    contentType: file.type || undefined,
   });
 
-  if (uploadError) {
-    logUploadError(uploadError);
+  console.log("UPLOAD FILE RESULT", {
+    bucket: POST_MEDIA_BUCKET,
+    storage_path: storagePath,
+    fileName: file.name,
+    fileSize: file.size,
+    fileType: file.type,
+    data,
+    error,
+  });
 
-    if (uploadError.message.toLowerCase().includes("row-level security")) {
+  if (error) {
+    logUploadError(error);
+
+    if (error.message.toLowerCase().includes("row-level security")) {
       throw new Error(
         "Upload was blocked. Make sure you are signed in and storage policies are configured for this bucket."
       );
     }
 
-    throw new Error(uploadError.message || "Unable to upload media.");
+    throw new Error(error.message || "Unable to upload media.");
   }
+
+  options.onProgress?.(100);
 
   const {
     data: { publicUrl },
-  } = supabase.storage.from(POST_MEDIA_BUCKET).getPublicUrl(path);
+  } = supabase.storage.from(POST_MEDIA_BUCKET).getPublicUrl(storagePath);
+
+  const publicUrlOk = await verifyPublicMediaUrl(publicUrl, storagePath);
+  const objectExists = await verifyStorageObjectExists(POST_MEDIA_BUCKET, storagePath);
+
+  console.log("PUBLIC URL RESULT", {
+    storage_path: storagePath,
+    publicUrl,
+    headOk: publicUrlOk,
+    objectExists,
+  });
+
+  if (!objectExists) {
+    throw new Error(`Uploaded file missing from bucket at ${storagePath}`);
+  }
+
+  if (!publicUrlOk) {
+    console.warn("PUBLIC URL RESULT: HEAD check failed but object exists in bucket", {
+      storage_path: storagePath,
+      publicUrl,
+    });
+  }
 
   return {
     mediaUrl: publicUrl,
     mediaType,
+    storagePath,
   };
 }
 

@@ -99,7 +99,30 @@ export async function loadPostDetail(postId: string): Promise<{
     const queryId = postIdForQuery(normalizedId);
     const { data, error } = await supabase.from("posts").select("*").eq("id", queryId).single();
 
-    console.log("post detail query result:", { paramsPostId: normalizedId, queryId, data, error });
+    console.log("POST FETCH RESULT", {
+      paramsPostId: normalizedId,
+      queryId,
+      media_url: data?.media_url ?? null,
+      video_url: data?.video_url ?? null,
+      thumbnail_url: data?.thumbnail_url ?? null,
+      video_cover_url: data?.video_cover_url ?? null,
+      image_url: data?.image_url ?? null,
+      spot_name: data?.spot_name ?? null,
+      media_type: data?.media_type ?? null,
+      storage_path: data?.media_url
+        ? (() => {
+            try {
+              const pathname = new URL(String(data.media_url)).pathname;
+              const marker = "/post-media/";
+              const index = pathname.indexOf(marker);
+              return index >= 0 ? pathname.slice(index + marker.length) : null;
+            } catch {
+              return null;
+            }
+          })()
+        : null,
+      error,
+    });
 
     if (error) {
       logExactLoadError(error);
