@@ -84,7 +84,7 @@ export default function SpotMapPinSheet({ pin, onClose }: SpotMapPinSheetProps) 
           )}
 
           <Link
-            href={`/user/${pin.user_id}`}
+            href={`/user?id=${pin.user_id}`}
             className="inline-flex items-center gap-2 text-sm font-medium text-slate-200 transition hover:text-white"
           >
             <span className="flex h-7 w-7 items-center justify-center rounded-full bg-slate-800">
@@ -94,7 +94,7 @@ export default function SpotMapPinSheet({ pin, onClose }: SpotMapPinSheetProps) 
           </Link>
 
           <Link
-            href={`/posts/${pin.id}`}
+            href={`/posts?id=${pin.id}`}
             className="flex w-full items-center justify-center rounded-full bg-cyan-500 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400"
           >
             {t("map.openSpot")}

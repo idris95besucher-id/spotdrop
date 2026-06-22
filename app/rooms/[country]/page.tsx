@@ -1,7 +1,7 @@
 import { countryStaticParams } from "@/lib/capacitorStaticExport";
 import CountryRoomsView from "./CountryRoomsView";
 
-export function generateStaticParams() {
+export async function generateStaticParams() {
   return countryStaticParams();
 }
 

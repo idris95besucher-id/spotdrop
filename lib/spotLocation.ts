@@ -1,3 +1,5 @@
+import { isCapacitorNative } from "@/lib/capacitorUtils";
+
 export const SPOT_MAX_VIDEO_SECONDS = 60;
 
 export type SpotGeoLocation = {
@@ -81,48 +83,60 @@ export function formatSpotLocationLabel(location: SpotGeoLocation) {
   return `${location.latitude.toFixed(5)}, ${location.longitude.toFixed(5)}`;
 }
 
-export function requestDeviceLocation(): Promise<SpotGeoLocation> {
+async function resolveCoordinates(latitude: number, longitude: number): Promise<SpotGeoLocation> {
+  if (isBrowserOffline()) {
+    return { latitude, longitude, address: null, city: null, country: null };
+  }
+  try {
+    const geocoded = await reverseGeocode(latitude, longitude);
+    return { latitude, longitude, address: geocoded.address, city: geocoded.city, country: geocoded.country };
+  } catch {
+    return { latitude, longitude, address: null, city: null, country: null };
+  }
+}
+
+type LocationAccuracy = "fast" | "high";
+
+function buildGeolocationOptions(accuracy: LocationAccuracy): PositionOptions {
+  if (accuracy === "fast") {
+    // Low-accuracy (network/WiFi) — resolves in <2 s, suitable for pre-warming.
+    return { enableHighAccuracy: false, timeout: 2000, maximumAge: 60_000 };
+  }
+
+  // High-accuracy (GPS) — more precise but slower; used as background refinement.
+  return { enableHighAccuracy: true, timeout: 8000, maximumAge: 30_000 };
+}
+
+async function capacitorGetPosition(accuracy: LocationAccuracy): Promise<SpotGeoLocation> {
+  const { Geolocation } = await import("@capacitor/geolocation");
+
+  try {
+    await Geolocation.requestPermissions?.();
+  } catch {
+    // requestPermissions is a no-op on some platforms; ignore.
+  }
+
+  const opts = buildGeolocationOptions(accuracy);
+  const position = await Geolocation.getCurrentPosition({
+    enableHighAccuracy: opts.enableHighAccuracy,
+    timeout: opts.timeout,
+  });
+
+  return resolveCoordinates(position.coords.latitude, position.coords.longitude);
+}
+
+function browserGetPosition(accuracy: LocationAccuracy): Promise<SpotGeoLocation> {
   return new Promise((resolve, reject) => {
     if (typeof window === "undefined" || !("geolocation" in navigator)) {
       reject(new Error("Location is not available in this browser."));
       return;
     }
 
+    const opts = buildGeolocationOptions(accuracy);
+
     navigator.geolocation.getCurrentPosition(
-      async (position) => {
-        const latitude = position.coords.latitude;
-        const longitude = position.coords.longitude;
-
-        if (isBrowserOffline()) {
-          resolve({
-            latitude,
-            longitude,
-            address: null,
-            city: null,
-            country: null,
-          });
-          return;
-        }
-
-        try {
-          const geocoded = await reverseGeocode(latitude, longitude);
-
-          resolve({
-            latitude,
-            longitude,
-            address: geocoded.address,
-            city: geocoded.city,
-            country: geocoded.country,
-          });
-        } catch {
-          resolve({
-            latitude,
-            longitude,
-            address: null,
-            city: null,
-            country: null,
-          });
-        }
+      (position) => {
+        void resolveCoordinates(position.coords.latitude, position.coords.longitude).then(resolve);
       },
       (error) => {
         if (error.code === error.PERMISSION_DENIED) {
@@ -132,13 +146,38 @@ export function requestDeviceLocation(): Promise<SpotGeoLocation> {
 
         reject(new Error("Unable to detect your location. Try again outdoors or enable GPS."));
       },
-      {
-        enableHighAccuracy: true,
-        timeout: 20000,
-        maximumAge: 60000,
-      }
+      opts
     );
   });
+}
+
+/**
+ * Fast, low-accuracy location lookup (≤2 s).
+ * Uses cached/network position — perfect for pre-warming before capture.
+ * Resolves with coordinates even if reverse geocoding is skipped.
+ */
+export function requestDeviceLocationFast(): Promise<SpotGeoLocation> {
+  if (isCapacitorNative()) {
+    return capacitorGetPosition("fast").catch((err: unknown) => {
+      return Promise.reject(new Error(err instanceof Error ? err.message : "Unable to detect your location."));
+    });
+  }
+
+  return browserGetPosition("fast");
+}
+
+/**
+ * High-accuracy location lookup (≤8 s).
+ * Triggers GPS on supported devices — use for refining a previously-cached position.
+ */
+export function requestDeviceLocation(): Promise<SpotGeoLocation> {
+  if (isCapacitorNative()) {
+    return capacitorGetPosition("high").catch((err: unknown) => {
+      return Promise.reject(new Error(err instanceof Error ? err.message : "Unable to detect your location."));
+    });
+  }
+
+  return browserGetPosition("high");
 }
 
 export async function reverseGeocode(latitude: number, longitude: number): Promise<ReverseGeocodeResult> {

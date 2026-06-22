@@ -1,12 +1,19 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Loader2 } from "lucide-react";
+import { Loader2, Volume2, VolumeX } from "lucide-react";
 
 const MAX_AUTO_RETRIES = 3;
 const RETRY_DELAY_MS = 1200;
 const LOAD_TIMEOUT_MS = 3_000;
 const SPOT_LOAD_ERROR = "Could not load spot. Try again.";
+
+/**
+ * Module-level mute preference that persists while the user scrolls through the
+ * reel. Starts muted (required for iOS/Android autoplay). Once the user taps the
+ * speaker icon the preference flips and every subsequent slide plays with sound.
+ */
+let viewerGlobalMuted = true;
 
 type PostReelMediaProps = {
   mediaUrl: string;
@@ -46,6 +53,8 @@ export default function PostReelMedia({
   const [posterReady, setPosterReady] = useState(false);
   const [videoFailed, setVideoFailed] = useState(false);
   const [loadTimedOut, setLoadTimedOut] = useState(false);
+  // Follows the global preference so all slides share one mute state.
+  const [isMuted, setIsMuted] = useState(viewerGlobalMuted);
 
   const resolvedPoster = posterUrl?.trim() || (mediaType === "image" ? mediaUrl : null);
   const playbackUrl = cacheBustUrl(mediaUrl, retryKey);
@@ -103,6 +112,14 @@ export default function PostReelMedia({
     };
   }, []);
 
+  // Sync mute state when this slide becomes active (respect global preference).
+  useEffect(() => {
+    if (!isActive) return;
+    setIsMuted(viewerGlobalMuted);
+    const video = videoRef.current;
+    if (video) video.muted = viewerGlobalMuted;
+  }, [isActive]);
+
   useEffect(() => {
     const video = videoRef.current;
 
@@ -110,7 +127,9 @@ export default function PostReelMedia({
       return;
     }
 
-    video.muted = true;
+    // Must start muted for iOS/Android autoplay policy.
+    // The user can tap the speaker button to unmute.
+    video.muted = viewerGlobalMuted;
     video.playsInline = true;
     video.setAttribute("playsinline", "true");
     video.setAttribute("webkit-playsinline", "true");
@@ -144,6 +163,21 @@ export default function PostReelMedia({
       /* ignore */
     }
   }, [canPlayVideo, isActive, mediaType, playbackUrl]);
+
+  const toggleMute = useCallback(() => {
+    const video = videoRef.current;
+    const next = !viewerGlobalMuted;
+    viewerGlobalMuted = next;
+    setIsMuted(next);
+    if (video) {
+      video.muted = next;
+      // If the video was paused only because autoplay-with-sound was blocked,
+      // resume playback now that the user has explicitly interacted.
+      if (!next && video.paused && isActive) {
+        void video.play().catch(() => undefined);
+      }
+    }
+  }, [isActive]);
 
   const handleMediaReady = () => {
     setMediaReady(true);
@@ -234,7 +268,6 @@ export default function PostReelMedia({
           src={playbackUrl}
           poster={resolvedPoster ?? undefined}
           playsInline
-          muted
           loop
           preload="auto"
           className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-200 ${
@@ -265,6 +298,23 @@ export default function PostReelMedia({
           <p className="text-sm font-medium text-white">{alt || "Spot"}</p>
           <p className="text-xs text-red-300">{SPOT_LOAD_ERROR}</p>
         </div>
+      ) : null}
+
+      {/* ── Speaker / mute button — only shown for active videos ── */}
+      {mediaType === "video" && isActive && mediaReady ? (
+        <button
+          type="button"
+          onClick={toggleMute}
+          className="absolute right-3 z-20 flex h-10 w-10 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur-sm ring-1 ring-white/20"
+          style={{ top: "max(3.25rem, env(safe-area-inset-top))" }}
+          aria-label={isMuted ? "Unmute video" : "Mute video"}
+        >
+          {isMuted ? (
+            <VolumeX className="h-5 w-5" aria-hidden />
+          ) : (
+            <Volume2 className="h-5 w-5" aria-hidden />
+          )}
+        </button>
       ) : null}
     </div>
   );

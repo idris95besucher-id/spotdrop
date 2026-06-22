@@ -1,5 +1,7 @@
 export function isDirectMessageThread(pathname: string | null) {
-  return pathname?.startsWith("/dm/") ?? false;
+  if (!pathname) return false;
+  // Matches both /dm?id=… (new query-param style) and /dm/<userId> (old path style)
+  return pathname === "/dm" || pathname === "/dm/" || pathname.startsWith("/dm/");
 }
 
 /** Private DMs, CheckSpot threads, and other 1:1 message threads. */

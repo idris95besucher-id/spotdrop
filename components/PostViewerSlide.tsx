@@ -26,7 +26,7 @@ import { formatPostTime } from "@/lib/posts";
 import { getReelMediaSources } from "@/lib/postViewerMedia";
 import { publicProfileUsername } from "@/lib/publicProfile";
 import { normalizeGuidePlace } from "@/lib/guidePlaces";
-import { shouldShowSpotLocation } from "@/lib/spotLocationDisplay";
+import { isSpotContent, shouldShowSpotLocation } from "@/lib/spotLocationDisplay";
 import { normalizeSpotPublicStats, recordSpotOpen, type SpotPublicStats } from "@/lib/spotRanking";
 import { dispatchSpotStatsUpdated } from "@/lib/spotStatsEvents";
 import type { SpotStatsUpdatedDetail } from "@/lib/spotStatsEvents";
@@ -114,7 +114,11 @@ export default function PostViewerSlide({
   const [sendSpotSheetOpen, setSendSpotSheetOpen] = useState(false);
   const [savedCollectionIds, setSavedCollectionIds] = useState<string[]>([]);
   const [saveStateLoading, setSaveStateLoading] = useState(false);
-  const isSpot = item.content_kind === "spot";
+  const isSpot = isSpotContent({
+    content_kind: post.content_kind,
+    spot_latitude: post.spot_latitude,
+    spot_longitude: post.spot_longitude,
+  });
   const isSpotSaved = savedCollectionIds.length > 0;
   const { openSpotLocation } = useSpotLocationModal();
 
@@ -431,13 +435,18 @@ export default function PostViewerSlide({
       {isOwnSpot ? (
         <div className="absolute right-3 top-[max(3.25rem,env(safe-area-inset-top))] z-30">
           <OwnContentMenu
-            className="[&_button]:bg-black/45 [&_button]:ring-1 [&_button]:ring-white/15 [&_button]:backdrop-blur-md"
+            triggerClassName="bg-black/45 ring-1 ring-white/15 backdrop-blur-md"
+            deleteMenuLabel={t("content.deleteSpot")}
             confirmTitle={t("content.deleteSpotTitle")}
-            confirmBody={null}
+            confirmBody={t("content.deleteSpotBody")}
             deletedToast={t("content.spotDeleted")}
             onDelete={async () => {
+              if (!userId) {
+                return { ok: false, error: "Sign in required." };
+              }
+
               setSendSpotSheetOpen(false);
-              return deleteOwnedSpot(post.id, userId!);
+              return deleteOwnedSpot(String(post.id), userId);
             }}
             onDeleted={() => onItemDeleted?.(post.id)}
           />
@@ -447,7 +456,7 @@ export default function PostViewerSlide({
       <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 bg-gradient-to-t from-black/95 via-black/60 to-transparent px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-28 pr-16">
         <div className="pointer-events-auto space-y-2">
           {postAuthor ? (
-            <Link href={`/user/${post.user_id}`} className="inline-flex max-w-full items-center gap-2">
+            <Link href={`/user?id=${post.user_id}`} className="inline-flex max-w-full items-center gap-2">
               <div className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/15 bg-slate-900">
                 {postAuthor.avatar_url ? (
                   <img src={postAuthor.avatar_url} alt="" className="h-full w-full object-cover" />

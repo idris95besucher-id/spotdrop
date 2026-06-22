@@ -59,10 +59,14 @@ type DirectMessage = {
   created_at: string;
 };
 
-export default function DirectMessagePage() {
+type DmThreadViewProps = {
+  partnerIdOverride?: string;
+};
+
+export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewProps = {}) {
   const { t } = useI18n();
-  const params = useParams<{ userId: string }>();
-  const partnerId = params.userId;
+  const params = useParams<{ userId?: string }>();
+  const partnerId = partnerIdOverride ?? params.userId ?? "";
 
   const [session, setSession] = useState<Session | null>(null);
   const [partner, setPartner] = useState<PartnerProfile | null>(null);

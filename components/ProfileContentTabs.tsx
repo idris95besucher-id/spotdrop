@@ -159,13 +159,14 @@ export function ProfileContentGridPanel({
             {isOwner ? (
               <div className="absolute right-1 top-1 z-10">
                 <OwnContentMenu
-                  className="[&_button]:bg-black/50 [&_button]:backdrop-blur-sm"
+                  triggerClassName="bg-black/50 backdrop-blur-sm"
+                  deleteMenuLabel={isSpotItem ? t("content.deleteSpot") : undefined}
                   confirmTitle={isSpotItem ? t("content.deleteSpotTitle") : undefined}
-                  confirmBody={isSpotItem ? null : undefined}
+                  confirmBody={isSpotItem ? t("content.deleteSpotBody") : undefined}
                   deletedToast={isSpotItem ? t("content.spotDeleted") : null}
                   onDelete={() =>
                     isSpotItem
-                      ? deleteOwnedSpot(post.id, viewerUserId!)
+                      ? deleteOwnedSpot(String(post.id), viewerUserId!)
                       : deleteOwnedPost(post.id, viewerUserId!)
                   }
                   onDeleted={() => onPostDeleted?.(post.id)}

@@ -69,7 +69,16 @@ export default function CountryRoomsPage() {
       ]);
 
       const user = sessionResult.session?.user ?? null;
-      console.log("channel permission", user ? { id: user.id, createOnCityRoomPage: true } : null);
+      console.log("[Rooms auth] country page", {
+        sessionLoaded: !sessionResult.error,
+        loggedIn: Boolean(user),
+        expired: sessionResult.expired,
+        path: window.location.pathname,
+      });
+      console.log("[Rooms route] country params", {
+        rawParam: params.country,
+        countrySlug,
+      });
 
       if (countriesError) {
         console.error("Failed to load country data:", countriesError);
@@ -123,10 +132,13 @@ export default function CountryRoomsPage() {
       return;
     }
 
-    console.log("params.country:", params.country);
-    console.log("found country:", foundCountry);
-    console.log("cities count:", sortedCities.length);
-  }, [params.country, foundCountry, sortedCities.length, loading]);
+    console.log("[Rooms route] country resolved", {
+      param: params.country,
+      slug: countrySlug,
+      found: foundCountry?.name ?? "NOT FOUND — check DB slug",
+      citiesCount: sortedCities.length,
+    });
+  }, [params.country, countrySlug, foundCountry, sortedCities.length, loading]);
 
   const localizedError = localizeUserMessage(t, error);
 

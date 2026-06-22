@@ -45,10 +45,10 @@ function visibilityLabelKey(visibility: CollectionVisibility): TranslationKey {
   }
 }
 
-export default function CollectionPage() {
+export default function CollectionPage({ collectionIdOverride }: { collectionIdOverride?: string } = {}) {
   const { t } = useI18n();
-  const params = useParams<{ collectionId: string }>();
-  const collectionId = params.collectionId;
+  const params = useParams<{ collectionId?: string }>();
+  const collectionId = collectionIdOverride ?? params.collectionId;
 
   const [viewerId, setViewerId] = useState<string | null>(null);
   const [collection, setCollection] = useState<SpotCollection | null>(null);
@@ -141,7 +141,7 @@ export default function CollectionPage() {
 
                 {owner ? (
                   <Link
-                    href={`/user/${owner.id}`}
+                    href={`/user?id=${owner.id}`}
                     className="inline-flex items-center gap-2 text-sm font-medium text-primary transition hover:brightness-110"
                   >
                     <span className="flex h-8 w-8 items-center justify-center overflow-hidden rounded-full bg-white/[0.06]">

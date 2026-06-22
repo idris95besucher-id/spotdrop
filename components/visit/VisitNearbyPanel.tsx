@@ -215,7 +215,7 @@ export default function VisitNearbyPanel() {
               key={user.user_id}
               className="flex items-center gap-3 rounded-2xl border border-white/10 bg-slate-900/70 p-3"
             >
-              <Link href={`/user/${user.user_id}`} className="flex min-w-0 flex-1 items-center gap-3">
+              <Link href={`/user?id=${user.user_id}`} className="flex min-w-0 flex-1 items-center gap-3">
                 <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full border border-cyan-400/30 bg-slate-800">
                   {user.avatar_url ? (
                     <img src={user.avatar_url} alt="" className="h-full w-full object-cover" />
@@ -237,7 +237,7 @@ export default function VisitNearbyPanel() {
                 ) : null}
                 {messageableUserIds.has(user.user_id) ? (
                   <Link
-                    href={`/dm/${user.user_id}`}
+                    href={`/dm?id=${user.user_id}`}
                     className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-white/5 text-white transition hover:bg-white/10"
                     aria-label={t("profile.message")}
                   >

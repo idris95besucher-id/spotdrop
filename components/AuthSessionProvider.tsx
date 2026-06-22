@@ -135,7 +135,9 @@ export function AuthSessionProvider({ children }: AuthSessionProviderProps) {
     void (async () => {
       await clearLocalAuthSession();
       setAuthNotice(SESSION_EXPIRED_MESSAGE);
-      router.replace("/auth/login");
+      // Preserve the current path so the user returns here after re-logging in.
+      const returnTo = pathname && pathname !== "/" ? `?returnTo=${encodeURIComponent(pathname)}` : "";
+      router.replace(`/auth/login${returnTo}`);
     })();
   }, [state.loading, state.expired, pathname, router]);
 

@@ -28,7 +28,7 @@ import { formatPostTime, getPostMedia, inferMediaTypeFromUrl, POST_AUTHOR_PROFIL
 import { isGuidePlaceRelationMissing, normalizeGuidePlace } from "@/lib/guidePlaces";
 import { publicProfileUsername } from "@/lib/publicProfile";
 import { getErrorMessage, logExactLoadError, userFacingSupabaseListError } from "@/lib/safeLoad";
-import { shouldShowSpotLocation } from "@/lib/spotLocationDisplay";
+import { shouldShowSpotLocation, isSpotContent } from "@/lib/spotLocationDisplay";
 import { normalizeSpotPublicStats, recordSpotOpen, EMPTY_SPOT_PUBLIC_STATS, type SpotPublicStats } from "@/lib/spotRanking";
 import { dispatchSpotStatsUpdated, SPOT_STATS_UPDATED_EVENT, type SpotStatsUpdatedDetail } from "@/lib/spotStatsEvents";
 import { loadSpotCollectionSaveState } from "@/lib/collections";
@@ -127,10 +127,14 @@ function resolveRoutePostId(params: { postId?: string | string[] }) {
   return normalizePostId(decoded) ?? "";
 }
 
-export default function PostDetailPage() {
+type PostDetailPageProps = {
+  postIdOverride?: string;
+};
+
+export default function PostDetailPage({ postIdOverride }: PostDetailPageProps = {}) {
   const router = useRouter();
-  const params = useParams<{ postId: string | string[] }>();
-  const postId = resolveRoutePostId(params);
+  const params = useParams<{ postId?: string | string[] }>();
+  const postId = postIdOverride ?? resolveRoutePostId(params);
   const { t } = useI18n();
   const { openSpotLocation } = useSpotLocationModal();
 
@@ -353,7 +357,13 @@ export default function PostDetailPage() {
     };
   }, [engagementReady, isDemo, postId, sessionReady, userId]);
 
-  const isSpotPost = post?.content_kind === "spot";
+  const isSpotPost = post
+    ? isSpotContent({
+        content_kind: post.content_kind,
+        spot_latitude: post.spot_latitude,
+        spot_longitude: post.spot_longitude,
+      })
+    : false;
 
   useEffect(() => {
     if (!engagementReady || isDemo || !isSpotPost || !postId) {
@@ -513,13 +523,24 @@ export default function PostDetailPage() {
         <div className="flex items-center gap-2">
           {isOwnPost && isSpotPost ? (
             <OwnContentMenu
-              className="[&_button]:bg-black/45 [&_button]:ring-1 [&_button]:ring-white/15 [&_button]:backdrop-blur-md"
+              triggerClassName="bg-black/45 ring-1 ring-white/15 backdrop-blur-md"
+              deleteMenuLabel={t("content.deleteSpot")}
               confirmTitle={t("content.deleteSpotTitle")}
-              confirmBody={null}
+              confirmBody={t("content.deleteSpotBody")}
               deletedToast={t("content.spotDeleted")}
               onDelete={async () => {
+                console.log("DELETE SPOT HANDLER CALLED", {
+                  postId: post!.id,
+                  userId,
+                  postUserId: post!.user_id,
+                });
+
+                if (!userId) {
+                  return { ok: false, error: "Sign in required." };
+                }
+
                 setSendSpotSheetOpen(false);
-                return deleteOwnedSpot(post!.id, userId!);
+                return deleteOwnedSpot(String(post!.id), userId);
               }}
               onDeleted={() => {
                 if (window.history.length > 1) {
@@ -578,7 +599,7 @@ export default function PostDetailPage() {
               <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 bg-gradient-to-t from-black/90 via-black/55 to-transparent px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-24 pr-16">
                 <div className="pointer-events-auto space-y-2">
                   {postAuthor ? (
-                    <Link href={`/user/${post.user_id}`} className="inline-flex max-w-full items-center gap-2">
+                    <Link href={`/user?id=${post.user_id}`} className="inline-flex max-w-full items-center gap-2">
                       <div className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/15 bg-slate-900">
                         {postAuthor.avatar_url ? (
                           <img src={postAuthor.avatar_url} alt="" className="h-full w-full object-cover" />

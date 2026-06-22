@@ -111,6 +111,7 @@ export type CoreTranslationKey =
   | "collections.visibility.invite"
   | "collections.visibility.private"
   | "content.delete"
+  | "content.deleteSpot"
   | "content.deleteTitle"
   | "content.deleteBody"
   | "content.deleteSpotTitle"
@@ -275,6 +276,7 @@ const CORE_EN: CoreMessageTable = {
   "collections.visibility.invite": "Invite only",
   "collections.visibility.private": "Private",
   "content.delete": "Delete",
+  "content.deleteSpot": "Delete Spot",
   "content.deleteTitle": "Delete this permanently?",
   "content.deleteBody": "This cannot be undone. Your photo, video, or story will be removed.",
   "content.deleteSpotTitle": "Delete this Spot?",
@@ -437,6 +439,7 @@ const CORE_RU: CoreMessageTable = {
   "collections.visibility.invite": "По приглашению",
   "collections.visibility.private": "Приватная",
   "content.delete": "Удалить",
+  "content.deleteSpot": "Удалить Spot",
   "content.deleteTitle": "Удалить навсегда?",
   "content.deleteBody": "Это нельзя отменить. Фото, видео или история будут удалены.",
   "content.deleteSpotTitle": "Удалить этот Spot?",
@@ -599,6 +602,7 @@ const CORE_DE: CoreMessageTable = {
   "collections.visibility.invite": "Nur auf Einladung",
   "collections.visibility.private": "Privat",
   "content.delete": "Löschen",
+  "content.deleteSpot": "Spot löschen",
   "content.deleteTitle": "Dauerhaft löschen?",
   "content.deleteBody": "Das kann nicht rückgängig gemacht werden. Foto, Video oder Story werden entfernt.",
   "content.deleteSpotTitle": "Diesen Spot löschen?",

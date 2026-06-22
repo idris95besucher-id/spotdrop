@@ -31,7 +31,7 @@ export default function PostMediaLink({
     return <div className={className}>{children}</div>;
   }
 
-  const href = `/posts/${encodeURIComponent(id)}`;
+  const href = `/posts?id=${encodeURIComponent(id)}`;
   const canOpenViewer = Boolean(postViewer && viewerItems && viewerItems.length > 0);
 
   const handleClick = (event: MouseEvent<HTMLAnchorElement>) => {

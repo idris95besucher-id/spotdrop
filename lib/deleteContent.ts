@@ -1,6 +1,6 @@
 import { normalizePostId, postIdForQuery } from "@/lib/postIds";
 import { dispatchSpotDeleted } from "@/lib/spotDeletedEvents";
-import { POST_MEDIA_BUCKET, requireAuthenticatedUser } from "@/lib/storageUpload";
+import { POST_MEDIA_BUCKET } from "@/lib/storageUpload";
 import { isStoriesRelationMissing } from "@/lib/stories";
 import { supabase } from "@/lib/supabaseClient";
 
@@ -13,6 +13,40 @@ const MEDIA_URL_FIELDS = [
 ] as const;
 
 const STORY_CONTENT_KINDS = new Set(["story", "video"]);
+
+const RELATED_DELETE_TABLES = [
+  "post_comments",
+  "post_reactions",
+  "collection_spots",
+  "spot_collection_saves",
+  "spot_visits",
+  "spot_visited_daily",
+  "spot_commenters",
+  "guide_places",
+] as const;
+
+type SupabaseErrorLike = {
+  message?: string;
+  code?: string;
+  details?: string;
+  hint?: string;
+  status?: number;
+};
+
+type SpotRow = {
+  id: string;
+  user_id: string;
+  media_url?: string | null;
+  image_url?: string | null;
+  video_url?: string | null;
+  video_cover_url?: string | null;
+  thumbnail_url?: string | null;
+  content_kind?: string | null;
+  spot_latitude?: number | null;
+  spot_longitude?: number | null;
+};
+
+const DELETE_SPOT_TIMEOUT_MS = 10_000;
 
 export function storagePathFromPublicUrl(
   publicUrl: string | null | undefined,
@@ -47,6 +81,259 @@ export function collectMediaUrls(record: Record<string, unknown>) {
   return [...urls];
 }
 
+function formatSupabaseError(error: SupabaseErrorLike) {
+  return [error.message, error.code, error.details, error.hint].filter(Boolean).join(" — ");
+}
+
+function postIdForDelete(postId: string): string | null {
+  return normalizePostId(postId);
+}
+
+/** PostgREST id variants — uuid string and/or bigint number. */
+function postIdQueryVariants(spotId: string): Array<string | number> {
+  const variants: Array<string | number> = [spotId];
+
+  if (/^\d+$/.test(spotId)) {
+    const asNumber = postIdForQuery(spotId);
+
+    if (typeof asNumber === "number" && !variants.includes(asNumber)) {
+      variants.push(asNumber);
+    }
+  }
+
+  return variants;
+}
+
+function withDeleteTimeout<T>(promise: Promise<T>, label: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) => {
+      setTimeout(
+        () => reject(new Error(`${label} timed out after ${DELETE_SPOT_TIMEOUT_MS / 1000}s`)),
+        DELETE_SPOT_TIMEOUT_MS
+      );
+    }),
+  ]);
+}
+
+async function getAuthenticatedUserId(): Promise<{ userId: string | null; error: string | null }> {
+  const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+  let user = sessionData.session?.user ?? null;
+
+  if (!user) {
+    const { data: userData, error: userError } = await supabase.auth.getUser();
+    user = userData.user ?? null;
+
+    if (userError || !user) {
+      console.error("DELETE SPOT AUTH ERROR:", userError ?? sessionError ?? "no session");
+      return {
+        userId: null,
+        error: userError?.message ?? sessionError?.message ?? "Sign in required.",
+      };
+    }
+  }
+
+  console.log("Current user:", user.id);
+  return { userId: user.id, error: null };
+}
+
+async function fetchSpotRow(spotId: string): Promise<{ row: SpotRow | null; error: string | null }> {
+  for (const idVariant of postIdQueryVariants(spotId)) {
+    const { data, error } = await supabase
+      .from("posts")
+      .select(
+        "id, user_id, media_url, image_url, video_url, video_cover_url, thumbnail_url, content_kind, spot_latitude, spot_longitude"
+      )
+      .eq("id", idVariant)
+      .maybeSingle();
+
+    if (error) {
+      console.error("FETCH SPOT ERROR:", error);
+      return { row: null, error: formatSupabaseError(error) || error.message };
+    }
+
+    if (data) {
+      const row: SpotRow = {
+        ...data,
+        id: normalizePostId(data.id) ?? spotId,
+        user_id: String(data.user_id),
+      };
+
+      console.log("Fetched spot:", { postId: row.id, postUserId: row.user_id });
+      return { row, error: null };
+    }
+  }
+
+  return { row: null, error: "Spot not found." };
+}
+
+async function deleteRelatedSpotRows(spotId: string): Promise<void> {
+  const idVariants = postIdQueryVariants(spotId);
+
+  for (const table of RELATED_DELETE_TABLES) {
+    for (const idVariant of idVariants) {
+      const { error } = await supabase.from(table).delete().eq("post_id", idVariant);
+
+      if (error) {
+        const message = error.message?.toLowerCase() ?? "";
+
+        if (
+          error.code === "42P01" ||
+          error.code === "PGRST205" ||
+          message.includes("does not exist") ||
+          message.includes("could not find the table")
+        ) {
+          break;
+        }
+
+        console.error(`DELETE RELATED ${table} ERROR:`, error);
+      } else {
+        break;
+      }
+    }
+  }
+
+  for (const idVariant of idVariants) {
+    const { error } = await supabase
+      .from("direct_messages")
+      .delete()
+      .eq("message_type", "spot")
+      .eq("post_id", idVariant);
+
+    if (!error) {
+      break;
+    }
+
+    console.error("DELETE RELATED direct_messages ERROR:", error);
+  }
+}
+
+async function deletePostRowDirect(
+  spotId: string,
+  authUserId: string
+): Promise<{ ok: true; deletedId: string } | { ok: false; error: string }> {
+  console.log("DELETE SPOT — exact query:");
+  console.log(`  supabase.from("posts").delete().eq("id", "${spotId}").eq("user_id", "${authUserId}")`);
+
+  await deleteRelatedSpotRows(spotId);
+
+  for (const idVariant of postIdQueryVariants(spotId)) {
+    const { data: deletedRows, error } = await supabase
+      .from("posts")
+      .delete()
+      .eq("id", idVariant)
+      .eq("user_id", authUserId)
+      .select("id");
+
+    if (error) {
+      const result = { ok: false as const, error: formatSupabaseError(error) || error.message };
+      console.log("DIRECT DELETE RESULT", result);
+      return result;
+    }
+
+    if (deletedRows?.length) {
+      const deletedId = normalizePostId(deletedRows[0]?.id) ?? spotId;
+      const result = { ok: true as const, deletedId };
+      console.log("DIRECT DELETE RESULT", result);
+      return result;
+    }
+  }
+
+  const message =
+    'Delete failed — 0 rows deleted. Run database/ensure-spot-delete.sql in Supabase (policy: "Users can delete own posts" USING (user_id = auth.uid())).';
+  const result = { ok: false as const, error: message };
+  console.log("DIRECT DELETE RESULT", result);
+  return result;
+}
+
+async function deletePostViaRpc(
+  spotId: string,
+  authUserId: string
+): Promise<{ ok: true; mediaUrls: string[] } | { ok: false; error: string }> {
+  console.log('DELETE SPOT RPC: supabase.rpc("delete_owned_post", { p_post_id:', spotId, "})");
+
+  const { data, error } = await supabase.rpc("delete_owned_post", {
+    p_post_id: spotId,
+  });
+
+  if (error) {
+    const result = { ok: false as const, error: formatSupabaseError(error) || error.message };
+    console.log("RPC RESULT", result);
+    return result;
+  }
+
+  const payload = data as {
+    ok?: boolean;
+    error?: string;
+    media_url?: string | null;
+    image_url?: string | null;
+    video_url?: string | null;
+    video_cover_url?: string | null;
+    thumbnail_url?: string | null;
+  } | null;
+
+  if (!payload?.ok) {
+    const rpcError = payload?.error ?? "delete_failed";
+
+    if (rpcError === "not_authenticated") {
+      const result = { ok: false as const, error: "Sign in required." };
+      console.log("RPC RESULT", result);
+      return result;
+    }
+
+    if (rpcError === "not_owner") {
+      const result = { ok: false as const, error: "You can only delete your own Spots." };
+      console.log("RPC RESULT", result);
+      return result;
+    }
+
+    const result = { ok: false as const, error: rpcError };
+    console.log("RPC RESULT", result);
+    return result;
+  }
+
+  for (const idVariant of postIdQueryVariants(spotId)) {
+    const { data: stillThere } = await supabase.from("posts").select("id").eq("id", idVariant).maybeSingle();
+
+    if (stillThere) {
+      const result = {
+        ok: false as const,
+        error: "RPC reported success but spot still exists in posts.",
+      };
+      console.log("RPC RESULT", result);
+      return result;
+    }
+  }
+
+  const result = {
+    ok: true as const,
+    mediaUrls: collectMediaUrls(payload as Record<string, unknown>),
+  };
+  console.log("RPC RESULT", result);
+  return result;
+}
+
+async function removeSpotMediaBestEffort(mediaUrls: string[], spotId: string) {
+  if (mediaUrls.length === 0) {
+    return;
+  }
+
+  const paths = [...new Set(mediaUrls.map((url) => storagePathFromPublicUrl(url)).filter(Boolean))] as string[];
+
+  if (paths.length === 0) {
+    return;
+  }
+
+  const { error } = await supabase.storage.from(POST_MEDIA_BUCKET).remove(paths);
+
+  if (error) {
+    console.warn("DELETE STORAGE ERROR (non-fatal):", error);
+    return;
+  }
+
+  console.log("DELETE STORAGE OK:", { spotId, paths });
+}
+
 export async function removeStorageObjectsForUrls(urls: string[]) {
   const paths = [...new Set(urls.map((url) => storagePathFromPublicUrl(url)).filter(Boolean))] as string[];
 
@@ -57,299 +344,205 @@ export async function removeStorageObjectsForUrls(urls: string[]) {
   const { error } = await supabase.storage.from(POST_MEDIA_BUCKET).remove(paths);
 
   if (error) {
-    console.warn("removeStorageObjectsForUrls:", error.message);
+    console.warn("removeStorageObjectsForUrls:", formatSupabaseError(error));
   }
 }
 
-async function fetchOwnedPostRow(postId: string, userId: string) {
-  const queryId = postIdForQuery(postId);
+/** Delete a spot (row in public.posts). Returns { ok, error } — never throws. */
+export async function deleteOwnedSpot(postId: string, _userId?: string) {
+  console.log("DELETE FUNCTION START", { postId });
 
-  const { data, error } = await supabase
-    .from("posts")
-    .select(
-      "id, user_id, media_url, image_url, video_url, video_cover_url, thumbnail_url, content_kind"
-    )
-    .eq("id", queryId)
-    .eq("user_id", userId)
-    .maybeSingle();
+  try {
+    const result = await withDeleteTimeout(deleteOwnedSpotInternal(postId), "Delete spot");
 
-  if (error) {
-    return { row: null, error: error.message };
-  }
-
-  if (!data) {
-    return { row: null, error: "Post not found or you cannot delete it." };
-  }
-
-  return { row: data as Record<string, unknown>, error: null };
-}
-
-function formatSupabaseError(error: {
-  message?: string;
-  code?: string;
-  details?: string;
-  hint?: string;
-}) {
-  return [error.message, error.code, error.details, error.hint].filter(Boolean).join(" — ");
-}
-
-function mapDeleteRpcError(code: string | undefined) {
-  switch (code) {
-    case "not_authenticated":
-      return "Sign in required.";
-    case "not_owner":
-      return "You can only delete your own Spots.";
-    case "post_not_found":
-      return "Spot not found or already deleted.";
-    case "delete_blocked":
-      return "Delete was blocked. Check your permissions and try again.";
-    case "invalid_post_id":
-      return "Invalid Spot id.";
-    default:
-      return code ?? "Unable to delete.";
-  }
-}
-
-function isDeleteRpcMissing(error: { code?: string; message?: string } | null) {
-  if (!error) {
-    return false;
-  }
-
-  const message = error.message?.toLowerCase() ?? "";
-
-  return (
-    error.code === "42883" ||
-    error.code === "PGRST202" ||
-    message.includes("delete_owned_post") ||
-    (message.includes("function") && message.includes("schema cache"))
-  );
-}
-
-async function deleteOwnedPostViaRpc(postId: string, userId: string) {
-  const { data, error } = await supabase.rpc("delete_owned_post", {
-    p_post_id: String(postIdForQuery(postId)),
-  });
-
-  if (error) {
-    if (isDeleteRpcMissing(error)) {
-      return { ok: false as const, error: null, mediaUrls: [] as string[], useFallback: true };
+    if (result.ok) {
+      console.log("DELETE SUCCESS");
+    } else {
+      console.log("DELETE FAILED", result.error);
     }
 
+    return result;
+  } catch (err) {
+    const error = err instanceof Error ? err.message : String(err);
+    console.log("DELETE FAILED", error);
     return {
       ok: false as const,
-      error: error.message || "Unable to delete Spot.",
-      mediaUrls: [] as string[],
-      useFallback: false,
+      error,
     };
   }
-
-  const payload = data as
-    | {
-        ok?: boolean;
-        error?: string;
-        media_url?: string | null;
-        image_url?: string | null;
-        video_url?: string | null;
-        video_cover_url?: string | null;
-        thumbnail_url?: string | null;
-      }
-    | null;
-
-  if (!payload?.ok) {
-    return {
-      ok: false as const,
-      error: mapDeleteRpcError(payload?.error),
-      mediaUrls: [] as string[],
-      useFallback: false,
-    };
-  }
-
-  return {
-    ok: true as const,
-    error: null,
-    mediaUrls: collectMediaUrls(payload as Record<string, unknown>),
-    useFallback: false,
-  };
 }
 
-async function deleteOwnedPostDirect(postId: string, userId: string, mediaUrls: string[]) {
-  const queryId = postIdForQuery(postId);
+async function deleteOwnedSpotInternal(postId: string) {
+  const spotId = postIdForDelete(String(postId));
 
-  const { error: deleteError, count } = await supabase
-    .from("posts")
-    .delete({ count: "exact" })
-    .eq("id", queryId)
-    .eq("user_id", userId);
+  if (!spotId) {
+    return { ok: false as const, error: "Invalid Spot id." };
+  }
 
-  if (deleteError) {
+  const { userId: authUserId, error: authError } = await getAuthenticatedUserId();
+
+  if (!authUserId) {
+    return { ok: false as const, error: authError ?? "Sign in required." };
+  }
+
+  const { row, error: fetchError } = await fetchSpotRow(spotId);
+
+  if (!row) {
+    return { ok: false as const, error: fetchError ?? "Spot not found." };
+  }
+
+  console.log("Deleting post:", row.id);
+  console.log("Current user:", authUserId);
+  console.log("Post owner:", row.user_id);
+
+  if (row.user_id !== authUserId) {
+    return { ok: false as const, error: "You can only delete your own Spots." };
+  }
+
+  if (row.content_kind === "story") {
+    return { ok: false as const, error: "This item is a story, not a Spot." };
+  }
+
+  const mediaUrls = collectMediaUrls(row as Record<string, unknown>);
+
+  // 1) RPC first — bypasses RLS when deployed
+  const rpcResult = await deletePostViaRpc(row.id, authUserId);
+
+  if (rpcResult.ok) {
+    await removeSpotMediaBestEffort(
+      rpcResult.mediaUrls.length > 0 ? rpcResult.mediaUrls : mediaUrls,
+      row.id
+    );
+    dispatchSpotDeleted(row.id);
+    return { ok: true as const, error: null };
+  }
+
+  console.warn("DELETE RPC failed, trying direct delete:", rpcResult.error);
+
+  // 2) Direct delete — needs RLS policy on posts
+  const directResult = await deletePostRowDirect(row.id, authUserId);
+
+  if (!directResult.ok) {
     return {
       ok: false as const,
-      error: formatSupabaseError(deleteError) || deleteError.message,
+      error: `${directResult.error} (RPC also failed: ${rpcResult.error})`,
     };
   }
 
-  if (!count) {
-    return {
-      ok: false as const,
-      error: "Delete failed. You may not have permission to delete this Spot.",
-    };
-  }
-
-  await removeStorageObjectsForUrls(mediaUrls);
-
+  await removeSpotMediaBestEffort(mediaUrls, row.id);
+  dispatchSpotDeleted(row.id);
   return { ok: true as const, error: null };
 }
 
-/** Delete a post, spot, or story stored in the posts table (not dedicated stories table). */
+async function fetchOwnedPostRow(postId: string, userId: string) {
+  const spotId = postIdForDelete(postId);
+
+  if (!spotId) {
+    return { row: null, error: "Invalid post id." };
+  }
+
+  const { row, error } = await fetchSpotRow(spotId);
+
+  if (!row || row.user_id !== userId) {
+    return { row: null, error: error ?? "Post not found or you cannot delete it." };
+  }
+
+  return { row: row as Record<string, unknown>, error: null };
+}
+
+/** Delete a post or story in public.posts. */
 export async function deleteOwnedPost(postId: string, userId: string) {
   try {
-    await requireAuthenticatedUser(userId);
-  } catch (caught) {
-    return { ok: false, error: caught instanceof Error ? caught.message : "Sign in required." };
-  }
+    const { userId: authUserId, error: authError } = await getAuthenticatedUserId();
 
-  const { row, error: fetchError } = await fetchOwnedPostRow(postId, userId);
-
-  if (row) {
-    const contentKind = String(row.content_kind ?? "");
-
-    if (contentKind === "story") {
-      return deleteOwnedStory(postId, userId);
+    if (!authUserId) {
+      return { ok: false, error: authError ?? "Sign in required." };
     }
-  }
 
-  const fallbackMediaUrls = row ? collectMediaUrls(row) : [];
+    if (userId && userId !== authUserId) {
+      return { ok: false, error: "Sign in required." };
+    }
 
-  const rpcResult = await deleteOwnedPostViaRpc(postId, userId);
+    const normalizedId = postIdForDelete(String(postId));
 
-  if (rpcResult.ok) {
-    await removeStorageObjectsForUrls(
-      rpcResult.mediaUrls.length > 0 ? rpcResult.mediaUrls : fallbackMediaUrls
-    );
+    if (!normalizedId) {
+      return { ok: false, error: "Invalid post id." };
+    }
+
+    const { row, error: fetchError } = await fetchOwnedPostRow(normalizedId, authUserId);
+
+    if (row && String(row.content_kind ?? "") === "story") {
+      return deleteOwnedStory(normalizedId, authUserId);
+    }
+
+    const mediaUrls = row ? collectMediaUrls(row) : [];
+    const rpcResult = await deletePostViaRpc(normalizedId, authUserId);
+
+    if (rpcResult.ok) {
+      await removeSpotMediaBestEffort(
+        rpcResult.mediaUrls.length > 0 ? rpcResult.mediaUrls : mediaUrls,
+        normalizedId
+      );
+      return { ok: true, error: null };
+    }
+
+    const directResult = await deletePostRowDirect(normalizedId, authUserId);
+
+    if (!directResult.ok) {
+      return { ok: false, error: directResult.error ?? fetchError ?? "Unable to delete." };
+    }
+
+    await removeSpotMediaBestEffort(mediaUrls, normalizedId);
     return { ok: true, error: null };
+  } catch (err) {
+    console.error("DELETE CRASH:", err);
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
-
-  if (rpcResult.error && !rpcResult.useFallback) {
-    return { ok: false, error: rpcResult.error };
-  }
-
-  const directResult = await deleteOwnedPostDirect(postId, userId, fallbackMediaUrls);
-
-  if (!directResult.ok && !row) {
-    return { ok: false, error: directResult.error ?? fetchError ?? "Unable to delete." };
-  }
-
-  return directResult;
 }
 
-/** Delete a spot owned by the user and refresh dependent UI surfaces. */
-export async function deleteOwnedSpot(postId: string, userId: string) {
-  console.info(`DELETE_SPOT_CLICKED postId=${normalizePostId(postId) ?? postId}`);
-
-  try {
-    await requireAuthenticatedUser(userId);
-  } catch (caught) {
-    return { ok: false, error: caught instanceof Error ? caught.message : "Sign in required." };
-  }
-
-  const { row, error: fetchError } = await fetchOwnedPostRow(postId, userId);
-
-  if (row && String(row.content_kind ?? "") !== "spot") {
-    return { ok: false, error: "This post is not a Spot." };
-  }
-
-  const rpcResult = await deleteOwnedPostViaRpc(postId, userId);
-  const fallbackMediaUrls = row ? collectMediaUrls(row) : [];
-
-  if (rpcResult.ok) {
-    await removeStorageObjectsForUrls(
-      rpcResult.mediaUrls.length > 0 ? rpcResult.mediaUrls : fallbackMediaUrls
-    );
-    dispatchSpotDeleted(postId);
-    return { ok: true, error: null };
-  }
-
-  if (rpcResult.error && !rpcResult.useFallback) {
-    return { ok: false, error: rpcResult.error };
-  }
-
-  const directResult = await deleteOwnedPostDirect(postId, userId, fallbackMediaUrls);
-
-  if (!directResult.ok) {
-    return { ok: false, error: directResult.error ?? fetchError ?? "Unable to delete." };
-  }
-
-  dispatchSpotDeleted(postId);
-  return { ok: true, error: null };
-}
-
-/** Delete a story from the stories table and/or posts fallback. */
+/** Delete a story from stories table and/or posts fallback. */
 export async function deleteOwnedStory(storyId: string, userId: string) {
   try {
-    await requireAuthenticatedUser(userId);
-  } catch (caught) {
-    return { ok: false, error: caught instanceof Error ? caught.message : "Sign in required." };
-  }
+    const { userId: authUserId, error: authError } = await getAuthenticatedUserId();
 
-  const mediaUrls: string[] = [];
-  const queryId = postIdForQuery(storyId);
-
-  const { data: storyRow, error: storyFetchError } = await supabase
-    .from("stories")
-    .select("id, user_id, media_url")
-    .eq("id", queryId)
-    .eq("user_id", userId)
-    .maybeSingle();
-
-  if (!storyFetchError && storyRow) {
-    if (typeof storyRow.media_url === "string") {
-      mediaUrls.push(storyRow.media_url);
+    if (!authUserId) {
+      return { ok: false, error: authError ?? "Sign in required." };
     }
 
-    const { error: storyDeleteError } = await supabase
+    if (userId && userId !== authUserId) {
+      return { ok: false, error: "Sign in required." };
+    }
+
+    const mediaUrls: string[] = [];
+    const queryId = postIdForQuery(storyId);
+
+    const { data: storyRow, error: storyFetchError } = await supabase
       .from("stories")
-      .delete()
+      .select("id, user_id, media_url")
       .eq("id", queryId)
-      .eq("user_id", userId);
+      .eq("user_id", authUserId)
+      .maybeSingle();
 
-    if (storyDeleteError && !isStoriesRelationMissing(storyDeleteError)) {
-      return { ok: false, error: storyDeleteError.message };
+    if (!storyFetchError && storyRow) {
+      if (typeof storyRow.media_url === "string") {
+        mediaUrls.push(storyRow.media_url);
+      }
+
+      await supabase.from("stories").delete().eq("id", queryId).eq("user_id", authUserId);
+    } else if (storyFetchError && !isStoriesRelationMissing(storyFetchError)) {
+      return { ok: false, error: storyFetchError.message };
     }
-  } else if (storyFetchError && !isStoriesRelationMissing(storyFetchError)) {
-    return { ok: false, error: storyFetchError.message };
+
+    const directResult = await deletePostRowDirect(postIdForDelete(storyId) ?? String(queryId), authUserId);
+
+    if (!directResult.ok && !storyRow) {
+      return { ok: false, error: "Story not found or you cannot delete it." };
+    }
+
+    await removeSpotMediaBestEffort(mediaUrls, storyId);
+    return { ok: true, error: null };
+  } catch (err) {
+    console.error("DELETE CRASH:", err);
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
-
-  const { row: postRow, error: postFetchError } = await fetchOwnedPostRow(storyId, userId);
-
-  if (postRow) {
-    const contentKind = String(postRow.content_kind ?? "");
-
-    if (!STORY_CONTENT_KINDS.has(contentKind)) {
-      return { ok: false, error: "This item cannot be deleted as a story." };
-    }
-
-    mediaUrls.push(...collectMediaUrls(postRow));
-
-    const { data, error: postDeleteError, count } = await supabase
-      .from("posts")
-      .delete({ count: "exact" })
-      .eq("id", queryId)
-      .eq("user_id", userId);
-
-    if (postDeleteError) {
-      return { ok: false, error: formatSupabaseError(postDeleteError) || postDeleteError.message };
-    }
-
-    if (!count) {
-      return { ok: false, error: "Delete failed. You may not have permission to delete this story." };
-    }
-  } else if (postFetchError) {
-    return { ok: false, error: postFetchError };
-  } else if (!storyRow) {
-    return { ok: false, error: "Story not found or you cannot delete it." };
-  }
-
-  await removeStorageObjectsForUrls(mediaUrls);
-
-  return { ok: true, error: null };
 }

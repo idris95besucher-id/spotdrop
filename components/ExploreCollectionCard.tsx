@@ -19,7 +19,7 @@ export default function ExploreCollectionCard({ collection }: ExploreCollectionC
 
   return (
     <Link
-      href={`/collections/${collection.id}`}
+      href={`/collections?id=${collection.id}`}
       className="block overflow-hidden rounded-2xl border border-white/[0.08] bg-card transition hover:border-primary/25"
     >
       <div className="relative aspect-[16/10] bg-[#050816]">

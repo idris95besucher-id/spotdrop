@@ -308,7 +308,7 @@ export default function BernDiscoveryMap({ userId }: BernDiscoveryMapProps) {
             ) : null}
             <div className="p-4">
               <Link
-                href={`/posts/${selectedSpotPin.id}`}
+                href={`/posts?id=${selectedSpotPin.id}`}
                 className="inline-flex w-full items-center justify-center rounded-full bg-cyan-400 py-3 text-sm font-semibold text-slate-950"
               >
                 View spot

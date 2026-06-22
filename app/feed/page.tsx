@@ -192,7 +192,7 @@ export default function FeedPage() {
                 >
                   <header className="flex items-center gap-3 px-4 py-3">
                     <Link
-                      href={`/user/${post.user_id}`}
+                      href={`/user?id=${post.user_id}`}
                       className="flex min-w-0 flex-1 items-center gap-3 transition hover:opacity-90"
                     >
                       <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/10 bg-slate-800">
@@ -211,9 +211,11 @@ export default function FeedPage() {
                     </Link>
                     {viewerId === post.user_id ? (
                       <OwnContentMenu
-                        onDelete={() => deleteOwnedSpot(post.id, viewerId)}
+                        triggerClassName="bg-black/50 backdrop-blur-sm"
+                        deleteMenuLabel={t("content.deleteSpot")}
+                        onDelete={() => deleteOwnedSpot(String(post.id), viewerId)}
                         confirmTitle={t("content.deleteSpotTitle")}
-                        confirmBody={null}
+                        confirmBody={t("content.deleteSpotBody")}
                         deletedToast={t("content.spotDeleted")}
                         onDeleted={() =>
                           setPosts((current) => current.filter((item) => !postIdsEqual(item.id, post.id)))

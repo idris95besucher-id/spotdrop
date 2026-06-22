@@ -1,4 +1,3 @@
-import { pickVideoRecorderMimeType } from "@/lib/cameraCapture";
 import { MAX_TRIM_CLIP_SECONDS } from "@/lib/videoTrim";
 
 type VideoWithCaptureStream = HTMLVideoElement & {
@@ -24,6 +23,29 @@ export type ExportVideoOptions = {
   mute: boolean;
 };
 
+/**
+ * Pick the best mimeType for re-encoding a video clip.
+ * Prefer vp8+opus so audio is preserved. Falls back to bare webm, then empty
+ * (browser default) if nothing is supported.
+ */
+function pickExportMimeType(): string {
+  if (typeof MediaRecorder === "undefined") return "";
+
+  const candidates = [
+    "video/webm;codecs=vp8,opus",
+    "video/webm;codecs=vp9,opus",
+    "video/webm",
+  ];
+
+  for (const mimeType of candidates) {
+    if (MediaRecorder.isTypeSupported(mimeType)) {
+      return mimeType;
+    }
+  }
+
+  return "";
+}
+
 /** Re-encode clip with optional trim and muted audio. */
 export async function exportVideoFile(file: File, options: ExportVideoOptions) {
   const start = Math.max(0, options.startSeconds);
@@ -34,7 +56,7 @@ export async function exportVideoFile(file: File, options: ExportVideoOptions) {
     throw new Error("Choose a longer clip.");
   }
 
-  const mimeType = pickVideoRecorderMimeType();
+  const mimeType = pickExportMimeType();
 
   if (!mimeType) {
     if (options.mute) {
@@ -46,7 +68,11 @@ export async function exportVideoFile(file: File, options: ExportVideoOptions) {
 
   const url = URL.createObjectURL(file);
   const video = document.createElement("video");
-  video.muted = true;
+  // Do NOT mute the hidden video element — captureStream() captures both
+  // video and audio tracks, and setting muted=true can prevent audio from
+  // being included in the captured MediaStream on some browsers.
+  video.muted = false;
+  video.volume = 0; // silent to speaker, but audio IS in captureStream
   video.playsInline = true;
   video.preload = "auto";
 
@@ -74,7 +100,12 @@ export async function exportVideoFile(file: File, options: ExportVideoOptions) {
     }
 
     const chunks: BlobPart[] = [];
-    const recorder = new MediaRecorder(stream, { mimeType });
+    // Use generous bitrates so quality and audio are preserved in the re-encode.
+    const recorder = new MediaRecorder(stream, {
+      mimeType,
+      videoBitsPerSecond: 12_000_000,
+      audioBitsPerSecond: 192_000,
+    });
 
     const exported = await new Promise<File>((resolve, reject) => {
       recorder.ondataavailable = (event) => {

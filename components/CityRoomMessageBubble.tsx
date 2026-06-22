@@ -178,7 +178,7 @@ export default function CityRoomMessageBubble({
   return (
     <article className="flex items-start justify-start gap-2">
       {showAvatar ? (
-        <Link href={`/user/${message.user_id}`} className="mt-0.5 shrink-0">
+        <Link href={`/user?id=${message.user_id}`} className="mt-0.5 shrink-0">
           <AvatarPlaceholder profile={sender} />
         </Link>
       ) : (
@@ -192,7 +192,7 @@ export default function CityRoomMessageBubble({
               <span className="text-xs font-semibold text-emerald-300">{t("common.you")}</span>
             ) : (
               <Link
-                href={`/user/${message.user_id}`}
+                href={`/user?id=${message.user_id}`}
                 className="text-xs font-semibold text-cyan-400 hover:text-cyan-300"
               >
                 {displayName}

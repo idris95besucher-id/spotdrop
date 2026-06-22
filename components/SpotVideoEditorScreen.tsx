@@ -7,9 +7,20 @@ import {
   useState,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import { ArrowLeft, Loader2, Pause, Play } from "lucide-react";
-import CollectionPicker from "@/components/CollectionPicker";
-import SpotCameraV2Banner from "@/components/SpotCameraV2Banner";
+import {
+  ArrowLeft,
+  ChevronRight,
+  Globe,
+  Loader2,
+  Lock,
+  MapPin,
+  Pause,
+  Play,
+  Scissors,
+  Volume2,
+  VolumeX,
+} from "lucide-react";
+import SpotVideoPreviewExitSheet from "@/components/SpotVideoPreviewExitSheet";
 import SpotLocationPicker, { type SpotLocationSourceKind } from "@/components/SpotLocationPicker";
 import type { CollectionWithMeta } from "@/lib/collections";
 import { getVideoPreviewContinueBlockReason } from "@/lib/mediaEditor/continueReasons";
@@ -34,7 +45,15 @@ import { getVideoDurationSeconds, MAX_TRIM_CLIP_SECONDS } from "@/lib/videoTrim"
 
 type DragHandle = "start" | "end" | null;
 
-const FILMSTRIP_COUNT = 12;
+const FILMSTRIP_COUNT = 8;
+/** Touch target — larger than 44px for comfortable iPhone dragging. */
+const TRIM_HANDLE_HIT_PX = 56;
+/** Visible grip width on the timeline edge. */
+const TRIM_HANDLE_GRIP_PX = 24;
+/** Side inset so handles can sit outside the filmstrip. */
+const TRIM_SIDE_INSET_PX = TRIM_HANDLE_HIT_PX / 2;
+/** Timeline height — taller filmstrip thumbnails. */
+const TRIM_TRACK_HEIGHT_PX = 104;
 
 type SpotVideoEditorScreenProps = {
   item: MediaEditorItem;
@@ -58,9 +77,11 @@ type SpotVideoEditorScreenProps = {
   onCollectionChange: (collectionId: string) => void;
   onUseCurrentLocation: () => void;
   onSelectPlace: (place: PlaceSearchResult) => void;
-  onDismiss: () => void;
+  onSaveToDrafts: () => void;
+  onDiscardVideo: () => void;
   onRetake: () => void;
   onPublish: () => void;
+  savingDraft?: boolean;
 };
 
 export default function SpotVideoEditorScreen({
@@ -85,9 +106,11 @@ export default function SpotVideoEditorScreen({
   onCollectionChange,
   onUseCurrentLocation,
   onSelectPlace,
-  onDismiss,
+  onSaveToDrafts,
+  onDiscardVideo,
   onRetake,
   onPublish,
+  savingDraft = false,
 }: SpotVideoEditorScreenProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const trackRef = useRef<HTMLDivElement>(null);
@@ -95,6 +118,8 @@ export default function SpotVideoEditorScreen({
   const initializedRef = useRef(false);
   const coverCaptureRef = useRef(0);
   const coverInitializedRef = useRef(false);
+  // Use a ref for muted so stale closures in callbacks always read the latest value.
+  const previewMutedRef = useRef(true);
 
   const [loadingDuration, setLoadingDuration] = useState(item.sourceDuration <= 0);
   const [filmstrip, setFilmstrip] = useState<FilmstripFrame[]>([]);
@@ -103,6 +128,17 @@ export default function SpotVideoEditorScreen({
   const [isReady, setIsReady] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [coverTime, setCoverTime] = useState(0);
+  const [previewMuted, setPreviewMuted] = useState(true);
+  const [showTrim, setShowTrim] = useState(false);
+  const [showLocationPicker, setShowLocationPicker] = useState(false);
+  const [isDraggingTrim, setIsDraggingTrim] = useState(false);
+  const [activeTrimHandle, setActiveTrimHandle] = useState<DragHandle>(null);
+  /** Local preview while dragging — keeps handles glued to the finger without React/parent lag. */
+  const [dragPreview, setDragPreview] = useState<{ start: number; end: number } | null>(null);
+  const [showExitSheet, setShowExitSheet] = useState(false);
+  const trimDragRafRef = useRef<number | null>(null);
+  const trimDragPendingXRef = useRef<number | null>(null);
+  const dragPreviewRef = useRef<{ start: number; end: number } | null>(null);
 
   const sourceDuration = item.sourceDuration;
   const trimStart = item.trimStart;
@@ -112,53 +148,57 @@ export default function SpotVideoEditorScreen({
 
   const trimBlockReason = offlineMode ? null : getVideoPreviewContinueBlockReason(item);
   const publishDisableReason = publishing
-    ? offlineMode
-      ? "Saving offline draft…"
-      : "Publishing spot…"
-    : offlineMode
-      ? null
-      : trimBlockReason ?? publishStatusMessage;
+    ? offlineMode ? "Saving offline draft…" : "Publishing spot…"
+    : offlineMode ? null : trimBlockReason ?? publishStatusMessage;
   const publishBlocked = publishDisableReason !== null;
 
-  const startRatio = timeToRatio(trimStart, sourceDuration);
-  const endRatio = timeToRatio(resolvedEnd, sourceDuration);
   const playheadRatio = timeToRatio(currentTime, sourceDuration);
   const coverRatio = timeToRatio(coverTime, sourceDuration);
+
+  const displayTrimStart = dragPreview?.start ?? trimStart;
+  const displayTrimEnd = dragPreview?.end ?? resolvedEnd;
+  const displayStartRatio = timeToRatio(displayTrimStart, sourceDuration);
+  const displayEndRatio = timeToRatio(displayTrimEnd, sourceDuration);
+  const displayClipDuration = Math.max(0, displayTrimEnd - displayTrimStart);
+
+  // First private collection = "My Spots"; fall back to any first collection.
+  const mySpotsCollection =
+    collections.find((c) => c.visibility === "private") ?? collections[0] ?? null;
+
+  const setMuted = useCallback((muted: boolean) => {
+    previewMutedRef.current = muted;
+    setPreviewMuted(muted);
+    const video = videoRef.current;
+    if (video) video.muted = muted;
+  }, []);
+
+  // ── Cover capture ─────────────────────────────────────────────────────────
 
   const applyCoverFromTime = useCallback(
     async (time: number) => {
       const video = videoRef.current;
-
-      if (!video || !isReady) {
-        return;
-      }
+      if (!video || !isReady) return;
 
       const token = ++coverCaptureRef.current;
-
       try {
         const blob = await captureVideoFrameBlob(video, time);
-        if (token !== coverCaptureRef.current) {
-          return;
-        }
+        if (token !== coverCaptureRef.current) return;
 
         const file = coverBlobToFile(blob);
         const preview = URL.createObjectURL(blob);
-
         if (item.coverPreviewUrl?.startsWith("blob:")) {
           URL.revokeObjectURL(item.coverPreviewUrl);
         }
-
-        onItemChange({
-          coverFile: file,
-          coverPreviewUrl: preview,
-        });
+        onItemChange({ coverFile: file, coverPreviewUrl: preview });
         setCoverTime(time);
       } catch {
-        // Keep previous cover if frame capture fails.
+        // keep previous cover
       }
     },
     [isReady, item.coverPreviewUrl, onItemChange]
   );
+
+  // ── Duration / trim init ──────────────────────────────────────────────────
 
   useEffect(() => {
     initializedRef.current = false;
@@ -176,94 +216,62 @@ export default function SpotVideoEditorScreen({
 
     void getVideoDurationSeconds(item.previewUrl).then((duration) => {
       if (cancelled || duration <= 0) {
-        if (!cancelled) {
-          setLoadingDuration(false);
-        }
+        if (!cancelled) setLoadingDuration(false);
         return;
       }
 
       if (requiresTrimForVideo(duration)) {
-        onItemChange({
-          sourceDuration: duration,
-          trimStart: 0,
-          trimEnd: MAX_TRIM_CLIP_SECONDS,
-          trimConfirmed: true,
-        });
+        onItemChange({ sourceDuration: duration, trimStart: 0, trimEnd: MAX_TRIM_CLIP_SECONDS, trimConfirmed: true });
         onTrimChange(0, MAX_TRIM_CLIP_SECONDS);
       } else {
-        onItemChange({
-          sourceDuration: duration,
-          trimStart: 0,
-          trimEnd: duration,
-          trimConfirmed: true,
-        });
+        onItemChange({ sourceDuration: duration, trimStart: 0, trimEnd: duration, trimConfirmed: true });
         onTrimChange(0, duration);
       }
 
-      if (!initializedRef.current) {
-        initializedRef.current = true;
-      }
-
+      if (!initializedRef.current) initializedRef.current = true;
       setLoadingDuration(false);
     });
 
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [item.previewUrl, onItemChange, onTrimChange, sourceDuration]);
+
+  // ── Filmstrip ─────────────────────────────────────────────────────────────
 
   useEffect(() => {
     let cancelled = false;
     setFilmstripLoading(true);
 
     void generateFilmstripFrames(item.previewUrl, FILMSTRIP_COUNT).then((frames) => {
-      if (cancelled) {
-        revokeFilmstripFrames(frames);
-        return;
-      }
-
-      setFilmstrip((current) => {
-        revokeFilmstripFrames(current);
-        return frames;
-      });
+      if (cancelled) { revokeFilmstripFrames(frames); return; }
+      setFilmstrip((current) => { revokeFilmstripFrames(current); return frames; });
       setFilmstripLoading(false);
     });
 
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [item.previewUrl]);
 
   useEffect(() => {
-    return () => {
-      revokeFilmstripFrames(filmstrip);
-    };
+    return () => { revokeFilmstripFrames(filmstrip); };
   }, [filmstrip]);
+
+  // ── Playback ──────────────────────────────────────────────────────────────
 
   const seekVideo = useCallback(
     (time: number, autoplay = false) => {
       const video = videoRef.current;
-
-      if (!video || sourceDuration <= 0) {
-        return;
-      }
+      if (!video || sourceDuration <= 0) return;
 
       const clamped = Math.max(0, Math.min(time, sourceDuration - 0.02));
 
       const onSeeked = () => {
         video.removeEventListener("seeked", onSeeked);
         setCurrentTime(video.currentTime);
-
-        if (autoplay && video.paused) {
-          void video.play().catch(() => undefined);
-        }
+        if (autoplay && video.paused) void video.play().catch(() => undefined);
       };
 
       if (Math.abs(video.currentTime - clamped) < 0.03) {
         setCurrentTime(clamped);
-        if (autoplay && video.paused) {
-          void video.play().catch(() => undefined);
-        }
+        if (autoplay && video.paused) void video.play().catch(() => undefined);
         return;
       }
 
@@ -275,12 +283,12 @@ export default function SpotVideoEditorScreen({
 
   const prepareAndAutoplay = useCallback(async () => {
     const video = videoRef.current;
+    if (!video || sourceDuration <= 0) return;
 
-    if (!video || sourceDuration <= 0) {
-      return;
-    }
-
+    // Must start muted for iOS autoplay policy; user can unmute via toolbar.
     video.muted = true;
+    previewMutedRef.current = true;
+    setPreviewMuted(true);
     setIsReady(true);
 
     const start = trimStart > 0 ? trimStart : 0.01;
@@ -295,29 +303,20 @@ export default function SpotVideoEditorScreen({
   }, [seekVideo, sourceDuration, trimStart]);
 
   useEffect(() => {
-    if (!isReady || sourceDuration <= 0 || coverInitializedRef.current) {
-      return;
-    }
-
+    if (!isReady || sourceDuration <= 0 || coverInitializedRef.current) return;
     coverInitializedRef.current = true;
     void applyCoverFromTime(trimStart > 0 ? trimStart : 0.01);
   }, [isReady, sourceDuration, trimStart, applyCoverFromTime]);
 
   useEffect(() => {
     const video = videoRef.current;
-
-    if (!video || resolvedEnd <= trimStart) {
-      return;
-    }
+    if (!video || resolvedEnd <= trimStart) return;
 
     const handleTimeUpdate = () => {
       setCurrentTime(video.currentTime);
-
       if (video.currentTime >= resolvedEnd - 0.05) {
         video.currentTime = trimStart;
-        if (!video.paused) {
-          void video.play().catch(() => undefined);
-        }
+        if (!video.paused) void video.play().catch(() => undefined);
       }
     };
 
@@ -325,121 +324,23 @@ export default function SpotVideoEditorScreen({
     return () => video.removeEventListener("timeupdate", handleTimeUpdate);
   }, [trimStart, resolvedEnd]);
 
-  const applyTrimUpdate = useCallback(
-    (start: number, end: number) => {
-      if (sourceDuration <= 0) {
-        return;
-      }
-
-      const next = clampTrimSelection(start, end, sourceDuration);
-      onTrimChange(next.start, next.end);
-      onItemChange({ trimConfirmed: true });
-      seekVideo(next.start, isPlaying);
-    },
-    [isPlaying, onItemChange, onTrimChange, seekVideo, sourceDuration]
-  );
-
-  const updateFromPointer = useCallback(
-    (clientX: number, handle: DragHandle) => {
-      const track = trackRef.current;
-
-      if (!track || !handle || sourceDuration <= 0) {
-        return;
-      }
-
-      const rect = track.getBoundingClientRect();
-      const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
-      const time = ratioToTime(ratio, sourceDuration);
-
-      if (handle === "start") {
-        applyTrimUpdate(time, resolvedEnd);
-        return;
-      }
-
-      applyTrimUpdate(trimStart, time);
-    },
-    [applyTrimUpdate, resolvedEnd, sourceDuration, trimStart]
-  );
-
-  const startDrag = useCallback(
-    (handle: DragHandle, event: ReactPointerEvent) => {
-      if (publishing || loadingDuration || !handle) {
-        return;
-      }
-
-      event.stopPropagation();
-      dragRef.current = handle;
-      event.currentTarget.setPointerCapture(event.pointerId);
-      updateFromPointer(event.clientX, handle);
-    },
-    [loadingDuration, publishing, updateFromPointer]
-  );
-
-  const onPointerMove = useCallback(
-    (event: ReactPointerEvent) => {
-      const handle = dragRef.current;
-
-      if (!handle) {
-        return;
-      }
-
-      updateFromPointer(event.clientX, handle);
-    },
-    [updateFromPointer]
-  );
-
-  const endDrag = useCallback(
-    (event: ReactPointerEvent) => {
-      if (!dragRef.current) {
-        return;
-      }
-
-      dragRef.current = null;
-
-      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-        event.currentTarget.releasePointerCapture(event.pointerId);
-      }
-    },
-    []
-  );
-
-  const handleFrameTap = (time: number) => {
-    if (dragRef.current || publishing) {
-      return;
-    }
-
-    const video = videoRef.current;
-
-    if (video) {
-      video.pause();
-      setIsPlaying(false);
-    }
-
-    seekVideo(time, false);
-    void applyCoverFromTime(time);
-  };
-
   const togglePlayback = useCallback(async () => {
     const video = videoRef.current;
+    if (!video || !isReady) return;
 
-    if (!video || !isReady) {
-      return;
-    }
-
-    video.muted = true;
+    // Restore the user-chosen mute state on each play action.
+    video.muted = previewMutedRef.current;
 
     if (video.paused) {
       if (video.currentTime < trimStart || video.currentTime >= resolvedEnd - 0.05) {
         video.currentTime = trimStart;
       }
-
       try {
         await video.play();
         setIsPlaying(true);
       } catch {
         setIsPlaying(false);
       }
-
       return;
     }
 
@@ -447,266 +348,588 @@ export default function SpotVideoEditorScreen({
     setIsPlaying(false);
   }, [isReady, resolvedEnd, trimStart]);
 
-  return (
-    <div className="fixed inset-0 z-[130] flex min-h-[100dvh] flex-col bg-background text-white select-none">
-      <SpotCameraV2Banner />
+  // ── Trim drag ─────────────────────────────────────────────────────────────
 
+  const applyTrimFromClientX = useCallback(
+    (clientX: number, handle: DragHandle) => {
+      const track = trackRef.current;
+      if (!track || !handle || sourceDuration <= 0) return;
+
+      const rect = track.getBoundingClientRect();
+      const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+      const time = ratioToTime(ratio, sourceDuration);
+
+      const currentStart = dragPreviewRef.current?.start ?? trimStart;
+      const currentEnd = dragPreviewRef.current?.end ?? resolvedEnd;
+
+      const next =
+        handle === "start"
+          ? clampTrimSelection(time, currentEnd, sourceDuration)
+          : clampTrimSelection(currentStart, time, sourceDuration);
+
+      const preview = { start: next.start, end: next.end };
+      dragPreviewRef.current = preview;
+      setDragPreview(preview);
+    },
+    [resolvedEnd, sourceDuration, trimStart]
+  );
+
+  const commitTrimPreview = useCallback(() => {
+    const preview = dragPreviewRef.current;
+    if (!preview || sourceDuration <= 0) return;
+
+    onTrimChange(preview.start, preview.end);
+    onItemChange({ trimConfirmed: true });
+
+    const handle = dragRef.current;
+    const seekTarget =
+      handle === "end"
+        ? Math.max(preview.start, preview.end - 0.05)
+        : preview.start;
+    seekVideo(seekTarget, false);
+  }, [onItemChange, onTrimChange, seekVideo, sourceDuration]);
+
+  const endTrimDrag = useCallback(() => {
+    commitTrimPreview();
+
+    dragRef.current = null;
+    setIsDraggingTrim(false);
+    setActiveTrimHandle(null);
+    dragPreviewRef.current = null;
+    setDragPreview(null);
+    trimDragPendingXRef.current = null;
+
+    if (trimDragRafRef.current !== null) {
+      window.cancelAnimationFrame(trimDragRafRef.current);
+      trimDragRafRef.current = null;
+    }
+
+    document.body.style.overflow = "";
+    document.body.style.touchAction = "";
+  }, [commitTrimPreview]);
+
+  useEffect(() => {
+    return () => {
+      endTrimDrag();
+    };
+  }, [endTrimDrag]);
+
+  const startTrimDrag = useCallback(
+    (handle: DragHandle, event: ReactPointerEvent<HTMLButtonElement>) => {
+      if (publishing || loadingDuration || !handle) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+
+      const video = videoRef.current;
+      if (video) {
+        video.pause();
+        setIsPlaying(false);
+      }
+
+      dragRef.current = handle;
+      setIsDraggingTrim(true);
+      setActiveTrimHandle(handle);
+
+      const initialPreview = { start: trimStart, end: resolvedEnd };
+      dragPreviewRef.current = initialPreview;
+      setDragPreview(initialPreview);
+
+      document.body.style.overflow = "hidden";
+      document.body.style.touchAction = "none";
+
+      try {
+        event.currentTarget.setPointerCapture(event.pointerId);
+      } catch {
+        // Pointer capture may fail on some browsers.
+      }
+
+      applyTrimFromClientX(event.clientX, handle);
+
+      const captureTarget = event.currentTarget;
+
+      const onMove = (moveEvent: PointerEvent) => {
+        moveEvent.preventDefault();
+        trimDragPendingXRef.current = moveEvent.clientX;
+
+        if (trimDragRafRef.current !== null) return;
+
+        trimDragRafRef.current = window.requestAnimationFrame(() => {
+          trimDragRafRef.current = null;
+          const pendingX = trimDragPendingXRef.current;
+          const activeHandle = dragRef.current;
+          if (pendingX === null || !activeHandle) return;
+          applyTrimFromClientX(pendingX, activeHandle);
+        });
+      };
+
+      const onEnd = (endEvent: PointerEvent) => {
+        if (captureTarget.hasPointerCapture(endEvent.pointerId)) {
+          try {
+            captureTarget.releasePointerCapture(endEvent.pointerId);
+          } catch {
+            // ignore
+          }
+        }
+
+        document.removeEventListener("pointermove", onMove);
+        document.removeEventListener("pointerup", onEnd);
+        document.removeEventListener("pointercancel", onEnd);
+        endTrimDrag();
+      };
+
+      document.addEventListener("pointermove", onMove, { passive: false });
+      document.addEventListener("pointerup", onEnd);
+      document.addEventListener("pointercancel", onEnd);
+    },
+    [applyTrimFromClientX, endTrimDrag, loadingDuration, publishing, resolvedEnd, trimStart]
+  );
+
+  const handleFrameTap = (time: number) => {
+    if (dragRef.current || publishing) return;
+    const video = videoRef.current;
+    if (video) { video.pause(); setIsPlaying(false); }
+    seekVideo(time, false);
+    void applyCoverFromTime(time);
+  };
+
+  // ── Location label ────────────────────────────────────────────────────────
+
+  const locationLabel = locating
+    ? "Locating…"
+    : location
+      ? (location.city ?? location.country ?? `${location.latitude.toFixed(3)}, ${location.longitude.toFixed(3)}`)
+      : null;
+
+  // ─────────────────────────────────────────────────────────────────────────
+
+  return (
+    <>
+    <div
+      className="fixed inset-0 z-[130] bg-black text-white select-none overflow-hidden"
+      style={{ WebkitTapHighlightColor: "transparent" }}
+    >
+      {/* Publishing overlay */}
       {publishing ? (
-        <div className="pointer-events-none absolute inset-0 z-40 flex flex-col items-center justify-center gap-3 bg-black/85 px-6">
+        <div className="pointer-events-none absolute inset-0 z-50 flex flex-col items-center justify-center gap-3 bg-black/85 px-6">
           <Loader2 className="h-9 w-9 animate-spin text-white" aria-hidden />
-          <p className="text-sm font-medium text-white">Publishing spot…</p>
+          <p className="text-sm font-medium text-white">
+            {offlineMode ? "Saving draft…" : "Publishing spot…"}
+          </p>
         </div>
       ) : null}
 
-      <header className="relative z-30 flex shrink-0 items-center justify-between px-3 py-2 pt-[max(0.5rem,env(safe-area-inset-top))]">
+      {/* ── Fullscreen video (tap to play/pause) ── */}
+      <button
+        type="button"
+        onClick={() => void togglePlayback()}
+        className="absolute inset-0 z-0 h-full w-full focus:outline-none"
+        style={{ pointerEvents: isDraggingTrim ? "none" : "auto" }}
+        aria-label={isPlaying ? "Pause" : "Play"}
+      >
+        <video
+          ref={videoRef}
+          src={item.previewUrl}
+          poster={item.coverPreviewUrl ?? undefined}
+          className="h-full w-full object-cover"
+          playsInline
+          muted
+          preload="auto"
+          disablePictureInPicture
+          onLoadedMetadata={(e) => {
+            const v = e.currentTarget;
+            v.setAttribute("playsinline", "true");
+            v.setAttribute("webkit-playsinline", "true");
+            v.muted = true;
+            void prepareAndAutoplay();
+          }}
+          onCanPlay={() => { if (!isReady) void prepareAndAutoplay(); }}
+          onPlay={() => setIsPlaying(true)}
+          onPause={() => setIsPlaying(false)}
+        />
+
+        {!isReady ? (
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/50">
+            <Loader2 className="h-10 w-10 animate-spin text-white/80" aria-hidden />
+          </div>
+        ) : null}
+
+        {/* Play/pause icon — fades out while playing */}
+        <span
+          className={`pointer-events-none absolute inset-0 flex items-center justify-center transition-opacity duration-200 ${isPlaying ? "opacity-0" : "opacity-100"}`}
+        >
+          <span className="flex h-16 w-16 items-center justify-center rounded-full bg-black/55 backdrop-blur-sm ring-2 ring-white/60">
+            <Play className="ml-1 h-7 w-7" fill="currentColor" aria-hidden />
+          </span>
+        </span>
+      </button>
+
+      {/* ── Gradient overlays ── */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-x-0 top-0 z-10 h-40 bg-gradient-to-b from-black/70 to-transparent"
+      />
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-80 bg-gradient-to-t from-black/90 via-black/50 to-transparent"
+      />
+
+      {/* ── Top controls ── */}
+      <div
+        className="absolute inset-x-0 top-0 z-30 flex items-start justify-between px-3"
+        style={{ paddingTop: "env(safe-area-inset-top)" }}
+      >
         <button
           type="button"
-          onClick={onDismiss}
-          disabled={publishing}
-          className="rounded-full p-2 text-white hover:bg-white/10 disabled:opacity-50"
-          aria-label="Save draft and close"
+          onClick={() => setShowExitSheet(true)}
+          disabled={publishing || savingDraft}
+          className="mt-2.5 flex h-10 w-10 items-center justify-center rounded-full bg-black/45 text-white backdrop-blur-sm disabled:opacity-50"
+          aria-label="Back"
         >
-          <ArrowLeft className="h-5 w-5" aria-hidden />
+          <ArrowLeft className="h-5 w-5" strokeWidth={2} aria-hidden />
         </button>
-        <p className="text-sm font-semibold text-white">New Spot</p>
-        <span className="w-9" aria-hidden />
-      </header>
 
-      <div className="relative z-20 shrink-0 px-3 pb-2">
-        <div className="mb-1 flex items-center justify-between text-[11px] tabular-nums text-white/55">
-          <span>{formatTrimTime(trimStart)}</span>
-          <span>
-            {formatTrimTime(clipDuration)} / {formatTrimTime(MAX_TRIM_CLIP_SECONDS)}
-          </span>
-          <span>{formatTrimTime(resolvedEnd)}</span>
-        </div>
-
-        <div
-          ref={trackRef}
-          className="relative h-14 touch-none select-none overflow-hidden rounded-xl bg-white/5"
-          onPointerMove={onPointerMove}
-          onPointerUp={endDrag}
-          onPointerCancel={endDrag}
+        <button
+          type="button"
+          onClick={onRetake}
+          disabled={publishing}
+          className="mt-2.5 rounded-full bg-black/45 px-4 py-2 text-sm font-semibold text-white backdrop-blur-sm disabled:opacity-50"
         >
-          <div className="absolute inset-0 flex">
-            {filmstripLoading || filmstrip.length === 0 ? (
-              <div className="flex h-full w-full items-center justify-center">
-                <Loader2 className="h-5 w-5 animate-spin text-white/40" aria-hidden />
+          Retake
+        </button>
+      </div>
+
+      {/* ── Right sidebar tools ── */}
+      <div className="absolute right-3 top-1/2 z-30 flex -translate-y-1/2 flex-col items-center gap-3">
+        {/* Mute / unmute preview */}
+        <button
+          type="button"
+          onClick={() => setMuted(!previewMuted)}
+          className="flex h-11 w-11 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur-sm"
+          aria-label={previewMuted ? "Unmute preview" : "Mute preview"}
+        >
+          {previewMuted ? (
+            <VolumeX className="h-5 w-5" aria-hidden />
+          ) : (
+            <Volume2 className="h-5 w-5" aria-hidden />
+          )}
+        </button>
+        <span className="text-[9px] font-medium text-white/60">
+          {previewMuted ? "Muted" : "Sound"}
+        </span>
+
+        {/* Trim toggle */}
+        <button
+          type="button"
+          onClick={() => setShowTrim((v) => !v)}
+          className={`flex h-11 w-11 items-center justify-center rounded-full text-white backdrop-blur-sm transition ${
+            showTrim ? "bg-white/30 ring-2 ring-white/50" : "bg-black/50"
+          }`}
+          aria-label="Trim video"
+          aria-pressed={showTrim}
+        >
+          <Scissors className="h-5 w-5" aria-hidden />
+        </button>
+        <span className="text-[9px] font-medium text-white/60">Trim</span>
+      </div>
+
+      {/* ── Bottom overlay ── */}
+      <div
+        className="absolute inset-x-0 bottom-0 z-30 flex flex-col gap-2 px-3 pb-3"
+        style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}
+      >
+        {/* Trim timeline (shown when trim tool is active) */}
+        {showTrim ? (
+          <div className="mb-1 touch-none select-none" style={{ touchAction: "none" }}>
+            {/* Live times while dragging */}
+            {isDraggingTrim ? (
+              <div className="mb-2 flex items-center justify-between rounded-full bg-black/80 px-4 py-2 text-xs font-semibold tabular-nums text-white ring-1 ring-white/30 backdrop-blur-sm">
+                <span>Start {formatTrimTime(displayTrimStart)}</span>
+                <span className="text-white/50">·</span>
+                <span>End {formatTrimTime(displayTrimEnd)}</span>
+                <span className="text-white/50">·</span>
+                <span className="text-emerald-300">{formatTrimTime(displayClipDuration)}</span>
               </div>
             ) : (
-              filmstrip.map((frame) => (
-                <button
-                  key={frame.url}
-                  type="button"
-                  disabled={publishing || loadingDuration}
-                  onClick={() => handleFrameTap(frame.time)}
-                  className="h-full flex-1 overflow-hidden opacity-90"
-                  aria-label={`Frame at ${formatTrimTime(frame.time)}`}
-                >
-                  <img
-                    src={frame.url}
-                    alt=""
-                    className="h-full w-full object-cover"
-                    draggable={false}
-                  />
-                </button>
-              ))
+              <div className="mb-2 flex items-center justify-between text-xs tabular-nums text-white/70">
+                <span>{formatTrimTime(trimStart)}</span>
+                <span>
+                  {formatTrimTime(clipDuration)} / {formatTrimTime(MAX_TRIM_CLIP_SECONDS)}
+                </span>
+                <span>{formatTrimTime(resolvedEnd)}</span>
+              </div>
             )}
-          </div>
 
-          {sourceDuration > 0 ? (
-            <>
+            <div className="relative touch-none select-none py-1" style={{ touchAction: "none" }}>
               <div
-                className="pointer-events-none absolute inset-y-0 bg-black/60"
-                style={{ left: 0, width: `${startRatio * 100}%` }}
-              />
-              <div
-                className="pointer-events-none absolute inset-y-0 bg-black/60"
-                style={{ left: `${endRatio * 100}%`, right: 0 }}
-              />
-              <div
-                className="pointer-events-none absolute inset-y-1 rounded-md border-2 border-emerald-400/90"
+                ref={trackRef}
+                className="relative overflow-hidden rounded-2xl bg-white/5 ring-2 ring-white/30"
                 style={{
-                  left: `${startRatio * 100}%`,
-                  width: `${Math.max((endRatio - startRatio) * 100, 2)}%`,
+                  touchAction: "none",
+                  height: TRIM_TRACK_HEIGHT_PX,
+                  marginLeft: TRIM_SIDE_INSET_PX,
+                  marginRight: TRIM_SIDE_INSET_PX,
                 }}
-              />
-
-              <div
-                className="pointer-events-none absolute inset-y-0 z-20 w-0.5 bg-white shadow-[0_0_6px_rgba(255,255,255,0.9)]"
-                style={{ left: `${playheadRatio * 100}%` }}
-              />
-
-              <div
-                className="pointer-events-none absolute top-0 z-20 h-2 w-2 -translate-x-1/2 rounded-full bg-cyan-300 ring-2 ring-white"
-                style={{ left: `${coverRatio * 100}%` }}
-                title="Cover frame"
-              />
-
-              <button
-                type="button"
-                disabled={publishing || loadingDuration}
-                aria-label="Adjust clip start"
-                onPointerDown={(event) => startDrag("start", event)}
-                className="absolute inset-y-0 z-30 w-10 -translate-x-1/2 cursor-ew-resize touch-none"
-                style={{ left: `${startRatio * 100}%` }}
               >
-                <span className="absolute inset-y-2 left-1/2 w-1 -translate-x-1/2 rounded-full bg-white shadow-lg" />
-              </button>
+                <div className="absolute inset-0 flex">
+                  {filmstripLoading || filmstrip.length === 0 ? (
+                    <div className="flex h-full w-full items-center justify-center">
+                      <Loader2 className="h-6 w-6 animate-spin text-white/40" aria-hidden />
+                    </div>
+                  ) : (
+                    filmstrip.map((frame) => (
+                      <button
+                        key={frame.url}
+                        type="button"
+                        disabled={publishing || loadingDuration || isDraggingTrim}
+                        onClick={() => handleFrameTap(frame.time)}
+                        className="h-full min-w-0 flex-1 overflow-hidden disabled:pointer-events-none"
+                        aria-label={`Frame at ${formatTrimTime(frame.time)}`}
+                      >
+                        <img
+                          src={frame.url}
+                          alt=""
+                          className="h-full w-full object-cover"
+                          draggable={false}
+                        />
+                      </button>
+                    ))
+                  )}
+                </div>
 
-              <button
-                type="button"
-                disabled={publishing || loadingDuration}
-                aria-label="Adjust clip end"
-                onPointerDown={(event) => startDrag("end", event)}
-                className="absolute inset-y-0 z-30 w-10 -translate-x-1/2 cursor-ew-resize touch-none"
-                style={{ left: `${endRatio * 100}%` }}
-              >
-                <span className="absolute inset-y-2 left-1/2 w-1 -translate-x-1/2 rounded-full bg-white shadow-lg" />
-              </button>
-            </>
-          ) : null}
-        </div>
+                {sourceDuration > 0 ? (
+                  <>
+                    <div
+                      aria-hidden
+                      className="pointer-events-none absolute inset-y-0 bg-black/70"
+                      style={{ left: 0, width: `${displayStartRatio * 100}%` }}
+                    />
+                    <div
+                      aria-hidden
+                      className="pointer-events-none absolute inset-y-0 bg-black/70"
+                      style={{ left: `${displayEndRatio * 100}%`, right: 0 }}
+                    />
+                    {/* Strong selection border */}
+                    <div
+                      aria-hidden
+                      className="pointer-events-none absolute inset-y-0 rounded-sm border-[3px] border-white shadow-[0_0_0_1px_rgba(0,0,0,0.8),0_0_12px_rgba(255,255,255,0.35)]"
+                      style={{
+                        left: `${displayStartRatio * 100}%`,
+                        width: `${Math.max((displayEndRatio - displayStartRatio) * 100, 0.5)}%`,
+                      }}
+                    />
+                    <div
+                      aria-hidden
+                      className="pointer-events-none absolute inset-y-0 z-20 w-1 bg-white shadow-[0_0_8px_rgba(255,255,255,0.95)]"
+                      style={{ left: `${playheadRatio * 100}%` }}
+                    />
+                    <div
+                      aria-hidden
+                      className="pointer-events-none absolute top-1 z-20 h-3 w-3 -translate-x-1/2 rounded-full bg-cyan-300 ring-2 ring-white"
+                      style={{ left: `${coverRatio * 100}%` }}
+                      title="Cover frame"
+                    />
+                  </>
+                ) : null}
+              </div>
 
-        <p className="mt-1.5 text-center text-[10px] text-white/45">
-          Drag handles to trim · tap a frame for cover
-        </p>
-      </div>
+              {sourceDuration > 0 ? (
+                <div
+                  className="pointer-events-none absolute inset-y-1"
+                  style={{ left: TRIM_SIDE_INSET_PX, right: TRIM_SIDE_INSET_PX }}
+                >
+                  <button
+                    type="button"
+                    disabled={publishing || loadingDuration}
+                    aria-label="Adjust clip start"
+                    onPointerDown={(e) => startTrimDrag("start", e)}
+                    className={`pointer-events-auto absolute z-40 flex cursor-ew-resize items-center justify-center touch-none select-none ${
+                      activeTrimHandle === "start" ? "scale-105" : ""
+                    }`}
+                    style={{
+                      left: `${displayStartRatio * 100}%`,
+                      top: "50%",
+                      width: TRIM_HANDLE_HIT_PX,
+                      height: TRIM_HANDLE_HIT_PX,
+                      transform: "translate(-50%, -50%)",
+                      touchAction: "none",
+                    }}
+                  >
+                    <span
+                      className="flex items-center justify-center rounded-l-lg bg-white shadow-[0_2px_16px_rgba(0,0,0,0.65)] ring-[3px] ring-white"
+                      style={{ width: TRIM_HANDLE_GRIP_PX, height: TRIM_TRACK_HEIGHT_PX - 8 }}
+                    >
+                      <span className="flex flex-col gap-1" aria-hidden>
+                        <span className="block h-[3px] w-[6px] rounded-full bg-neutral-500" />
+                        <span className="block h-[3px] w-[6px] rounded-full bg-neutral-500" />
+                        <span className="block h-[3px] w-[6px] rounded-full bg-neutral-500" />
+                      </span>
+                    </span>
+                  </button>
 
-      <div className="relative z-10 flex min-h-0 flex-1 flex-col px-3">
-        <button
-          type="button"
-          onClick={() => void togglePlayback()}
-          className="relative mx-auto flex w-full max-w-md flex-1 items-center justify-center overflow-hidden rounded-2xl bg-neutral-950"
-          aria-label={isPlaying ? "Pause video" : "Play video"}
-        >
-          <video
-            ref={videoRef}
-            src={item.previewUrl}
-            poster={item.coverPreviewUrl ?? undefined}
-            className="max-h-full max-w-full object-contain"
-            playsInline
-            muted
-            autoPlay
-            loop
-            preload="auto"
-            disablePictureInPicture
-            onLoadedMetadata={(event) => {
-              const video = event.currentTarget;
-              video.setAttribute("playsinline", "true");
-              video.setAttribute("webkit-playsinline", "true");
-              video.muted = true;
-              void prepareAndAutoplay();
-            }}
-            onCanPlay={() => {
-              if (!isReady) {
-                void prepareAndAutoplay();
-              }
-            }}
-            onPlay={() => setIsPlaying(true)}
-            onPause={() => setIsPlaying(false)}
-          />
-
-          {!isReady ? (
-            <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/50">
-              <Loader2 className="h-10 w-10 animate-spin text-white/80" aria-hidden />
+                  <button
+                    type="button"
+                    disabled={publishing || loadingDuration}
+                    aria-label="Adjust clip end"
+                    onPointerDown={(e) => startTrimDrag("end", e)}
+                    className={`pointer-events-auto absolute z-40 flex cursor-ew-resize items-center justify-center touch-none select-none ${
+                      activeTrimHandle === "end" ? "scale-105" : ""
+                    }`}
+                    style={{
+                      left: `${displayEndRatio * 100}%`,
+                      top: "50%",
+                      width: TRIM_HANDLE_HIT_PX,
+                      height: TRIM_HANDLE_HIT_PX,
+                      transform: "translate(-50%, -50%)",
+                      touchAction: "none",
+                    }}
+                  >
+                    <span
+                      className="flex items-center justify-center rounded-r-lg bg-white shadow-[0_2px_16px_rgba(0,0,0,0.65)] ring-[3px] ring-white"
+                      style={{ width: TRIM_HANDLE_GRIP_PX, height: TRIM_TRACK_HEIGHT_PX - 8 }}
+                    >
+                      <span className="flex flex-col gap-1" aria-hidden>
+                        <span className="block h-[3px] w-[6px] rounded-full bg-neutral-500" />
+                        <span className="block h-[3px] w-[6px] rounded-full bg-neutral-500" />
+                        <span className="block h-[3px] w-[6px] rounded-full bg-neutral-500" />
+                      </span>
+                    </span>
+                  </button>
+                </div>
+              ) : null}
             </div>
+
+            <p className="mt-2 text-center text-[11px] text-white/50">
+              Drag the white handles · tap a thumbnail for cover
+            </p>
+          </div>
+        ) : null}
+
+        {/* Location picker (expanded if user taps location badge) */}
+        {showLocationPicker ? (
+          <div className="rounded-2xl bg-black/60 p-3 backdrop-blur-md ring-1 ring-white/10">
+            <SpotLocationPicker
+              locating={locating}
+              location={location}
+              locationSource={locationSource}
+              matchedPlaceName={matchedPlaceName}
+              needsLocationChoice={needsLocationChoice}
+              locationHint={locationHint}
+              disabled={publishing}
+              onUseCurrentLocation={onUseCurrentLocation}
+              onSelectPlace={onSelectPlace}
+            />
+            <button
+              type="button"
+              onClick={() => setShowLocationPicker(false)}
+              className="mt-2 w-full text-center text-xs text-white/50"
+            >
+              Close
+            </button>
+          </div>
+        ) : null}
+
+        {/* Location badge + caption row */}
+        <div className="flex items-center gap-2">
+          {locationLabel ? (
+            <button
+              type="button"
+              onClick={() => setShowLocationPicker((v) => !v)}
+              className="flex shrink-0 items-center gap-1.5 rounded-full bg-black/50 px-3 py-1.5 text-xs font-medium text-white/90 backdrop-blur-sm ring-1 ring-white/15"
+            >
+              <MapPin className="h-3 w-3 shrink-0 text-primary" aria-hidden />
+              <span className="max-w-[120px] truncate">{locationLabel}</span>
+            </button>
           ) : null}
-
-          <span
-            className={`pointer-events-none absolute flex h-14 w-14 items-center justify-center rounded-full bg-black/55 text-white ring-2 ring-white/80 backdrop-blur-sm transition ${
-              isPlaying ? "opacity-0" : "opacity-100"
-            }`}
-          >
-            {isPlaying ? (
-              <Pause className="h-7 w-7" fill="currentColor" aria-hidden />
-            ) : (
-              <Play className="ml-0.5 h-7 w-7" fill="currentColor" aria-hidden />
-            )}
-          </span>
-        </button>
-      </div>
-
-      <div className="relative z-30 max-h-[42vh] shrink-0 overflow-y-auto border-t border-white/10 px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
-        <div className="mx-auto w-full max-w-md space-y-3">
-          <SpotLocationPicker
-            locating={locating}
-            location={location}
-            locationSource={locationSource}
-            matchedPlaceName={matchedPlaceName}
-            needsLocationChoice={needsLocationChoice}
-            locationHint={locationHint}
-            disabled={publishing}
-            onUseCurrentLocation={onUseCurrentLocation}
-            onSelectPlace={onSelectPlace}
-          />
 
           <input
             value={spotName}
-            onChange={(event) => onSpotNameChange(event.target.value)}
-            placeholder="Name this spot…"
+            onChange={(e) => onSpotNameChange(e.target.value)}
+            placeholder="Add a caption…"
             maxLength={120}
             disabled={publishing}
-            className="sd-input"
+            className="min-w-0 flex-1 rounded-full bg-black/50 px-4 py-1.5 text-sm text-white placeholder-white/40 backdrop-blur-sm ring-1 ring-white/15 focus:outline-none focus:ring-white/40 disabled:opacity-50"
           />
+        </div>
 
-          <CollectionPicker
-            collections={collections}
-            value={collectionId}
-            onChange={onCollectionChange}
-            disabled={publishing}
-            loading={collectionsLoading}
-          />
-
-          <p className="text-center text-[11px] text-muted">
-            Spots are always public for place discovery on the map and feed.
-          </p>
-
-          {offlineMode ? (
-            <p className="rounded-xl border border-primary/20 bg-primary/10 px-4 py-3 text-center text-sm text-white">
-              Saved locally on this device. Upload when you&apos;re back online.
-            </p>
-          ) : null}
-
-          {error ? <p className="text-center text-sm text-red-400">{error}</p> : null}
-          {publishDisableReason ? (
-            <p className="text-center text-sm text-amber-200/90">{publishDisableReason}</p>
-          ) : null}
-
+        {/* Public / My Spots toggle */}
+        <div className="flex gap-2">
           <button
             type="button"
-            onClick={onRetake}
+            onClick={() => onCollectionChange("")}
             disabled={publishing}
-            className="w-full rounded-xl border border-white/15 py-3 text-sm font-semibold text-white transition hover:bg-white/5 disabled:opacity-50"
+            className={`flex flex-1 items-center justify-center gap-1.5 rounded-2xl py-3 text-sm font-semibold transition disabled:opacity-50 ${
+              collectionId === ""
+                ? "bg-white text-black shadow-lg"
+                : "bg-white/10 text-white ring-1 ring-white/20 backdrop-blur-sm"
+            }`}
           >
-            Retake
+            <Globe className="h-4 w-4" aria-hidden />
+            Public Spot
           </button>
 
           <button
             type="button"
             onClick={() => {
-              if (publishBlocked) {
-                return;
-              }
-              onPublish();
+              if (mySpotsCollection) onCollectionChange(mySpotsCollection.id);
             }}
-            aria-disabled={publishBlocked}
-            className={`w-full rounded-xl py-3.5 text-sm font-semibold transition ${
-              publishBlocked
-                ? "cursor-not-allowed bg-primary/35 text-background/50"
-                : "bg-primary text-background hover:brightness-110"
+            disabled={publishing || !mySpotsCollection}
+            className={`flex flex-1 items-center justify-center gap-1.5 rounded-2xl py-3 text-sm font-semibold transition disabled:opacity-50 ${
+              collectionId !== ""
+                ? "bg-white text-black shadow-lg"
+                : "bg-white/10 text-white ring-1 ring-white/20 backdrop-blur-sm"
             }`}
           >
-            {publishing
-              ? offlineMode
-                ? "Saving…"
-                : "Publishing…"
-              : offlineMode
-                ? "Save offline draft"
-                : "Publish"}
+            <Lock className="h-4 w-4" aria-hidden />
+            My Spots
           </button>
         </div>
+
+        {/* Offline / error / status messages */}
+        {offlineMode ? (
+          <p className="text-center text-xs text-white/55">
+            Saved locally · will upload when online
+          </p>
+        ) : null}
+        {error ? (
+          <p className="text-center text-xs text-red-400">{error}</p>
+        ) : null}
+        {!error && publishDisableReason ? (
+          <p className="text-center text-xs text-amber-200/80">{publishDisableReason}</p>
+        ) : null}
+
+        {/* Publish button */}
+        <button
+          type="button"
+          onClick={() => { if (!publishBlocked) onPublish(); }}
+          aria-disabled={publishBlocked}
+          className={`flex w-full items-center justify-center gap-1.5 rounded-2xl py-3.5 text-sm font-bold tracking-wide transition ${
+            publishBlocked
+              ? "cursor-not-allowed bg-white/15 text-white/35"
+              : "bg-primary text-background hover:brightness-110 active:scale-[0.98]"
+          }`}
+        >
+          {publishing
+            ? offlineMode ? "Saving…" : "Publishing…"
+            : offlineMode ? "Save offline draft" : "Share Spot"}
+          {!publishing ? <ChevronRight className="h-4 w-4" aria-hidden /> : null}
+        </button>
       </div>
     </div>
+
+    <SpotVideoPreviewExitSheet
+      isOpen={showExitSheet}
+      saving={savingDraft}
+      onSaveToDrafts={() => {
+        setShowExitSheet(false);
+        onSaveToDrafts();
+      }}
+      onDiscard={() => {
+        setShowExitSheet(false);
+        onDiscardVideo();
+      }}
+      onCancel={() => setShowExitSheet(false)}
+    />
+    </>
   );
 }

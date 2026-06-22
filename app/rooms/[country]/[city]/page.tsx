@@ -1,7 +1,7 @@
 import { cityStaticParams } from "@/lib/capacitorStaticExport";
 import CityRoomView from "./CityRoomView";
 
-export function generateStaticParams() {
+export async function generateStaticParams() {
   return cityStaticParams();
 }
 

@@ -11,5 +11,5 @@ export default function UsersProfileRedirectPage() {
     return null;
   }
 
-  return <ClientRedirect href={`/user/${encodeURIComponent(username)}`} />;
+  return <ClientRedirect href={`/user?id=${encodeURIComponent(username)}`} />;
 }

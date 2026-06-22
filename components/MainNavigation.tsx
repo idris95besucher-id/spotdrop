@@ -14,7 +14,6 @@ import {
 import { useAuthSession } from "@/components/AuthSessionProvider";
 import { useI18n } from "@/components/I18nProvider";
 import { useChatNotifications } from "@/components/ChatNotificationsProvider";
-import { useNotifications } from "@/components/NotificationsProvider";
 import { CreateNavButton, useCreateMenu } from "@/components/CreateMenuProvider";
 import { formatUnreadBadge } from "@/lib/chatNotifications";
 import { isMainNavActive, MAIN_NAV_ITEMS, MAIN_NAV_LEFT, MAIN_NAV_RIGHT, shouldShowMobileBottomNav } from "@/lib/mainNav";
@@ -71,7 +70,7 @@ function navIcon(href: string, active: boolean, badgeCount = 0) {
     return null;
   }
 
-  if (href === "/chats" || href === "/profile") {
+  if (href === "/chats") {
     return (
       <span className="relative inline-flex">
         {icon}
@@ -159,7 +158,6 @@ export function DesktopMainNav() {
   const pathname = usePathname();
   const { session, loading } = useNavSession();
   const { unreadCount: chatUnreadCount } = useChatNotifications();
-  const { unreadCount: notificationUnreadCount } = useNotifications();
   const { t } = useI18n();
 
   if (loading) {
@@ -169,10 +167,6 @@ export function DesktopMainNav() {
   const badgeForHref = (href: string) => {
     if (href === "/chats") {
       return chatUnreadCount;
-    }
-
-    if (href === "/profile") {
-      return notificationUnreadCount;
     }
 
     return 0;
@@ -205,7 +199,6 @@ export function DesktopMainNav() {
 export function MobileBottomNav() {
   const pathname = usePathname();
   const { unreadCount: chatUnreadCount } = useChatNotifications();
-  const { unreadCount: notificationUnreadCount } = useNotifications();
   const { t } = useI18n();
   const [mounted, setMounted] = useState(false);
 
@@ -220,10 +213,6 @@ export function MobileBottomNav() {
   const badgeForHref = (href: string) => {
     if (href === "/chats") {
       return chatUnreadCount;
-    }
-
-    if (href === "/profile") {
-      return notificationUnreadCount;
     }
 
     return 0;

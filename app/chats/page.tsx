@@ -52,7 +52,7 @@ function ChatListItem({ chat }: { chat: InboxChatRow }) {
   return (
     <li>
       <Link
-        href={`/dm/${chat.partnerId}`}
+        href={`/dm?id=${chat.partnerId}`}
         className={`flex items-center gap-3 px-4 py-3.5 transition sm:gap-4 sm:px-5 sm:py-4 ${
           hasUnread ? "bg-primary/[0.06]" : "hover:bg-white/[0.03]"
         }`}

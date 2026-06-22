@@ -136,6 +136,7 @@ export default function RoomChatPage() {
   const params = useParams<{ country: string; city: string }>();
   const citySlug = String(params.city ?? "").toLowerCase();
   const countrySlug = String(params.country ?? "").toLowerCase();
+  console.log("[Rooms route] city params", { rawCountry: params.country, rawCity: params.city, countrySlug, citySlug });
   const [country, setCountry] = useState<Country | null>(null);
   const [city, setCity] = useState<City | null>(null);
   const [currentUsername, setCurrentUsername] = useState<string | null>(null);
@@ -175,8 +176,15 @@ export default function RoomChatPage() {
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const loadSession = useCallback(async () => {
-    const { session, error: sessionError } = await getSafeAuthSession();
+    const { session, error: sessionError, expired } = await getSafeAuthSession();
     setSession(session);
+
+    console.log("[Rooms auth] city room", {
+      loggedIn: Boolean(session?.user),
+      expired,
+      sessionError,
+      path: typeof window !== "undefined" ? window.location.pathname : "ssr",
+    });
 
     if (sessionError) {
       setError(sessionError);

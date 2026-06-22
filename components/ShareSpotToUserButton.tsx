@@ -65,7 +65,7 @@ export default function ShareSpotToUserButton({
     onSent?.();
 
     if (redirectToDmOnSuccess) {
-      router.push(`/dm/${encodeURIComponent(recipientId)}`);
+      router.push(`/dm?id=${encodeURIComponent(recipientId)}`);
     }
   };
 

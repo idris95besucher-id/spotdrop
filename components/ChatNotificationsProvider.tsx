@@ -172,7 +172,7 @@ export default function ChatNotificationsProvider({ children }: { children: Reac
             return;
           }
 
-          const openThreadPath = `/dm/${row.sender_id}`;
+          const openThreadPath = `/dm?id=${row.sender_id}`;
           const isViewingThread = pathname === openThreadPath;
 
           if (isViewingThread) {

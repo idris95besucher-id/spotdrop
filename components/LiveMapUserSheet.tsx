@@ -95,7 +95,7 @@ export default function LiveMapUserSheet({ user, onClose }: LiveMapUserSheetProp
 
         <div className={`grid gap-2.5 px-4 pb-[max(1.25rem,env(safe-area-inset-bottom))] ${canMessage ? "grid-cols-1 sm:grid-cols-2" : "grid-cols-1"}`}>
           <Link
-            href={`/user/${user.user_id}`}
+            href={`/user?id=${user.user_id}`}
             className="inline-flex w-full items-center justify-center rounded-full bg-cyan-500 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400"
             onClick={onClose}
           >
@@ -103,7 +103,7 @@ export default function LiveMapUserSheet({ user, onClose }: LiveMapUserSheetProp
           </Link>
           {canMessage ? (
             <Link
-              href={`/dm/${user.user_id}`}
+              href={`/dm?id=${user.user_id}`}
               className="inline-flex w-full items-center justify-center rounded-full border border-white/15 bg-white/5 px-4 py-3 text-sm font-semibold text-white transition hover:bg-white/10"
               onClick={onClose}
             >

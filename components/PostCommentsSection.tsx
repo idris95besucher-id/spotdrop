@@ -287,7 +287,7 @@ export default function PostCommentsSection({
       {comments.map((comment) => (
         <li key={comment.id} className="flex gap-3">
           <Link
-            href={`/user/${comment.user_id}`}
+            href={`/user?id=${comment.user_id}`}
             className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-slate-800"
           >
             {comment.profiles.avatar_url ? (
@@ -298,7 +298,7 @@ export default function PostCommentsSection({
           </Link>
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-              <Link href={`/user/${comment.user_id}`} className="text-sm font-semibold text-white hover:underline">
+              <Link href={`/user?id=${comment.user_id}`} className="text-sm font-semibold text-white hover:underline">
                 {publicProfileUsername(comment.profiles.username)}
               </Link>
               <time className="text-xs text-slate-500">{formatPostTime(comment.created_at)}</time>

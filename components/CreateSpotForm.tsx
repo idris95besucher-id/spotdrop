@@ -15,6 +15,7 @@ import {
 } from "@/lib/spots";
 import {
   requestDeviceLocation,
+  requestDeviceLocationFast,
   spotLocationFromCoordinates,
   type PlaceSearchResult,
   type SpotGeoLocation,
@@ -82,6 +83,7 @@ export default function CreateSpotForm({
   const [locationHint, setLocationHint] = useState<string | null>(null);
   const [locating, setLocating] = useState(false);
   const [publishing, setPublishing] = useState(false);
+  const [savingDraft, setSavingDraft] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loadingDraft, setLoadingDraft] = useState(false);
   const [isOfflineCapture, setIsOfflineCapture] = useState(false);
@@ -89,6 +91,9 @@ export default function CreateSpotForm({
   const currentDraftIdRef = useRef<string | null>(draftId ?? null);
   const saveTimeoutRef = useRef<number | null>(null);
   const skipSaveOnCloseRef = useRef(false);
+  // Pre-warmed location captured while camera is open (fast lookup, low accuracy).
+  // Used immediately after capture to avoid making the user wait for GPS.
+  const cachedLocationRef = useRef<SpotGeoLocation | null>(null);
 
   const activeMedia = getActiveMediaEditorItem(mediaItems, activeMediaIndex);
 
@@ -184,6 +189,7 @@ export default function CreateSpotForm({
     setCollectionId("");
     setLocating(false);
     setPublishing(false);
+    setSavingDraft(false);
     setError(null);
     setLoadingDraft(false);
     setIsOfflineCapture(false);
@@ -273,6 +279,19 @@ export default function CreateSpotForm({
       setStep("camera");
     }
 
+    // Start a fast location lookup while the camera is open so the result is
+    // already cached by the time the user finishes recording.
+    cachedLocationRef.current = null;
+    if (isDeviceOnline()) {
+      void requestDeviceLocationFast()
+        .then((loc) => {
+          cachedLocationRef.current = loc;
+        })
+        .catch(() => {
+          // Pre-warm failed — resolveLocationAfterCapture will retry.
+        });
+    }
+
     return () => {
       setImmersiveOverlayActive(false);
     };
@@ -297,14 +316,35 @@ export default function CreateSpotForm({
     step,
   ]);
 
-  const handleClose = async () => {
-    if (!skipSaveOnCloseRef.current && activeMedia && step === "preview") {
-      await persistDraft();
-    }
-
+  const handleClose = () => {
     setImmersiveOverlayActive(false);
     resetAll();
     onClose();
+  };
+
+  const saveToDraftAndExit = async () => {
+    if (!activeMedia || step !== "preview") {
+      handleClose();
+      return;
+    }
+
+    setSavingDraft(true);
+    setError(null);
+
+    try {
+      await persistDraft();
+      skipSaveOnCloseRef.current = true;
+      handleClose();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to save draft.");
+    } finally {
+      setSavingDraft(false);
+    }
+  };
+
+  const discardVideoAndReturnToCamera = async () => {
+    skipSaveOnCloseRef.current = true;
+    await backToCamera();
   };
 
   const backToCamera = async () => {
@@ -376,9 +416,22 @@ export default function CreateSpotForm({
     setLocationHint(null);
 
     try {
-      const detected = await requestDeviceLocation();
-      await applyResolvedLocation(detected.latitude, detected.longitude, "device");
+      // Use the pre-warmed cached location if available — no wait, instant result.
+      // Otherwise do a fast low-accuracy lookup (≤2 s) so the user is never blocked.
+      const fast = cachedLocationRef.current ?? await requestDeviceLocationFast();
+      cachedLocationRef.current = null;
+      await applyResolvedLocation(fast.latitude, fast.longitude, "device");
+
+      // Refine in background with high-accuracy GPS — updates location silently.
+      void requestDeviceLocation()
+        .then((precise) => {
+          void applyResolvedLocation(precise.latitude, precise.longitude, "device");
+        })
+        .catch(() => {
+          // Background refinement failed — keep the fast result, no disruption.
+        });
     } catch (caught) {
+      // Fast lookup also failed — let user choose location manually.
       setNeedsLocationChoice(true);
       setLocationHint(
         caught instanceof Error ? caught.message : "Unable to detect your location."
@@ -504,7 +557,7 @@ export default function CreateSpotForm({
       onCreated();
 
       if (postId) {
-        router.push(`/posts/${encodeURIComponent(postId)}`);
+        router.push(`/posts?id=${encodeURIComponent(postId)}`);
       }
     } catch (caught) {
       if (isLikelyNetworkError(caught)) {
@@ -591,9 +644,11 @@ export default function CreateSpotForm({
           onCollectionChange={setCollectionId}
           onUseCurrentLocation={() => void resolveFromDevice()}
           onSelectPlace={(place) => void applySearchPlace(place)}
-          onDismiss={() => void handleClose()}
+          onSaveToDrafts={() => void saveToDraftAndExit()}
+          onDiscardVideo={() => void discardVideoAndReturnToCamera()}
           onRetake={() => void backToCamera()}
           onPublish={() => void handlePublish()}
+          savingDraft={savingDraft}
         />
       );
     }

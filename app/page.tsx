@@ -1,12 +1,31 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { authPrimaryButtonClass, authSecondaryButtonClass } from "@/components/auth/authStyles";
+import { useAuthSession } from "@/components/AuthSessionProvider";
 import { useI18n } from "@/components/I18nProvider";
 import Shell from "@/components/Shell";
 
 export default function Home() {
   const { t } = useI18n();
+  const { session, loading } = useAuthSession();
+  const router = useRouter();
+
+  // Logged-in users should never be stuck on the welcome screen (happens on Capacitor cold-start).
+  useEffect(() => {
+    if (!loading && session) {
+      console.log("[Home] logged-in user detected at /, redirecting to /profile");
+      router.replace("/profile");
+    }
+  }, [loading, session, router]);
+
+  // While the session is loading, show nothing to avoid a flash of the welcome screen
+  // for users who are about to be redirected.
+  if (loading || session) {
+    return null;
+  }
 
   return (
     <Shell showHeader={false}>

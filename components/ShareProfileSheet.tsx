@@ -122,11 +122,16 @@ export default function ShareProfileSheet({ isOpen, onClose, username }: SharePr
         role="dialog"
         aria-modal="true"
         aria-labelledby="share-profile-title"
-        className="relative z-10 w-full max-w-md rounded-t-3xl sd-modal-panel px-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-3 shadow-none sm:rounded-3xl sm:pb-6 sm:pt-5"
+        className="relative z-10 flex w-full max-w-md flex-col rounded-t-3xl sd-modal-panel pt-3 shadow-none sm:rounded-3xl sm:pt-5"
+        style={{
+          maxHeight: "calc(100dvh - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 24px)",
+        }}
       >
-        <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-white/20 sm:hidden" />
+        {/* Drag pill — always visible, never scrolls */}
+        <div className="mx-auto mb-2 h-1 w-10 shrink-0 rounded-full bg-white/20 sm:hidden" />
 
-        <div className="mb-4 flex items-center justify-between">
+        {/* Header — always visible, never scrolls */}
+        <div className="mb-4 flex shrink-0 items-center justify-between px-5">
           <p id="share-profile-title" className="text-sm font-semibold text-white">
             {t("share.title")}
           </p>
@@ -140,57 +145,65 @@ export default function ShareProfileSheet({ isOpen, onClose, username }: SharePr
           </button>
         </div>
 
-        <div className="mx-auto w-full max-w-xs rounded-2xl bg-white p-5 text-center">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.32em] text-slate-500">SpotDrop</p>
+        {/* Scrollable content — clears the fixed bottom nav + home indicator */}
+        <div
+          className="min-h-0 flex-1 overflow-y-auto px-5"
+          style={{
+            paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 96px)",
+          }}
+        >
+          <div className="mx-auto w-full max-w-xs rounded-2xl bg-white p-5 text-center">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.32em] text-slate-500">SpotDrop</p>
 
-          <div className="mx-auto mt-4 flex h-[220px] w-[220px] items-center justify-center">
-            {loadingQr ? (
-              <div className="h-[200px] w-[200px] animate-pulse rounded-xl bg-slate-100" />
-            ) : qrDataUrl ? (
-              <img src={qrDataUrl} alt="" className="h-[200px] w-[200px] rounded-lg" />
-            ) : (
-              <div className="flex h-[200px] w-[200px] items-center justify-center rounded-lg bg-slate-100 text-xs text-slate-500">
-                {t("share.qrUnavailable")}
-              </div>
-            )}
+            <div className="mx-auto mt-4 flex h-[220px] w-[220px] items-center justify-center">
+              {loadingQr ? (
+                <div className="h-[200px] w-[200px] animate-pulse rounded-xl bg-slate-100" />
+              ) : qrDataUrl ? (
+                <img src={qrDataUrl} alt="" className="h-[200px] w-[200px] rounded-lg" />
+              ) : (
+                <div className="flex h-[200px] w-[200px] items-center justify-center rounded-lg bg-slate-100 text-xs text-slate-500">
+                  {t("share.qrUnavailable")}
+                </div>
+              )}
+            </div>
+
+            <p className="mt-4 text-lg font-semibold text-slate-900">{handle}</p>
+            <p className="mt-1 truncate text-xs text-slate-500">{profileUrl}</p>
           </div>
 
-          <p className="mt-4 text-lg font-semibold text-slate-900">{handle}</p>
-          <p className="mt-1 truncate text-xs text-slate-500">{profileUrl}</p>
-        </div>
+          {error ? <p className="mt-4 text-center text-sm text-red-300">{error}</p> : null}
 
-        {error ? <p className="mt-4 text-center text-sm text-red-300">{error}</p> : null}
-
-        <div className="mt-5 grid grid-cols-2 gap-2 sm:grid-cols-3">
-          <button
-            type="button"
-            onClick={() => void handleCopyLink()}
-            className="flex flex-col items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-xs font-medium text-slate-200 transition hover:bg-white/10"
-          >
-            {copied ? <Check className="h-5 w-5 text-emerald-400" aria-hidden /> : <Copy className="h-5 w-5" aria-hidden />}
-            {copied ? t("share.copied") : t("share.copyLink")}
-          </button>
-
-          <button
-            type="button"
-            onClick={handleDownloadQr}
-            disabled={!qrDataUrl}
-            className="flex flex-col items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-xs font-medium text-slate-200 transition hover:bg-white/10 disabled:opacity-40"
-          >
-            <Download className="h-5 w-5" aria-hidden />
-            {t("share.downloadQr")}
-          </button>
-
-          {canNativeShare ? (
+          <div className="mt-5 grid grid-cols-2 gap-2 sm:grid-cols-3">
             <button
               type="button"
-              onClick={() => void handleNativeShare()}
-              className="col-span-2 flex flex-col items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-xs font-medium text-slate-200 transition hover:bg-white/10 sm:col-span-1"
+              onClick={() => void handleCopyLink()}
+              className="flex flex-col items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-xs font-medium text-slate-200 transition hover:bg-white/10"
             >
-              <Share2 className="h-5 w-5" aria-hidden />
-              {t("share.share")}
+              {copied ? <Check className="h-5 w-5 text-emerald-400" aria-hidden /> : <Copy className="h-5 w-5" aria-hidden />}
+              {copied ? t("share.copied") : t("share.copyLink")}
             </button>
-          ) : null}
+
+            <button
+              type="button"
+              onClick={handleDownloadQr}
+              disabled={!qrDataUrl}
+              className="flex flex-col items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-xs font-medium text-slate-200 transition hover:bg-white/10 disabled:opacity-40"
+            >
+              <Download className="h-5 w-5" aria-hidden />
+              {t("share.downloadQr")}
+            </button>
+
+            {canNativeShare ? (
+              <button
+                type="button"
+                onClick={() => void handleNativeShare()}
+                className="col-span-2 flex flex-col items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-xs font-medium text-slate-200 transition hover:bg-white/10 sm:col-span-1"
+              >
+                <Share2 className="h-5 w-5" aria-hidden />
+                {t("share.share")}
+              </button>
+            ) : null}
+          </div>
         </div>
       </div>
     </div>

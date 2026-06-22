@@ -21,7 +21,6 @@ import {
 } from "@/lib/profileLocation";
 import ProfileAvatarActions from "@/components/ProfileAvatarActions";
 import ProfileMenuSheet from "@/components/ProfileMenuSheet";
-import { NotificationsBellLink } from "@/components/NotificationsProvider";
 import { useSpotDrafts } from "@/components/SpotDraftsProvider";
 import ShareProfileSheet from "@/components/ShareProfileSheet";
 import ProfileCollectionsTab from "@/components/ProfileCollectionsTab";
@@ -375,17 +374,14 @@ export default function ProfilePage() {
         <ProfileAppHeader
           actions={
             session?.user && !loading && !error ? (
-              <div className="flex shrink-0 items-center gap-0.5">
-                <NotificationsBellLink className="inline-flex h-8 w-8 items-center justify-center rounded-full text-white transition hover:bg-white/10 active:opacity-80" />
-                <button
-                  type="button"
-                  onClick={() => setProfileMenuOpen(true)}
-                  className="inline-flex h-8 w-8 items-center justify-center rounded-full text-white transition hover:bg-white/10 active:opacity-80"
-                  aria-label={t("profile.openProfileMenu")}
-                >
-                  <Menu className="h-4 w-4" strokeWidth={1.75} aria-hidden />
-                </button>
-              </div>
+              <button
+                type="button"
+                onClick={() => setProfileMenuOpen(true)}
+                className="inline-flex h-8 w-8 items-center justify-center rounded-full text-white transition hover:bg-white/10 active:opacity-80"
+                aria-label={t("profile.openProfileMenu")}
+              >
+                <Menu className="h-4 w-4" strokeWidth={1.75} aria-hidden />
+              </button>
             ) : undefined
           }
         />
@@ -547,7 +543,7 @@ export default function ProfilePage() {
                 {activeConnections.map((person) => (
                   <Link
                     key={person.id}
-                    href={`/user/${person.id}`}
+                    href={`/user?id=${person.id}`}
                     className="flex items-center gap-4 rounded-3xl border border-white/10 bg-slate-900 p-5 transition hover:border-cyan-300/40 hover:bg-slate-900/80"
                   >
                     <div className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-full bg-slate-800 text-lg font-semibold text-white">

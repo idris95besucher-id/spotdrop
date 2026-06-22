@@ -162,7 +162,7 @@ export default function SpotDraftsProvider({
           setSheetOpen(false);
         }
 
-        router.push(`/posts/${encodeURIComponent(result.postId)}`);
+        router.push(`/posts?id=${encodeURIComponent(result.postId)}`);
       }
 
       return result;

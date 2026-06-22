@@ -216,11 +216,7 @@ export default function NotificationsProvider({ children }: { children: ReactNod
 }
 
 export function NotificationsBellLink({ className }: { className?: string }) {
-  const { unreadCount } = useNotifications();
   const { t } = useI18n();
-
-  const badge =
-    unreadCount > 9 ? "9+" : unreadCount > 0 ? String(unreadCount) : null;
 
   return (
     <Link
@@ -228,24 +224,17 @@ export function NotificationsBellLink({ className }: { className?: string }) {
       className={className}
       aria-label={t("notifications.title")}
     >
-      <span className="relative inline-flex">
-        <svg
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.75"
-          className="h-6 w-6"
-          aria-hidden
-        >
-          <path d="M18 8a6 6 0 1 0-12 0c0 7-3 8-3 8h18s-3-1-3-8" strokeLinecap="round" strokeLinejoin="round" />
-          <path d="M13.7 21a2 2 0 0 1-3.4 0" strokeLinecap="round" strokeLinejoin="round" />
-        </svg>
-        {badge ? (
-          <span className="absolute -right-1.5 -top-1.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold leading-none text-white ring-2 ring-[#0B1026]">
-            {badge}
-          </span>
-        ) : null}
-      </span>
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.75"
+        className="h-6 w-6"
+        aria-hidden
+      >
+        <path d="M18 8a6 6 0 1 0-12 0c0 7-3 8-3 8h18s-3-1-3-8" strokeLinecap="round" strokeLinejoin="round" />
+        <path d="M13.7 21a2 2 0 0 1-3.4 0" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
     </Link>
   );
 }

@@ -11,5 +11,5 @@ export default function ProfileUserIdRedirectPage() {
     return null;
   }
 
-  return <ClientRedirect href={`/user/${userId}`} />;
+  return <ClientRedirect href={`/user?id=${userId}`} />;
 }

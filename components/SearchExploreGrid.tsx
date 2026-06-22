@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Loader2 } from "lucide-react";
+import { Eye, Loader2 } from "lucide-react";
 import PostCardMedia from "@/components/PostCardMedia";
 import PostMediaLink from "@/components/PostMediaLink";
 import { useI18n } from "@/components/I18nProvider";
@@ -14,8 +14,9 @@ import {
 import { MOBILE_WIDTH_SAFE_CLASS } from "@/lib/mobileLayout";
 import { localizeUserMessage } from "@/lib/i18n/localizeUserMessage";
 import { feedRowsToViewerItems } from "@/lib/postViewer";
-import { normalizePostId } from "@/lib/postIds";
+import { normalizePostId, postIdsEqual } from "@/lib/postIds";
 import { SPOT_DELETED_EVENT, type SpotDeletedDetail } from "@/lib/spotDeletedEvents";
+import { SPOT_STATS_UPDATED_EVENT, type SpotStatsUpdatedDetail } from "@/lib/spotStatsEvents";
 import { getPostMedia } from "@/lib/posts";
 
 const MASONRY_ASPECTS = ["aspect-square", "aspect-[4/5]", "aspect-[3/4]"] as const;
@@ -28,6 +29,13 @@ function distributeToColumns(posts: FeedSpotRow[]) {
   });
 
   return columns;
+}
+
+/** Compact display: 1 234 → "1.2k", 1 234 567 → "1.2M" */
+function formatVisitCount(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1).replace(/\.0$/, "")}k`;
+  return String(n);
 }
 
 type SearchExploreGridProps = {
@@ -106,6 +114,30 @@ export default function SearchExploreGrid({ onPostsChange }: SearchExploreGridPr
   }, []);
 
   useEffect(() => {
+    const handleStatsUpdated = (event: Event) => {
+      const detail = (event as CustomEvent<SpotStatsUpdatedDetail>).detail;
+
+      if (!detail?.postId || detail.visited_count == null) {
+        return;
+      }
+
+      setPosts((current) =>
+        current.map((post) =>
+          postIdsEqual(post.id, detail.postId)
+            ? { ...post, visited_count: detail.visited_count }
+            : post
+        )
+      );
+    };
+
+    window.addEventListener(SPOT_STATS_UPDATED_EVENT, handleStatsUpdated);
+
+    return () => {
+      window.removeEventListener(SPOT_STATS_UPDATED_EVENT, handleStatsUpdated);
+    };
+  }, []);
+
+  useEffect(() => {
     onPostsChange?.(posts);
   }, [onPostsChange, posts]);
 
@@ -168,6 +200,7 @@ export default function SearchExploreGrid({ onPostsChange }: SearchExploreGridPr
     const spotTitle = formatFeedSpotTitle(post);
     const postIndex = posts.findIndex((item) => item.id === post.id);
     const clickedSpot = postIndex >= 0 ? viewerItems[postIndex] : undefined;
+    const visitCount = post.visited_count ?? 0;
 
     return (
       <article key={post.id} className="relative overflow-hidden bg-slate-950">
@@ -178,7 +211,7 @@ export default function SearchExploreGrid({ onPostsChange }: SearchExploreGridPr
             viewerItems={viewerItems}
             clickedSpot={clickedSpot}
           >
-            <PostCardMedia post={post} className={`w-full ${aspectClass}`} imageClassName={`w-full ${aspectClass} object-cover`} />
+            <PostCardMedia post={post} autoplay className={`w-full ${aspectClass}`} imageClassName={`w-full ${aspectClass} object-cover`} />
           </PostMediaLink>
         ) : (
           <PostMediaLink
@@ -190,6 +223,15 @@ export default function SearchExploreGrid({ onPostsChange }: SearchExploreGridPr
             <span className="line-clamp-4">{spotTitle || post.content?.trim() || t("profile.spotFallback")}</span>
           </PostMediaLink>
         )}
+
+        {visitCount > 0 ? (
+          <div className="pointer-events-none absolute bottom-1.5 left-1.5 flex items-center gap-0.5 rounded-full bg-black/55 px-1.5 py-0.5 backdrop-blur-sm">
+            <Eye className="h-2.5 w-2.5 shrink-0 text-white/80" strokeWidth={2} aria-hidden />
+            <span className="text-[9px] font-semibold leading-none text-white/90">
+              {formatVisitCount(visitCount)}
+            </span>
+          </div>
+        ) : null}
       </article>
     );
   };

@@ -17,15 +17,17 @@ export const POST_STOP_CHUNK_WAIT_MS = 300;
 export const RECORDING_BROWSER_UNSAVED_MESSAGE =
   "Recording was not saved by this browser. Please try again.";
 
-/** Target recording bitrate (bits per second). */
-export const CAMERA_VIDEO_BITS_PER_SECOND = 2_000_000;
+/** Target recording bitrate (bits per second) — high for sharp 1080p/4K output. */
+export const CAMERA_VIDEO_BITS_PER_SECOND = 12_000_000;
 
-export const CAMERA_VIDEO_BITS_PER_SECOND_FALLBACK = 3_000_000;
+export const CAMERA_VIDEO_BITS_PER_SECOND_FALLBACK = 8_000_000;
 
-/** iPhone Safari recording bitrates — lower for smoother capture. */
-export const IOS_CAMERA_VIDEO_BITS_PER_SECOND = 1_500_000;
+/** iPhone / WKWebView recording bitrates — match native Camera app quality. */
+export const IOS_CAMERA_VIDEO_BITS_PER_SECOND = 12_000_000;
 
-export const IOS_CAMERA_VIDEO_BITS_PER_SECOND_FALLBACK = 2_000_000;
+export const IOS_CAMERA_VIDEO_BITS_PER_SECOND_FALLBACK = 8_000_000;
+
+export const IOS_CAMERA_AUDIO_BITS_PER_SECOND = 192_000;
 
 export type CameraFacingMode = "user" | "environment";
 
@@ -63,7 +65,15 @@ export function pickVideoRecorderMimeType() {
     return "";
   }
 
-  const candidates = ["video/webm;codecs=vp8", "video/webm"];
+  // Prefer codecs that encode BOTH video and audio.
+  // vp8+opus → widely supported in Chrome/Chromium-based browsers.
+  // vp9+opus → higher quality, also broadly supported.
+  // Bare "video/webm" → let the browser choose (usually includes opus audio).
+  const candidates = [
+    "video/webm;codecs=vp8,opus",
+    "video/webm;codecs=vp9,opus",
+    "video/webm",
+  ];
 
   for (const mimeType of candidates) {
     if (MediaRecorder.isTypeSupported(mimeType)) {
@@ -80,9 +90,11 @@ function getSafeDesktopRecorderMimeTypes() {
     return [] as string[];
   }
 
-  return ["video/webm;codecs=vp8", "video/webm"].filter((mimeType) =>
-    MediaRecorder.isTypeSupported(mimeType)
-  );
+  return [
+    "video/webm;codecs=vp8,opus",
+    "video/webm;codecs=vp9,opus",
+    "video/webm",
+  ].filter((mimeType) => MediaRecorder.isTypeSupported(mimeType));
 }
 
 export function getStreamRecordingDebug(stream: MediaStream | null): Pick<
@@ -161,17 +173,65 @@ function buildRecordingStream(stream: MediaStream) {
 }
 
 function createMediaRecorder(stream: MediaStream) {
+  // Diagnostic: log every track entering the recorder so audio issues are visible in Xcode console.
+  console.log("[SpotCamera] audio tracks", stream.getAudioTracks().map((t) => ({
+    readyState: t.readyState,
+    muted: t.muted,
+    enabled: t.enabled,
+    label: t.label,
+  })));
+  console.log("[SpotCamera] video tracks", stream.getVideoTracks().map((t) => ({
+    readyState: t.readyState,
+    muted: t.muted,
+    enabled: t.enabled,
+    label: t.label,
+  })));
+
   if (isIosSafari()) {
-    const recorder = new MediaRecorder(stream);
-    console.log("[SpotDrop camera] MediaRecorder created (Safari — no options)", {
-      mimeType: recorder.mimeType,
-      state: recorder.state,
-      note: "Browser-chosen mimeType; no mimeType passed in constructor",
-    });
-    return recorder;
+    // On iOS Safari / WKWebView: let the browser choose the container (mp4/aac)
+    // but explicitly set bitrates so audio IS encoded at a useful quality.
+    const iosOptions: MediaRecorderOptions = {
+      videoBitsPerSecond: IOS_CAMERA_VIDEO_BITS_PER_SECOND,
+      audioBitsPerSecond: IOS_CAMERA_AUDIO_BITS_PER_SECOND,
+    };
+    try {
+      const recorder = new MediaRecorder(stream, iosOptions);
+      console.log("[SpotDrop camera] MediaRecorder created (iOS + bitrate options)", {
+        mimeType: recorder.mimeType,
+        state: recorder.state,
+        videoBitsPerSecond: IOS_CAMERA_VIDEO_BITS_PER_SECOND,
+        audioBitsPerSecond: IOS_CAMERA_AUDIO_BITS_PER_SECOND,
+        audioTrackCount: stream.getAudioTracks().length,
+      });
+      return recorder;
+    } catch {
+      // Options not supported — fall back to no-options constructor.
+      const recorder = new MediaRecorder(stream);
+      console.warn("[SpotDrop camera] MediaRecorder created (iOS no-options fallback)", {
+        mimeType: recorder.mimeType,
+        state: recorder.state,
+      });
+      return recorder;
+    }
   }
 
   const recordingStream = buildRecordingStream(stream);
+  const desktopBitrateOptions: MediaRecorderOptions = {
+    videoBitsPerSecond: CAMERA_VIDEO_BITS_PER_SECOND,
+    audioBitsPerSecond: IOS_CAMERA_AUDIO_BITS_PER_SECOND,
+  };
+
+  try {
+    const recorder = new MediaRecorder(recordingStream, desktopBitrateOptions);
+    console.log("[SpotDrop camera] MediaRecorder created (default + bitrates)", {
+      mimeType: recorder.mimeType,
+      state: recorder.state,
+      videoBitsPerSecond: CAMERA_VIDEO_BITS_PER_SECOND,
+    });
+    return recorder;
+  } catch (caught) {
+    console.warn("[SpotDrop camera] Default MediaRecorder with bitrates failed", caught);
+  }
 
   try {
     const recorder = new MediaRecorder(recordingStream);
@@ -186,7 +246,10 @@ function createMediaRecorder(stream: MediaStream) {
 
   for (const mimeType of getSafeDesktopRecorderMimeTypes()) {
     try {
-      const recorder = new MediaRecorder(recordingStream, { mimeType });
+      const recorder = new MediaRecorder(recordingStream, {
+        mimeType,
+        ...desktopBitrateOptions,
+      });
       console.log("[SpotDrop camera] MediaRecorder created (webm fallback)", {
         mimeType: recorder.mimeType,
         state: recorder.state,
@@ -258,6 +321,9 @@ function waitForFinalDataChunk(
   });
 }
 
+export const MIC_PERMISSION_MESSAGE =
+  "Microphone access was denied. Video will be recorded without sound. Enable microphone in Settings and reopen the camera.";
+
 export function mapCameraPermissionError(error: unknown) {
   if (!(error instanceof Error)) {
     return CAMERA_PERMISSION_MESSAGE;
@@ -278,40 +344,95 @@ export function mapCameraPermissionError(error: unknown) {
   return error.message;
 }
 
-function buildAudioConstraints(): boolean | MediaTrackConstraints {
-  if (isIosSafari()) {
-    return true;
-  }
+/** Extended video constraints supported on iOS Safari / WKWebView. */
+type ExtendedVideoConstraints = MediaTrackConstraints & {
+  focusMode?: ConstrainDOMString;
+  exposureMode?: ConstrainDOMString;
+  whiteBalanceMode?: ConstrainDOMString;
+  resizeMode?: ConstrainDOMString;
+};
 
-  return {
-    echoCancellation: true,
-    noiseSuppression: true,
-    autoGainControl: true,
-  };
-}
-
-/** Balanced capture profile — 720p @ 30fps max. */
-export function buildBalancedVideoConstraints(
-  facingMode: CameraFacingMode = "environment"
-): MediaTrackConstraints {
+function buildAdvancedVideoConstraints(
+  facingMode: CameraFacingMode,
+  width: number,
+  height: number,
+  minWidth?: number
+): ExtendedVideoConstraints {
   return {
     facingMode,
-    width: { ideal: 1280 },
-    height: { ideal: 720 },
-    frameRate: { ideal: 30, max: 30 },
+    width: minWidth ? { ideal: width, min: minWidth } : { ideal: width },
+    height: { ideal: height },
+    frameRate: { ideal: 30, max: 60 },
+    // Continuous autofocus, auto exposure, and auto white balance — no beauty/smoothing.
+    focusMode: { ideal: "continuous" },
+    exposureMode: { ideal: "continuous" },
+    whiteBalanceMode: { ideal: "continuous" },
+    // Request the camera not downscale the sensor feed before delivery.
+    resizeMode: { ideal: "none" },
   };
 }
 
-/** Low-tier fallback — 540p @ 24fps for laggy or constrained devices. */
+function buildAudioConstraints(): MediaTrackConstraints {
+  // Prefer minimal audio processing to preserve natural microphone sound.
+  // Use `ideal` so iOS WKWebView doesn't hard-reject unsupported flags.
+  return {
+    echoCancellation: { ideal: true },
+    noiseSuppression: { ideal: false },
+    autoGainControl: { ideal: false },
+  };
+}
+
+/** 4K capture — preferred on iPhone 15 Pro and newer rear cameras. */
+export function build4KVideoConstraints(
+  facingMode: CameraFacingMode = "environment"
+): ExtendedVideoConstraints {
+  return buildAdvancedVideoConstraints(facingMode, 3840, 2160, 1920);
+}
+
+/** Full HD capture — 1080p minimum quality tier. */
+export function buildFullHdVideoConstraints(
+  facingMode: CameraFacingMode = "environment"
+): ExtendedVideoConstraints {
+  return buildAdvancedVideoConstraints(facingMode, 1920, 1080, 1920);
+}
+
+/** Balanced fallback — 720p only when 1080p/4K are unavailable. */
+export function buildBalancedVideoConstraints(
+  facingMode: CameraFacingMode = "environment"
+): ExtendedVideoConstraints {
+  return buildAdvancedVideoConstraints(facingMode, 1280, 720);
+}
+
+/** Low-tier fallback — last resort for constrained devices. */
 export function buildLowVideoConstraints(
   facingMode: CameraFacingMode = "environment"
-): MediaTrackConstraints {
+): ExtendedVideoConstraints {
   return {
     facingMode,
     width: { ideal: 960 },
     height: { ideal: 540 },
-    frameRate: { ideal: 24, max: 24 },
+    frameRate: { ideal: 30, max: 30 },
   };
+}
+
+/** Apply continuous autofocus / exposure / white-balance after the stream is live. */
+export async function optimizeVideoTrack(track: MediaStreamTrack | undefined) {
+  if (!track) {
+    return;
+  }
+
+  const advanced: MediaTrackConstraintSet[] = [
+    { focusMode: "continuous" } as MediaTrackConstraintSet,
+    { exposureMode: "continuous" } as MediaTrackConstraintSet,
+    { whiteBalanceMode: "continuous" } as MediaTrackConstraintSet,
+    { resizeMode: "none" } as MediaTrackConstraintSet,
+  ];
+
+  try {
+    await track.applyConstraints({ advanced });
+  } catch {
+    // Individual flags may be unsupported — best-effort only.
+  }
 }
 
 /** @deprecated Use {@link buildBalancedVideoConstraints}. */
@@ -325,10 +446,13 @@ export function logCameraTrackSettings(label: string, track: MediaStreamTrack | 
   const settings = track.getSettings();
   const constraints = track.getConstraints?.() ?? {};
 
+  const extended = settings as MediaTrackSettings & {
+    focusMode?: string;
+    exposureMode?: string;
+    whiteBalanceMode?: string;
+  };
+
   console.log(`[SpotDrop camera] ${label}`, {
-    requested: buildBalancedVideoConstraints(
-      (settings.facingMode as CameraFacingMode | undefined) ?? "environment"
-    ),
     appliedSettings: {
       width: settings.width,
       height: settings.height,
@@ -336,6 +460,9 @@ export function logCameraTrackSettings(label: string, track: MediaStreamTrack | 
       facingMode: settings.facingMode,
       aspectRatio: settings.aspectRatio,
       deviceId: settings.deviceId,
+      focusMode: extended.focusMode,
+      exposureMode: extended.exposureMode,
+      whiteBalanceMode: extended.whiteBalanceMode,
     },
     appliedConstraints: constraints,
   });
@@ -343,18 +470,36 @@ export function logCameraTrackSettings(label: string, track: MediaStreamTrack | 
 
 function getCameraConstraintAttempts(
   facingMode: CameraFacingMode,
-  quality: CameraQualityMode
+  quality: CameraQualityMode,
+  includeAudio = true
 ): MediaStreamConstraints[] {
-  const audio = buildAudioConstraints();
+  const audio = includeAudio ? buildAudioConstraints() : false;
+  const videoProfiles =
+    quality === "smooth"
+      ? [buildLowVideoConstraints(facingMode)]
+      : [
+          build4KVideoConstraints(facingMode),
+          buildFullHdVideoConstraints(facingMode),
+          buildBalancedVideoConstraints(facingMode),
+        ];
 
-  if (quality === "smooth") {
-    return [{ audio, video: buildLowVideoConstraints(facingMode) }];
+  const attempts: MediaStreamConstraints[] = [];
+
+  // Prefer a single getUserMedia call with audio+video — required on iOS for
+  // MediaRecorder to encode audio and for maximum sensor resolution.
+  for (const video of videoProfiles) {
+    attempts.push({ audio, video });
   }
 
-  return [
-    { audio, video: buildBalancedVideoConstraints(facingMode) },
-    { audio, video: buildLowVideoConstraints(facingMode) },
-  ];
+  // Video-only fallbacks if the combined call fails (mic permission pending).
+  for (const video of videoProfiles) {
+    attempts.push({ audio: false, video });
+  }
+
+  attempts.push({ audio, video: true });
+  attempts.push({ audio: false, video: true });
+
+  return attempts;
 }
 
 export function resolveCameraQualityMode(
@@ -365,18 +510,19 @@ export function resolveCameraQualityMode(
     return quality;
   }
 
-  if (hdEnabled !== undefined) {
-    return hdEnabled ? "hd" : "smooth";
+  if (hdEnabled === false) {
+    return "smooth";
   }
 
-  return isIosSafari() ? "smooth" : "hd";
+  // Always default to maximum quality — never silently downgrade on iOS.
+  return "hd";
 }
 
 export function getMediaRecorderOptions(mimeType: string): MediaRecorderOptions {
   return {
     mimeType,
     videoBitsPerSecond: CAMERA_VIDEO_BITS_PER_SECOND,
-    audioBitsPerSecond: 96_000,
+    audioBitsPerSecond: IOS_CAMERA_AUDIO_BITS_PER_SECOND,
   };
 }
 
@@ -413,14 +559,15 @@ export async function waitForVideoDimensions(video: HTMLVideoElement, timeoutMs 
 
 export async function startCameraStream(
   facingMode: CameraFacingMode = "environment",
-  options?: { quality?: CameraQualityMode }
+  options?: { quality?: CameraQualityMode; includeAudio?: boolean }
 ) {
   if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
     throw new Error("Camera is not available in this browser.");
   }
 
   const quality = resolveCameraQualityMode(options?.quality);
-  const attempts = getCameraConstraintAttempts(facingMode, quality);
+  const includeAudio = options?.includeAudio ?? true;
+  const attempts = getCameraConstraintAttempts(facingMode, quality, includeAudio);
   let lastError: unknown = null;
 
   for (let index = 0; index < attempts.length; index += 1) {
@@ -430,6 +577,7 @@ export async function startCameraStream(
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
       const videoTrack = stream.getVideoTracks()[0];
 
+      await optimizeVideoTrack(videoTrack);
       logCameraTrackSettings("after getUserMedia", videoTrack);
       return stream;
     } catch (caught) {
@@ -501,7 +649,7 @@ export async function capturePhotoFromVideo(video: HTMLVideoElement) {
     throw new Error("Unable to capture photo.");
   }
 
-  context.imageSmoothingEnabled = true;
+  context.imageSmoothingEnabled = false;
   context.drawImage(video, 0, 0, width, height);
 
   return new Promise<File>((resolve, reject) => {
@@ -515,7 +663,7 @@ export async function capturePhotoFromVideo(video: HTMLVideoElement) {
         resolve(new File([blob], `story-photo-${Date.now()}.jpg`, { type: "image/jpeg" }));
       },
       "image/jpeg",
-      0.92
+      0.98
     );
   });
 }
@@ -743,4 +891,63 @@ export function recordVideoFromStream(
     getRecorderState: () => recorder.state,
     getChunkCount: () => chunks.length,
   };
+}
+
+// ─── Audio helpers ────────────────────────────────────────────────────────────
+
+/** Returns true if the stream has at least one live audio track. */
+/**
+ * Returns true only when the stream has at least one audio track that is both
+ * live AND not muted. On iOS WKWebView the system can hand back a track with
+ * readyState "live" but .muted === true when microphone access hasn't been
+ * fully confirmed yet — that track produces silence, so we treat it as absent.
+ */
+export function streamHasAudio(stream: MediaStream | null): boolean {
+  if (!stream) return false;
+  return stream.getAudioTracks().some((t) => t.readyState === "live" && !t.muted);
+}
+
+/**
+ * Request a microphone-only stream. Returns null if permission is denied or
+ * the API is unavailable — callers must treat null as "no audio available".
+ */
+export async function requestAudioOnlyStream(): Promise<MediaStream | null> {
+  if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+    return null;
+  }
+
+  try {
+    return await navigator.mediaDevices.getUserMedia({
+      audio: buildAudioConstraints(),
+      video: false,
+    });
+  } catch (caught) {
+    console.warn("[SpotDrop camera] requestAudioOnlyStream failed", caught);
+    return null;
+  }
+}
+
+/**
+ * Combine the video tracks from `videoStream` with the live, unmuted audio
+ * tracks from `audioStream` into a new MediaStream suitable for MediaRecorder.
+ */
+export function mergeAudioIntoStream(
+  videoStream: MediaStream,
+  audioStream: MediaStream
+): MediaStream {
+  const videoTracks = videoStream.getVideoTracks();
+  const audioTracks = audioStream
+    .getAudioTracks()
+    .filter((t) => t.readyState === "live" && !t.muted);
+  console.log("[SpotDrop camera] mergeAudioIntoStream", {
+    videoTrackCount: videoTracks.length,
+    audioTrackCount: audioTracks.length,
+    allAudioTracks: audioStream.getAudioTracks().map((t) => ({
+      readyState: t.readyState,
+      muted: t.muted,
+      enabled: t.enabled,
+      label: t.label,
+    })),
+  });
+  return new MediaStream([...videoTracks, ...audioTracks]);
 }

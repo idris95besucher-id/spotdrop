@@ -1,7 +1,7 @@
 import { channelStaticParams } from "@/lib/capacitorStaticExport";
 import ChannelView from "./ChannelView";
 
-export function generateStaticParams() {
+export async function generateStaticParams() {
   return channelStaticParams();
 }
 

@@ -290,7 +290,7 @@ export default function PeopleSearchScreen() {
     return (
       <Link
         key={profile.id}
-        href={`/user/${profile.id}`}
+        href={`/user?id=${profile.id}`}
         className="group relative overflow-hidden rounded-[28px] border border-white/10 bg-gradient-to-br from-slate-900/95 via-slate-900/90 to-slate-950/95 p-5 shadow-lg shadow-black/20 transition duration-200 hover:-translate-y-0.5 hover:border-cyan-300/40 hover:shadow-cyan-950/30"
       >
         <div className="absolute inset-0 bg-gradient-to-br from-cyan-400/0 via-cyan-400/0 to-cyan-400/0 opacity-0 transition group-hover:opacity-100 group-hover:from-cyan-400/5 group-hover:to-indigo-400/5" />

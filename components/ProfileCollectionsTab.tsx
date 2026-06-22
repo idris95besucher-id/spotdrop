@@ -180,7 +180,7 @@ export default function ProfileCollectionsTab({ userId, viewerId, isOwner }: Pro
             return (
               <Link
                 key={collection.id}
-                href={`/collections/${collection.id}`}
+                href={`/collections?id=${collection.id}`}
                 className="group overflow-hidden rounded-2xl border border-white/[0.08] bg-[#0B1026] transition hover:border-primary/25"
               >
                 <div className="relative aspect-[4/3] bg-[#050816]">

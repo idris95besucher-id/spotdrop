@@ -88,7 +88,7 @@ export default function DirectMessageSpotCard({
       return;
     }
 
-    router.push(`/posts/${item.id}`);
+    router.push(`/posts?id=${item.id}`);
   };
 
   const title = isOwnMessage

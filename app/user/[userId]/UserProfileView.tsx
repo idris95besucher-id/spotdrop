@@ -62,10 +62,10 @@ async function loadPublicProfile(profileParam: string) {
   };
 }
 
-export default function UserPage() {
+export default function UserPage({ userIdOverride }: { userIdOverride?: string }) {
   const { t } = useI18n();
   const params = useParams<{ userId: string }>();
-  const profileParam = decodeURIComponent(String(params.userId ?? "")).trim();
+  const profileParam = userIdOverride?.trim() || decodeURIComponent(String(params.userId ?? "")).trim();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [viewerId, setViewerId] = useState<string | null>(null);
   const [viewerFollowsTarget, setViewerFollowsTarget] = useState(false);
@@ -367,7 +367,7 @@ export default function UserPage() {
 
                 {!isOwnProfile && viewerId && canMessageTarget ? (
                   <Link
-                    href={`/dm/${profile.id}`}
+                    href={`/dm?id=${profile.id}`}
                     className="inline-flex w-full min-w-0 items-center justify-center rounded-full border border-white/15 bg-white/5 px-6 py-3 text-sm font-semibold text-white transition hover:bg-white/10 sm:min-w-[8.5rem] sm:flex-1 sm:max-w-[11rem]"
                   >
                     {t("profile.message")}
