@@ -90,22 +90,22 @@ export function isMissingSpotRankingColumns(error: { code?: string; message?: st
   );
 }
 
-type RecordSpotViewResult = {
+type RecordSpotSeeVisitResult = {
   visitedCount: number | null;
   incremented: boolean;
   error: string | null;
 };
 
-const spotViewInFlight = new Set<string>();
-const spotViewRecorded = new Set<string>();
+const spotSeeVisitInFlight = new Set<string>();
+const spotSeeVisitRecorded = new Set<string>();
 
-function spotViewSessionKey(postId: string, viewerId: string) {
+function spotSeeVisitSessionKey(postId: string, viewerId: string) {
   return `${postId}:${viewerId}`;
 }
 
-async function recordUniqueSpotView(postId: string): Promise<RecordSpotViewResult> {
+async function recordUniqueSpotSeeVisit(postId: string): Promise<RecordSpotSeeVisitResult> {
   try {
-    const { data, error } = await supabase.rpc("record_spot_view", {
+    const { data, error } = await supabase.rpc("record_spot_visited", {
       p_post_id: postIdForQuery(postId),
     });
 
@@ -128,7 +128,7 @@ async function recordUniqueSpotView(postId: string): Promise<RecordSpotViewResul
       return {
         visitedCount: null,
         incremented: false,
-        error: payload.error ?? "view_not_recorded",
+        error: payload.error ?? "visit_not_recorded",
       };
     }
 
@@ -143,7 +143,7 @@ async function recordUniqueSpotView(postId: string): Promise<RecordSpotViewResul
   }
 }
 
-export type RecordSpotOpenInput = {
+export type RecordSpotSeeVisitInput = {
   postId: string;
   viewerId: string | null;
   ownerId?: string | null;
@@ -151,31 +151,32 @@ export type RecordSpotOpenInput = {
   authResolved?: boolean;
 };
 
-export async function recordSpotOpen({
+/** Record a unique "See Spot" visit — not a passive open/view of the Spot detail. */
+export async function recordSpotSeeVisit({
   postId,
   viewerId,
   ownerId = null,
   authResolved = true,
-}: RecordSpotOpenInput): Promise<void> {
-  if (!authResolved || !viewerId) {
-    return;
+}: RecordSpotSeeVisitInput): Promise<RecordSpotSeeVisitResult> {
+  if (!authResolved || !viewerId || !postId) {
+    return { visitedCount: null, incremented: false, error: null };
   }
 
   if (ownerId && viewerId === ownerId) {
-    return;
+    return { visitedCount: null, incremented: false, error: null };
   }
 
-  const sessionKey = spotViewSessionKey(postId, viewerId);
+  const sessionKey = spotSeeVisitSessionKey(postId, viewerId);
 
-  if (spotViewRecorded.has(sessionKey) || spotViewInFlight.has(sessionKey)) {
-    return;
+  if (spotSeeVisitRecorded.has(sessionKey) || spotSeeVisitInFlight.has(sessionKey)) {
+    return { visitedCount: null, incremented: false, error: null };
   }
 
-  spotViewInFlight.add(sessionKey);
+  spotSeeVisitInFlight.add(sessionKey);
 
   try {
-    const result = await recordUniqueSpotView(postId);
-    spotViewRecorded.add(sessionKey);
+    const result = await recordUniqueSpotSeeVisit(postId);
+    spotSeeVisitRecorded.add(sessionKey);
 
     if (result.visitedCount != null) {
       dispatchSpotStatsUpdated({
@@ -183,43 +184,22 @@ export async function recordSpotOpen({
         visited_count: result.visitedCount,
       });
     }
+
+    return result;
   } finally {
-    spotViewInFlight.delete(sessionKey);
+    spotSeeVisitInFlight.delete(sessionKey);
   }
 }
 
-/** @deprecated Use recordSpotOpen — kept for SpotLocationSheet maps action. */
+/** @deprecated Use recordSpotSeeVisit */
 export async function recordSpotVisited(
   postId: string,
   options: { viewerId?: string | null; ownerId?: string | null; authResolved?: boolean } = {}
-): Promise<RecordSpotViewResult> {
-  const { viewerId = null, ownerId = null, authResolved = true } = options;
-
-  if (!authResolved || !viewerId) {
-    return { visitedCount: null, incremented: false, error: null };
-  }
-
-  if (ownerId && viewerId === ownerId) {
-    return { visitedCount: null, incremented: false, error: null };
-  }
-
-  const sessionKey = spotViewSessionKey(postId, viewerId);
-
-  if (spotViewRecorded.has(sessionKey)) {
-    return { visitedCount: null, incremented: false, error: null };
-  }
-
-  if (spotViewInFlight.has(sessionKey)) {
-    return { visitedCount: null, incremented: false, error: null };
-  }
-
-  spotViewInFlight.add(sessionKey);
-
-  try {
-    const result = await recordUniqueSpotView(postId);
-    spotViewRecorded.add(sessionKey);
-    return result;
-  } finally {
-    spotViewInFlight.delete(sessionKey);
-  }
+): Promise<RecordSpotSeeVisitResult> {
+  return recordSpotSeeVisit({
+    postId,
+    viewerId: options.viewerId ?? null,
+    ownerId: options.ownerId ?? null,
+    authResolved: options.authResolved ?? true,
+  });
 }

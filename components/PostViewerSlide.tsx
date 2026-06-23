@@ -27,7 +27,7 @@ import { getReelMediaSources } from "@/lib/postViewerMedia";
 import { publicProfileUsername } from "@/lib/publicProfile";
 import { normalizeGuidePlace } from "@/lib/guidePlaces";
 import { isSpotContent, shouldShowSpotLocation } from "@/lib/spotLocationDisplay";
-import { normalizeSpotPublicStats, recordSpotOpen, type SpotPublicStats } from "@/lib/spotRanking";
+import { normalizeSpotPublicStats, type SpotPublicStats } from "@/lib/spotRanking";
 import { dispatchSpotStatsUpdated } from "@/lib/spotStatsEvents";
 import type { SpotStatsUpdatedDetail } from "@/lib/spotStatsEvents";
 import { loadSpotCollectionSaveState } from "@/lib/collections";
@@ -236,19 +236,6 @@ export default function PostViewerSlide({
   }, [isActive, isDemo, item.id]);
 
   useEffect(() => {
-    if (!isActive || !isSpot || isDemoPostId(item.id)) {
-      return;
-    }
-
-    void recordSpotOpen({
-      postId: item.id,
-      viewerId: userId,
-      ownerId: item.user_id ?? null,
-      authResolved,
-    });
-  }, [authResolved, isActive, isSpot, item.id, item.user_id, userId]);
-
-  useEffect(() => {
     const handleStatsUpdated = (event: Event) => {
       const detail = (event as CustomEvent<SpotStatsUpdatedDetail>).detail;
 
@@ -379,6 +366,7 @@ export default function PostViewerSlide({
 
     openSpotLocation({
       id: post.id,
+      user_id: post.user_id,
       content_kind: post.content_kind,
       spot_name: post.spot_name,
       spot_address: post.spot_address,
@@ -484,6 +472,7 @@ export default function PostViewerSlide({
               className="text-xs"
               location={{
                 id: post.id,
+                user_id: post.user_id,
                 content_kind: post.content_kind,
                 spot_name: post.spot_name,
                 spot_address: post.spot_address,

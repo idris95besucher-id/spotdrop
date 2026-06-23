@@ -1,4 +1,10 @@
-import { CAMERA_MAX_VIDEO_SECONDS, pickVideoRecorderMimeType } from "@/lib/cameraCapture";
+import {
+  CAMERA_AUDIO_BITS_PER_SECOND,
+  CAMERA_VIDEO_BITS_PER_SECOND,
+  CAMERA_MAX_VIDEO_SECONDS,
+  pickVideoRecorderMimeType,
+  parseRecorderCodecs,
+} from "@/lib/cameraCapture";
 
 export const MAX_TRIM_CLIP_SECONDS = CAMERA_MAX_VIDEO_SECONDS;
 
@@ -50,12 +56,29 @@ export async function trimVideoFile(file: File, startSeconds: number, endSeconds
   const mimeType = pickVideoRecorderMimeType();
 
   if (!mimeType) {
-    throw new Error("Video trimming is not supported in this browser.");
+    console.log("[SpotDrop export] trim skipped — copy original file", {
+      reEncoded: false,
+      reason: "trim not supported in this browser",
+      sourceFileType: file.type || "(unknown)",
+    });
+    return file;
   }
+
+  const codecs = parseRecorderCodecs(mimeType);
+  console.log("[SpotDrop export] trim re-encode start", {
+    reEncoded: true,
+    exportMimeType: mimeType,
+    audioCodec: codecs.audioCodec,
+    videoCodec: codecs.videoCodec,
+    audioBitsPerSecond: CAMERA_AUDIO_BITS_PER_SECOND,
+    videoBitsPerSecond: CAMERA_VIDEO_BITS_PER_SECOND,
+  });
 
   const url = URL.createObjectURL(file);
   const video = document.createElement("video");
-  video.muted = true;
+  // Keep audio in captureStream — muted=true strips audio on some browsers.
+  video.muted = false;
+  video.volume = 0;
   video.playsInline = true;
   video.preload = "auto";
 
@@ -75,11 +98,19 @@ export async function trimVideoFile(file: File, startSeconds: number, endSeconds
     const stream = getCaptureStream(video);
 
     if (!stream) {
+      console.log("[SpotDrop export] trim skipped — captureStream unavailable", {
+        reEncoded: false,
+        sourceFileType: file.type || "(unknown)",
+      });
       return file;
     }
 
     const chunks: BlobPart[] = [];
-    const recorder = new MediaRecorder(stream, { mimeType });
+    const recorder = new MediaRecorder(stream, {
+      mimeType,
+      videoBitsPerSecond: CAMERA_VIDEO_BITS_PER_SECOND,
+      audioBitsPerSecond: CAMERA_AUDIO_BITS_PER_SECOND,
+    });
 
     const trimmedFile = await new Promise<File>((resolve, reject) => {
       recorder.ondataavailable = (event) => {
@@ -93,6 +124,15 @@ export async function trimVideoFile(file: File, startSeconds: number, endSeconds
       recorder.onstop = () => {
         const blob = new Blob(chunks, { type: mimeType });
         const extension = mimeType.includes("mp4") ? "mp4" : "webm";
+        const outCodecs = parseRecorderCodecs(recorder.mimeType || mimeType);
+        console.log("[SpotDrop export] trim complete", {
+          reEncoded: true,
+          exportMimeType: recorder.mimeType || mimeType,
+          audioCodec: outCodecs.audioCodec,
+          videoCodec: outCodecs.videoCodec,
+          audioBitsPerSecond: CAMERA_AUDIO_BITS_PER_SECOND,
+          blobSize: blob.size,
+        });
         resolve(new File([blob], `spot-trim-${Date.now()}.${extension}`, { type: blob.type }));
       };
 

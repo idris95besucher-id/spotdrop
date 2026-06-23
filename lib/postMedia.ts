@@ -13,6 +13,8 @@ type UploadPostMediaOptions = {
   onProgress?: UploadProgressCallback;
   /** Pass from publish pipeline to skip a second auth round-trip. */
   accessToken?: string;
+  /** Skip slow post-upload HEAD/list verification (default: true). */
+  skipVerification?: boolean;
 };
 
 export { POST_MEDIA_BUCKET };
@@ -137,23 +139,30 @@ export async function uploadPostMedia(
   }
 
   const storagePath = formatPostMediaPath(userId, file);
+  const skipVerification = options.skipVerification !== false;
 
-  await verifyStorageBucket(POST_MEDIA_BUCKET);
+  if (!skipVerification) {
+    await verifyStorageBucket(POST_MEDIA_BUCKET);
+  }
 
   options.onProgress?.(0);
 
+  const uploadStartedAt = performance.now();
   const { data, error } = await supabase.storage.from(POST_MEDIA_BUCKET).upload(storagePath, file, {
     cacheControl: "3600",
     upsert: false,
     contentType: file.type || undefined,
   });
+  const uploadElapsedMs = Math.round(performance.now() - uploadStartedAt);
 
   console.log("UPLOAD FILE RESULT", {
     bucket: POST_MEDIA_BUCKET,
     storage_path: storagePath,
     fileName: file.name,
     fileSize: file.size,
+    fileSizeMb: Math.round((file.size / (1024 * 1024)) * 100) / 100,
     fileType: file.type,
+    uploadElapsedMs,
     data,
     error,
   });
@@ -176,25 +185,27 @@ export async function uploadPostMedia(
     data: { publicUrl },
   } = supabase.storage.from(POST_MEDIA_BUCKET).getPublicUrl(storagePath);
 
-  const publicUrlOk = await verifyPublicMediaUrl(publicUrl, storagePath);
-  const objectExists = await verifyStorageObjectExists(POST_MEDIA_BUCKET, storagePath);
+  if (!skipVerification) {
+    const publicUrlOk = await verifyPublicMediaUrl(publicUrl, storagePath);
+    const objectExists = await verifyStorageObjectExists(POST_MEDIA_BUCKET, storagePath);
 
-  console.log("PUBLIC URL RESULT", {
-    storage_path: storagePath,
-    publicUrl,
-    headOk: publicUrlOk,
-    objectExists,
-  });
-
-  if (!objectExists) {
-    throw new Error(`Uploaded file missing from bucket at ${storagePath}`);
-  }
-
-  if (!publicUrlOk) {
-    console.warn("PUBLIC URL RESULT: HEAD check failed but object exists in bucket", {
+    console.log("PUBLIC URL RESULT", {
       storage_path: storagePath,
       publicUrl,
+      headOk: publicUrlOk,
+      objectExists,
     });
+
+    if (!objectExists) {
+      throw new Error(`Uploaded file missing from bucket at ${storagePath}`);
+    }
+
+    if (!publicUrlOk) {
+      console.warn("PUBLIC URL RESULT: HEAD check failed but object exists in bucket", {
+        storage_path: storagePath,
+        publicUrl,
+      });
+    }
   }
 
   return {

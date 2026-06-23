@@ -36,7 +36,7 @@ import { isGuidePlaceRelationMissing, normalizeGuidePlace } from "@/lib/guidePla
 import { publicProfileUsername } from "@/lib/publicProfile";
 import { getErrorMessage, logExactLoadError, userFacingSupabaseListError } from "@/lib/safeLoad";
 import { shouldShowSpotLocation, isSpotContent } from "@/lib/spotLocationDisplay";
-import { normalizeSpotPublicStats, recordSpotOpen, EMPTY_SPOT_PUBLIC_STATS, type SpotPublicStats } from "@/lib/spotRanking";
+import { normalizeSpotPublicStats, EMPTY_SPOT_PUBLIC_STATS, type SpotPublicStats } from "@/lib/spotRanking";
 import { dispatchSpotStatsUpdated, SPOT_STATS_UPDATED_EVENT, type SpotStatsUpdatedDetail } from "@/lib/spotStatsEvents";
 import { loadSpotCollectionSaveState } from "@/lib/collections";
 import { setImmersiveOverlayActive } from "@/lib/immersiveOverlay";
@@ -443,19 +443,6 @@ export default function PostDetailPage({ postIdOverride }: PostDetailPageProps =
     : false;
 
   useEffect(() => {
-    if (!engagementReady || isDemo || !isSpotPost || !postId) {
-      return;
-    }
-
-    void recordSpotOpen({
-      postId,
-      viewerId: userId,
-      ownerId: post?.user_id ?? null,
-      authResolved: sessionReady,
-    });
-  }, [engagementReady, isDemo, isSpotPost, post?.user_id, postId, sessionReady, userId]);
-
-  useEffect(() => {
     if (!engagementReady || isDemo || !isSpotPost || !postId || !userId) {
       setSavedCollectionIds([]);
       return;
@@ -573,6 +560,7 @@ export default function PostDetailPage({ postIdOverride }: PostDetailPageProps =
 
     openSpotLocation({
       id: post.id,
+      user_id: post.user_id,
       content_kind: post.content_kind,
       spot_name: post.spot_name,
       spot_address: post.spot_address,
@@ -704,6 +692,7 @@ export default function PostDetailPage({ postIdOverride }: PostDetailPageProps =
                       className="text-xs"
                       location={{
                         id: post.id,
+                        user_id: post.user_id,
                         content_kind: post.content_kind,
                         spot_name: post.spot_name,
                         spot_address: post.spot_address,

@@ -66,6 +66,8 @@ export default function SpotMapPinSheet({ pin, onClose }: SpotMapPinSheetProps) 
           {pin.location_line ? (
             <SpotLocationSummary
               location={{
+                id: pin.id,
+                user_id: pin.user_id,
                 content_kind: "spot",
                 spot_name: pin.spot_name,
                 spot_address: pin.spot_address,

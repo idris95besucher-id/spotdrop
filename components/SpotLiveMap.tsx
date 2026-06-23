@@ -1,11 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Crosshair, ExternalLink, Minus, Plus, Radio } from "lucide-react";
+import { Crosshair, Minus, Plus, Radio } from "lucide-react";
 import { useI18n } from "@/components/I18nProvider";
 import LiveMapUserSheet from "@/components/LiveMapUserSheet";
 import SpotMapPinSheet from "@/components/SpotMapPinSheet";
-import { buildExternalMapsUrl } from "@/lib/externalMaps";
 import { DEFAULT_MAP_CENTER, DEFAULT_MAP_ZOOM, getMapLibreStyleUrl } from "@/lib/mapLibre";
 import { loadNearbyMapSpotPins, loadSavedMapSpotPinIds, type MapSpotPin } from "@/lib/spots";
 import { supabase } from "@/lib/supabaseClient";
@@ -617,19 +616,6 @@ export default function SpotLiveMap({ userId, embedded = false }: SpotLiveMapPro
     }
   }, [handleSelectLiveUser, mapReady, pins, liveUsers, savedIds, t, userId]);
 
-  const externalMapsUrl = useMemo(() => {
-    if (userCoords) {
-      return buildExternalMapsUrl(userCoords.latitude, userCoords.longitude, t("map.myLocation"));
-    }
-
-    const center = mapRef.current?.getCenter();
-    if (center) {
-      return buildExternalMapsUrl(center.lat, center.lng, t("map.mapCenter"));
-    }
-
-    return buildExternalMapsUrl(DEFAULT_MAP_CENTER[1], DEFAULT_MAP_CENTER[0], t("map.mapLabel"));
-  }, [t, userCoords]);
-
   const liveCount = liveUsers.length;
 
   const handleLocateMe = useCallback(() => {
@@ -741,9 +727,9 @@ export default function SpotLiveMap({ userId, embedded = false }: SpotLiveMapPro
       </div>
 
       <div
-        className={`pointer-events-none absolute inset-x-0 bottom-0 z-20 flex flex-col items-center gap-2 px-4 pt-4 ${
+        className={`pointer-events-none absolute inset-x-0 bottom-0 z-20 flex flex-col items-center gap-2 px-4 pt-2 ${
           embedded
-            ? "pb-[calc(54px+env(safe-area-inset-bottom,0px)+16px)]"
+            ? "pb-[calc(54px+env(safe-area-inset-bottom,0px)+12px)]"
             : "pb-4"
         }`}
       >
@@ -770,16 +756,6 @@ export default function SpotLiveMap({ userId, embedded = false }: SpotLiveMapPro
             {goingLive ? t("map.connecting") : t("map.becomeOnline")}
           </button>
         )}
-
-        <a
-          href={externalMapsUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="pointer-events-auto inline-flex items-center gap-2 rounded-full border border-white/12 bg-[#0B1026]/92 px-4 py-2.5 text-xs font-semibold text-white shadow-lg backdrop-blur-md transition hover:border-cyan-400/35 hover:bg-[#121a33]"
-        >
-          {t("map.openInMaps")}
-          <ExternalLink className="h-3.5 w-3.5 text-cyan-300" aria-hidden />
-        </a>
       </div>
 
       <SpotMapPinSheet pin={selectedPin} onClose={() => setSelectedPin(null)} />

@@ -4,21 +4,9 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { Camera, Loader2, RotateCcw, Video, X, Zap, ZapOff } from "lucide-react";
 import { isCapacitorNative } from "@/lib/capacitorUtils";
 import {
-  applyVideoTrackZoomWithRange,
-  buildCachedZoomRange,
-  clampZoomToRange,
-  readVideoTrackZoom,
-  smoothZoomToward,
-  ZOOM_APPLY_MIN_DELTA,
-  ZOOM_SETTLE_EPSILON,
-  zoomFromVerticalDrag,
-  type ZoomRange,
-} from "@/lib/cameraZoom";
-import {
   CAMERA_MAX_VIDEO_SECONDS,
   CAMERA_PERMISSION_MESSAGE,
   MIC_PERMISSION_MESSAGE,
-  MIN_RECORDING_DURATION_MS,
   RECORDING_BROWSER_UNSAVED_MESSAGE,
   capturePhotoFromVideo,
   recordVideoFromStream,
@@ -32,6 +20,7 @@ import {
   streamHasAudio,
   requestAudioOnlyStream,
   mergeAudioIntoStream,
+  logAudioTrackSettings,
   HOLD_THRESHOLD_MS,
   type CameraFacingMode,
   type VideoRecorderHandle,
@@ -175,10 +164,8 @@ export default function SpotInstagramCamera({
   const [error, setError] = useState<string | null>(null);
   const [nativeFallback, setNativeFallback] = useState(false);
   const [micWarning, setMicWarning] = useState<string | null>(null);
-  const [zoomSupported, setZoomSupported] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement>(null);
-  const videoZoomWrapRef = useRef<HTMLDivElement>(null);
   const shutterRef = useRef<HTMLButtonElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const audioStreamRef = useRef<MediaStream | null>(null);
@@ -191,21 +178,6 @@ export default function SpotInstagramCamera({
   const holdToRecordTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const holdRecordingStartedRef = useRef(false);
   const pointerDownAtRef = useRef(0);
-  const latestPointerYRef = useRef(0);
-  const zoomRangeRef = useRef<ZoomRange | null>(null);
-  const zoomDragStartYRef = useRef(0);
-  const zoomDragStartZoomRef = useRef(1);
-  /** Single source of truth for zoom label + CSS preview scale. */
-  const sharedZoomRef = useRef(1);
-  const targetZoomRef = useRef(1);
-  const realZoomRef = useRef(1);
-  /** True while dragging — CSS scale(sharedZoom) drives preview; false after hardware commit. */
-  const zoomPreviewCssActiveRef = useRef(false);
-  const zoomLoopRafRef = useRef<number | null>(null);
-  const zoomApplyInFlightRef = useRef(false);
-  const pendingZoomClientYRef = useRef<number | null>(null);
-  const zoomIndicatorTextRef = useRef<HTMLSpanElement>(null);
-  const zoomIndicatorWrapRef = useRef<HTMLDivElement>(null);
   const shutterPressActiveRef = useRef(false);
   const shutterPointerIdRef = useRef<number | null>(null);
   const shutterDocumentListenersRef = useRef<{
@@ -239,163 +211,36 @@ export default function SpotInstagramCamera({
     shutterDocumentListenersRef.current = null;
   }, []);
 
-  const setZoomIndicatorVisible = useCallback((visible: boolean) => {
-    if (zoomIndicatorWrapRef.current) {
-      zoomIndicatorWrapRef.current.style.opacity = visible ? "1" : "0";
-    }
+  const setZoomIndicatorVisible = useCallback((_visible: boolean) => {
+    // Zoom disabled during recording for stable preview — no indicator.
   }, []);
 
-  /** One shared zoom value → label text + video scale() in the same update. */
-  const applySharedZoomPresentation = useCallback((sharedZoom: number) => {
-    sharedZoomRef.current = sharedZoom;
-
-    const wrap = videoZoomWrapRef.current;
-
-    if (zoomIndicatorTextRef.current) {
-      zoomIndicatorTextRef.current.textContent = `${sharedZoom.toFixed(1)}x`;
-    }
-
-    if (!wrap) {
-      return;
-    }
-
-    if (!zoomPreviewCssActiveRef.current) {
-      wrap.style.transform = "";
-      wrap.style.willChange = "";
-      return;
-    }
-
-    wrap.style.willChange = "transform";
-    wrap.style.transform = `scale(${sharedZoom})`;
+  const clearPreviewZoomTransform = useCallback(() => {
+    // Preview uses direct camera feed — no CSS transforms applied.
   }, []);
+
+  const clearRecordingCssZoom = useCallback(() => {
+    clearPreviewZoomTransform();
+  }, [clearPreviewZoomTransform]);
 
   const stopZoomLoop = useCallback(() => {
-    if (zoomLoopRafRef.current !== null) {
-      window.cancelAnimationFrame(zoomLoopRafRef.current);
-      zoomLoopRafRef.current = null;
-    }
-
-    pendingZoomClientYRef.current = null;
+    // No RAF zoom loop — zoom is locked while recording.
   }, []);
 
-  const syncZoomFromTrack = useCallback(
-    (stream: MediaStream | null) => {
-      const track = stream?.getVideoTracks()[0];
-      const range = buildCachedZoomRange(track);
-      zoomRangeRef.current = range;
-      setZoomSupported(range !== null);
-
-      const current = range ? clampZoomToRange(readVideoTrackZoom(track), range) : 1;
-      targetZoomRef.current = current;
-      realZoomRef.current = current;
-      applySharedZoomPresentation(current);
-    },
-    [applySharedZoomPresentation]
-  );
-
-  const applyRealZoomNow = useCallback(
-    async (zoom: number, options?: { force?: boolean }) => {
-      const track = streamRef.current?.getVideoTracks()[0];
-      const range = zoomRangeRef.current;
-
-      if (!track || !range) {
-        return false;
-      }
-
-      const clamped = clampZoomToRange(zoom, range);
-
-      if (
-        !options?.force &&
-        Math.abs(clamped - realZoomRef.current) < ZOOM_APPLY_MIN_DELTA
-      ) {
-        return true;
-      }
-
-      if (zoomApplyInFlightRef.current) {
-        return false;
-      }
-
-      zoomApplyInFlightRef.current = true;
-
-      const ok = await applyVideoTrackZoomWithRange(track, clamped, range);
-      zoomApplyInFlightRef.current = false;
-
-      if (ok) {
-        realZoomRef.current = clamped;
-      }
-
-      return ok;
-    },
-    []
-  );
-
-  const flushRealZoomOnDragEnd = useCallback(async () => {
-    const range = zoomRangeRef.current;
-
-    if (!range) {
-      applySharedZoomPresentation(sharedZoomRef.current);
+  const syncZoomFromTrack = useCallback((stream: MediaStream | null) => {
+    const track = stream?.getVideoTracks()[0];
+    if (!track) {
       return;
     }
 
-    const finalZoom = clampZoomToRange(sharedZoomRef.current, range);
-    await applyRealZoomNow(finalZoom, { force: true });
-    zoomPreviewCssActiveRef.current = false;
-    targetZoomRef.current = realZoomRef.current;
-    applySharedZoomPresentation(realZoomRef.current);
-  }, [applyRealZoomNow, applySharedZoomPresentation]);
-
-  const runZoomLoopFrame = useCallback(() => {
-    zoomLoopRafRef.current = null;
-
-    const recordingActive =
-      holdRecordingStartedRef.current ||
-      recordingStartedRef.current ||
-      recorderRef.current !== null;
-
-    if (!shutterPressActiveRef.current || !recordingActive) {
-      return;
-    }
-
-    const range = zoomRangeRef.current;
-    const clientY = pendingZoomClientYRef.current;
-
-    if (range && clientY !== null) {
-      targetZoomRef.current = zoomFromVerticalDrag(
-        zoomDragStartZoomRef.current,
-        zoomDragStartYRef.current,
-        clientY,
-        range
-      );
-
-      if (Math.abs(clientY - zoomDragStartYRef.current) > 16) {
-        zoomPreviewCssActiveRef.current = true;
-        setZoomIndicatorVisible(true);
-      }
-    }
-
-    const sharedZoom = smoothZoomToward(sharedZoomRef.current, targetZoomRef.current);
-    applySharedZoomPresentation(sharedZoom);
-
-    const settling = Math.abs(sharedZoom - targetZoomRef.current) >= ZOOM_SETTLE_EPSILON;
-
-    if (settling) {
-      zoomLoopRafRef.current = window.requestAnimationFrame(runZoomLoopFrame);
-    }
-  }, [applySharedZoomPresentation, setZoomIndicatorVisible]);
-
-  const ensureZoomLoop = useCallback(() => {
-    if (zoomLoopRafRef.current !== null) {
-      return;
-    }
-
-    zoomLoopRafRef.current = window.requestAnimationFrame(runZoomLoopFrame);
-  }, [runZoomLoopFrame]);
+    console.log("[SpotDrop camera] video track ready", track.getSettings());
+  }, []);
 
   const resetRecordingZoom = useCallback(() => {
     stopZoomLoop();
     setZoomIndicatorVisible(false);
-    void flushRealZoomOnDragEnd();
-  }, [flushRealZoomOnDragEnd, setZoomIndicatorVisible, stopZoomLoop]);
+    clearRecordingCssZoom();
+  }, [clearRecordingCssZoom, setZoomIndicatorVisible, stopZoomLoop]);
 
   const attachStreamToVideo = useCallback(async (stream: MediaStream) => {
     const video = videoRef.current;
@@ -429,8 +274,7 @@ export default function SpotInstagramCamera({
       audioStreamRef.current = null;
 
       try {
-        // Single getUserMedia with audio+video at max resolution (4K → 1080p).
-        // iOS MediaRecorder requires audio and video from the same stream for sound.
+        // Stable 1080p @ 30fps rear camera — single stream, no 4K on iOS.
         const stream = await startCameraStream(nextFacing, {
           quality: "hd",
           includeAudio: true,
@@ -529,14 +373,10 @@ export default function SpotInstagramCamera({
       return;
     }
 
-    const startedAt = recordingStartedAtRef.current ?? Date.now();
-    const elapsed = Date.now() - startedAt;
-
-    if (elapsed < MIN_RECORDING_DURATION_MS) {
-      const waitMs = MIN_RECORDING_DURATION_MS - elapsed;
-      console.log("[SpotDrop camera] waiting for minimum recording duration", { elapsed, waitMs });
-      await new Promise((resolve) => window.setTimeout(resolve, waitMs));
-    }
+    console.log("[SpotDrop camera] RECORD RELEASE", {
+      elapsedMs: Date.now() - (recordingStartedAtRef.current ?? Date.now()),
+      chunkCount: recorderRef.current.getChunkCount(),
+    });
 
     const recorder = recorderRef.current;
     recorderRef.current = null;
@@ -548,13 +388,6 @@ export default function SpotInstagramCamera({
     void resetRecordingZoom();
 
     try {
-      console.log("[SpotDrop camera] endRecording", {
-        recorderState: recorder.getRecorderState(),
-        chunkCount: recorder.getChunkCount(),
-        videoTrackState: streamRef.current?.getVideoTracks()[0]?.readyState,
-        streamActive: streamRef.current?.active,
-      });
-
       const file = await recorder.stop();
       recordingStartedRef.current = false;
       recordingStartedAtRef.current = null;
@@ -595,11 +428,8 @@ export default function SpotInstagramCamera({
       return;
     }
 
-    zoomDragStartYRef.current = latestPointerYRef.current;
-    zoomDragStartZoomRef.current = sharedZoomRef.current;
-    targetZoomRef.current = sharedZoomRef.current;
-    zoomPreviewCssActiveRef.current = false;
-    applySharedZoomPresentation(sharedZoomRef.current);
+    clearPreviewZoomTransform();
+    stopZoomLoop();
 
     if (!isMediaRecorderSupported()) {
       console.error("[SpotDrop camera] MediaRecorder not supported");
@@ -637,6 +467,7 @@ export default function SpotInstagramCamera({
       enabled: t.enabled,
       label: t.label,
     })));
+    logAudioTrackSettings("before record", recordStream);
     console.log("[SpotCamera] video tracks", recordStream.getVideoTracks().map((t) => ({
       readyState: t.readyState,
       muted: t.muted,
@@ -695,7 +526,7 @@ export default function SpotInstagramCamera({
       resetRecordingUi();
       setError(caught instanceof Error ? caught.message : "Unable to record video.");
     }
-  }, [clearRecordingTick, endRecording, resetRecordingUi, applySharedZoomPresentation]);
+  }, [clearPreviewZoomTransform, clearRecordingTick, endRecording, resetRecordingUi, stopZoomLoop]);
 
   const takePhoto = useCallback(async () => {
     const video = videoRef.current;
@@ -736,10 +567,10 @@ export default function SpotInstagramCamera({
     shutterPointerIdRef.current = null;
     detachShutterDocumentListeners();
     clearHoldToRecordTimer();
-    void flushRealZoomOnDragEnd();
     stopZoomLoop();
     setZoomIndicatorVisible(false);
 
+    const pressDuration = Date.now() - pointerDownAtRef.current;
     const recordingActive =
       holdRecordingStartedRef.current ||
       recorderRef.current !== null ||
@@ -747,17 +578,25 @@ export default function SpotInstagramCamera({
 
     if (recordingActive) {
       holdRecordingStartedRef.current = false;
+
+      if (pressDuration < HOLD_THRESHOLD_MS + TAP_PHOTO_GRACE_MS) {
+        console.log("[SpotDrop camera] RECORD RELEASE (quick tap → photo)", { pressDuration });
+        recorderRef.current?.cancel();
+        resetRecordingUi();
+        void takePhoto();
+        return;
+      }
+
       void endRecording();
       return;
     }
 
-    const pressDuration = Date.now() - pointerDownAtRef.current;
     if (pressDuration < HOLD_THRESHOLD_MS + TAP_PHOTO_GRACE_MS) {
       void takePhoto();
     }
 
     holdRecordingStartedRef.current = false;
-  }, [clearHoldToRecordTimer, detachShutterDocumentListeners, endRecording, flushRealZoomOnDragEnd, setZoomIndicatorVisible, stopZoomLoop, takePhoto]);
+  }, [clearHoldToRecordTimer, detachShutterDocumentListeners, endRecording, resetRecordingUi, setZoomIndicatorVisible, stopZoomLoop, takePhoto]);
 
   const handleShutterPointerDown = (event: React.PointerEvent<HTMLButtonElement>) => {
     event.preventDefault();
@@ -767,7 +606,6 @@ export default function SpotInstagramCamera({
     }
 
     pointerDownAtRef.current = Date.now();
-    latestPointerYRef.current = event.clientY;
     holdRecordingStartedRef.current = false;
     shutterPressActiveRef.current = true;
     shutterPointerIdRef.current = event.pointerId;
@@ -781,20 +619,7 @@ export default function SpotInstagramCamera({
     }
 
     const onMove = (moveEvent: PointerEvent) => {
-      latestPointerYRef.current = moveEvent.clientY;
-
-      // Only zoom while hold-recording is active.
-      if (!holdRecordingStartedRef.current && !recordingStartedRef.current) {
-        return;
-      }
-
-      if (!zoomRangeRef.current) {
-        return;
-      }
-
       moveEvent.preventDefault();
-      pendingZoomClientYRef.current = moveEvent.clientY;
-      ensureZoomLoop();
     };
 
     const onEnd = (endEvent: PointerEvent) => {
@@ -821,10 +646,9 @@ export default function SpotInstagramCamera({
     document.addEventListener("pointerup", onEnd);
     document.addEventListener("pointercancel", onEnd);
 
-    holdToRecordTimerRef.current = setTimeout(() => {
-      holdRecordingStartedRef.current = true;
-      beginRecording();
-    }, HOLD_THRESHOLD_MS);
+    holdRecordingStartedRef.current = true;
+    console.log("[SpotDrop camera] RECORD START (pointer down)");
+    beginRecording();
   };
 
   const handleShutterPointerUp = (event: React.PointerEvent<HTMLButtonElement>) => {
@@ -912,11 +736,7 @@ export default function SpotInstagramCamera({
           </div>
         ) : (
           <>
-            <div
-              ref={videoZoomWrapRef}
-              className="pointer-events-none absolute inset-0 overflow-hidden"
-              style={{ transformOrigin: "center center" }}
-            >
+            <div className="pointer-events-none absolute inset-0 overflow-hidden bg-black">
               <video
                 ref={videoRef}
                 autoPlay
@@ -924,7 +744,7 @@ export default function SpotInstagramCamera({
                 muted
                 disablePictureInPicture
                 preload="auto"
-                className={`pointer-events-none absolute inset-0 h-full w-full max-h-full max-w-full object-cover object-center ${
+                className={`pointer-events-none absolute inset-0 h-full w-full object-cover object-center ${
                   facingMode === "user" ? "scale-x-[-1]" : ""
                 }`}
               />
@@ -946,15 +766,6 @@ export default function SpotInstagramCamera({
                 {formatRecordingSeconds(recordingElapsedMs)}
               </span>
             </div>
-            {zoomSupported ? (
-              <div
-                ref={zoomIndicatorWrapRef}
-                className="rounded-full bg-black/55 px-3 py-1 text-xs font-semibold tabular-nums text-white ring-1 ring-white/25 backdrop-blur-sm transition-opacity duration-150"
-                style={{ opacity: 0 }}
-              >
-                <span ref={zoomIndicatorTextRef}>1.0x</span>
-              </div>
-            ) : null}
           </div>
         ) : null}
 
@@ -1032,9 +843,7 @@ export default function SpotInstagramCamera({
 
         <p className="mt-4 text-center text-xs text-white/55">
           {isRecording
-            ? zoomSupported
-              ? "Drag up to zoom in · drag down to zoom out · release to stop"
-              : "Release to stop recording"
+            ? "Release to stop recording"
             : `Tap photo · hold ${HOLD_THRESHOLD_MS / 1000}s+ for video · up to ${CAMERA_MAX_VIDEO_SECONDS}s`}
         </p>
       </div>

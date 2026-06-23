@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import SpotOfflineDraftSavedScreen from "@/components/SpotOfflineDraftSavedScreen";
 import SpotInstagramCamera from "@/components/SpotInstagramCamera";
 import SpotCapturePreviewScreen from "@/components/SpotCapturePreviewScreen";
+import SpotPublishScreen from "@/components/SpotPublishScreen";
 import SpotVideoEditorScreen from "@/components/SpotVideoEditorScreen";
 import { loadUserCollections, type CollectionWithMeta } from "@/lib/collections";
 import {
@@ -59,7 +60,7 @@ type CreateSpotFormProps = {
   onDraftChanged?: () => void;
 };
 
-type Step = "camera" | "preview" | "offline_saved";
+type Step = "camera" | "preview" | "publish" | "offline_saved";
 
 export default function CreateSpotForm({
   userId,
@@ -98,6 +99,7 @@ export default function CreateSpotForm({
   // Pre-warmed location captured while camera is open (fast lookup, low accuracy).
   // Used immediately after capture to avoid making the user wait for GPS.
   const cachedLocationRef = useRef<SpotGeoLocation | null>(null);
+  const editorOpenedAtRef = useRef<number | null>(null);
 
   const activeMedia = getActiveMediaEditorItem(mediaItems, activeMediaIndex);
 
@@ -136,7 +138,7 @@ export default function CreateSpotForm({
 
   const persistDraft = useCallback(
     async (options?: { uploadStatus?: SpotDraftUploadStatus; uploadError?: string | null }) => {
-      if (!activeMedia || step !== "preview") {
+      if (!activeMedia || (step !== "preview" && step !== "publish")) {
         return null;
       }
 
@@ -304,7 +306,7 @@ export default function CreateSpotForm({
   }, [draftId, isOpen, restoreDraft, userId]);
 
   useEffect(() => {
-    if (!isOpen || step !== "preview" || !activeMedia || loadingDraft) {
+    if (!isOpen || (step !== "preview" && step !== "publish") || !activeMedia || loadingDraft) {
       return;
     }
 
@@ -383,10 +385,28 @@ export default function CreateSpotForm({
     setNeedsLocationChoice(false);
     setLocationHint(null);
 
+    console.log("[Spot Editor] location ready", {
+      phase: "coordinates",
+      latitude,
+      longitude,
+      source,
+      elapsedMs: editorOpenedAtRef.current ? Date.now() - editorOpenedAtRef.current : null,
+    });
+
     void spotLocationFromCoordinates(latitude, longitude).then((resolved) => {
       const matched = findNearestDiscoveryPlace(resolved, places);
       setLocation(resolved);
       setMatchedPlaceName(matched?.name ?? null);
+      console.log("[Spot Editor] location ready", {
+        phase: "geocoded",
+        latitude: resolved.latitude,
+        longitude: resolved.longitude,
+        city: resolved.city,
+        country: resolved.country,
+        elapsedMs: editorOpenedAtRef.current
+          ? Date.now() - editorOpenedAtRef.current
+          : null,
+      });
     });
   };
 
@@ -458,6 +478,13 @@ export default function CreateSpotForm({
   };
 
   const handleMediaCaptured = async (file: File, nextType: "image" | "video") => {
+    if (nextType === "video") {
+      console.log("[Spot Editor] recording finished", {
+        fileSize: file.size,
+        fileType: file.type,
+      });
+    }
+
     const item = createMediaEditorItem(file, nextType);
     currentDraftIdRef.current = createSpotDraftId();
 
@@ -503,8 +530,30 @@ export default function CreateSpotForm({
     }
 
     setIsOfflineCapture(false);
+    editorOpenedAtRef.current = Date.now();
     setStep("preview");
     void resolveLocationAfterCapture();
+  };
+
+  const handleNext = () => {
+    if (!activeMedia) {
+      setError("Add a photo or video first.");
+      void backToCamera();
+      return;
+    }
+
+    if (!offlineMode && !hasSpotPublishLocation(location)) {
+      setError(SPOT_LOCATION_REQUIRED_MESSAGE);
+      return;
+    }
+
+    if (publishBlockReason) {
+      setError(publishStatusMessage ?? SPOT_LOCATION_REQUIRED_MESSAGE);
+      return;
+    }
+
+    setError(null);
+    setStep("publish");
   };
 
   const handlePublish = async () => {
@@ -558,11 +607,20 @@ export default function CreateSpotForm({
 
       skipSaveOnCloseRef.current = true;
       const postId = result.postId;
-      await handleClose();
+      setPublishing(false);
       onCreated();
 
       if (postId) {
         router.push(`/posts?id=${encodeURIComponent(postId)}`);
+      }
+
+      void handleClose();
+
+      if (currentDraftIdRef.current) {
+        const draftId = currentDraftIdRef.current;
+        void getSpotDraftStorage()
+          .deleteDraft(draftId)
+          .then(() => notifyDraftChanged());
       }
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : "Unable to publish spot.";
@@ -628,36 +686,51 @@ export default function CreateSpotForm({
       );
     }
 
+    if (step === "publish" && activeMedia) {
+      return (
+        <SpotPublishScreen
+          item={activeMedia}
+          collections={collections}
+          collectionId={collectionId}
+          collectionsLoading={collectionsLoading}
+          publishing={publishing}
+          uploadProgress={uploadProgress}
+          uploadFailed={uploadFailed}
+          offlineMode={offlineMode}
+          error={error}
+          onCollectionChange={setCollectionId}
+          onBack={() => {
+            setError(null);
+            setStep("preview");
+          }}
+          onPublish={() => void handlePublish()}
+        />
+      );
+    }
+
     if (step === "preview" && activeMedia?.mediaType === "video") {
       return (
         <SpotVideoEditorScreen
           item={activeMedia}
           spotName={spotName}
-          collections={collections}
-          collectionId={collectionId}
-          collectionsLoading={collectionsLoading}
           locating={locating}
           location={location}
           locationSource={locationSource}
           matchedPlaceName={matchedPlaceName}
           needsLocationChoice={needsLocationChoice}
           locationHint={locationHint}
-          publishing={publishing}
-          uploadProgress={uploadProgress}
-          uploadFailed={uploadFailed}
           publishStatusMessage={publishStatusMessage}
           offlineMode={offlineMode}
           error={error}
           onItemChange={updateActiveItem}
           onTrimChange={updateActiveItemTrim}
           onSpotNameChange={setSpotName}
-          onCollectionChange={setCollectionId}
           onUseCurrentLocation={() => void resolveFromDevice()}
           onSelectPlace={(place) => void applySearchPlace(place)}
           onSaveToDrafts={() => void saveToDraftAndExit()}
           onDiscardVideo={() => void discardVideoAndReturnToCamera()}
           onRetake={() => void backToCamera()}
-          onPublish={() => void handlePublish()}
+          onNext={() => handleNext()}
           savingDraft={savingDraft}
         />
       );
@@ -668,28 +741,21 @@ export default function CreateSpotForm({
         <SpotCapturePreviewScreen
           item={activeMedia}
           spotName={spotName}
-          collections={collections}
-          collectionId={collectionId}
-          collectionsLoading={collectionsLoading}
           locating={locating}
           location={location}
           locationSource={locationSource}
           matchedPlaceName={matchedPlaceName}
           needsLocationChoice={needsLocationChoice}
           locationHint={locationHint}
-          publishing={publishing}
-          uploadProgress={uploadProgress}
-          uploadFailed={uploadFailed}
           publishStatusMessage={publishStatusMessage}
           offlineMode={offlineMode}
           error={error}
           onSpotNameChange={setSpotName}
-          onCollectionChange={setCollectionId}
           onUseCurrentLocation={() => void resolveFromDevice()}
           onSelectPlace={(place) => void applySearchPlace(place)}
           onDismiss={() => void handleClose()}
           onRetake={() => void backToCamera()}
-          onPublish={() => void handlePublish()}
+          onNext={() => handleNext()}
         />
       );
     }

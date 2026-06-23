@@ -258,6 +258,7 @@ export default function FeedPage() {
                         <SpotLocationSummary
                           location={{
                             id: post.id,
+                            user_id: post.user_id,
                             content_kind: post.content_kind,
                             spot_name: post.spot_name,
                             spot_address: post.spot_address,

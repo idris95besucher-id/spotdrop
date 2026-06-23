@@ -2,12 +2,14 @@
 
 import { useMemo, type MouseEvent } from "react";
 import { MapPin } from "lucide-react";
+import { useAuthSession } from "@/components/AuthSessionProvider";
 import { useSpotLocationModal } from "@/components/SpotLocationModalProvider";
 import {
   formatSpotLocationShort,
   hasSpotLocationData,
   type SpotLocationDisplayFields,
 } from "@/lib/spotLocationDisplay";
+import { recordSpotSeeVisit } from "@/lib/spotRanking";
 
 type SpotLocationSummaryProps = {
   location: SpotLocationDisplayFields;
@@ -16,6 +18,8 @@ type SpotLocationSummaryProps = {
 
 export default function SpotLocationSummary({ location, className = "" }: SpotLocationSummaryProps) {
   const { openSpotLocation } = useSpotLocationModal();
+  const { session, loading } = useAuthSession();
+  const viewerId = session?.user?.id ?? null;
 
   const shortLabel = useMemo(() => formatSpotLocationShort(location), [location]);
 
@@ -26,6 +30,16 @@ export default function SpotLocationSummary({ location, className = "" }: SpotLo
   const handleSeeSpotClick = (event: MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation();
     event.preventDefault();
+
+    if (location.id) {
+      void recordSpotSeeVisit({
+        postId: location.id,
+        viewerId,
+        ownerId: location.user_id ?? null,
+        authResolved: !loading,
+      });
+    }
+
     openSpotLocation(location);
   };
 

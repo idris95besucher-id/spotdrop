@@ -1,6 +1,11 @@
-import { MAX_TRIM_CLIP_SECONDS } from "@/lib/videoTrim";
-import { isIosSafari } from "@/lib/cameraCapture";
+import {
+  CAMERA_AUDIO_BITS_PER_SECOND,
+  CAMERA_VIDEO_BITS_PER_SECOND,
+  isIosSafari,
+  parseRecorderCodecs,
+} from "@/lib/cameraCapture";
 import { isCapacitorNative } from "@/lib/capacitorUtils";
+import { MAX_TRIM_CLIP_SECONDS } from "@/lib/videoTrim";
 
 function isIosPlaybackTarget() {
   return isIosSafari() || isCapacitorNative();
@@ -27,6 +32,17 @@ export type ExportVideoOptions = {
   startSeconds: number;
   endSeconds: number;
   mute: boolean;
+};
+
+export type ExportVideoDecision = {
+  reEncoded: boolean;
+  reason: string;
+  sourceFileType: string;
+  exportMimeType: string | null;
+  audioCodec: string | null;
+  videoCodec: string | null;
+  audioBitsPerSecond: number | null;
+  videoBitsPerSecond: number | null;
 };
 
 /**
@@ -62,6 +78,10 @@ function pickExportMimeType(sourceFile: File): string {
   return "";
 }
 
+function logExportDecision(decision: ExportVideoDecision) {
+  console.log("[SpotDrop export] video export decision", decision);
+}
+
 /** Re-encode clip with optional trim and muted audio. */
 export async function exportVideoFile(file: File, options: ExportVideoOptions) {
   const start = Math.max(0, options.startSeconds);
@@ -79,13 +99,35 @@ export async function exportVideoFile(file: File, options: ExportVideoOptions) {
       throw new Error("Muted export is not supported in this browser.");
     }
 
-    console.log("[Spot Upload] export skipped — reusing source file", {
-      fileName: file.name,
-      fileType: file.type,
+    logExportDecision({
+      reEncoded: false,
+      reason: isIosPlaybackTarget()
+        ? "iOS/Capacitor — preserve native mp4/aac recording"
+        : "mp4 source or unsupported re-encode — copy original file",
+      sourceFileType: file.type || "(unknown)",
+      exportMimeType: null,
+      audioCodec: null,
+      videoCodec: null,
+      audioBitsPerSecond: null,
+      videoBitsPerSecond: null,
     });
 
     return file;
   }
+
+  const codecs = parseRecorderCodecs(mimeType);
+  logExportDecision({
+    reEncoded: true,
+    reason: options.mute
+      ? "trim/mute requires captureStream re-encode"
+      : "trim requires captureStream re-encode",
+    sourceFileType: file.type || "(unknown)",
+    exportMimeType: mimeType,
+    audioCodec: codecs.audioCodec,
+    videoCodec: codecs.videoCodec,
+    audioBitsPerSecond: CAMERA_AUDIO_BITS_PER_SECOND,
+    videoBitsPerSecond: CAMERA_VIDEO_BITS_PER_SECOND,
+  });
 
   const url = URL.createObjectURL(file);
   const video = document.createElement("video");
@@ -113,6 +155,16 @@ export async function exportVideoFile(file: File, options: ExportVideoOptions) {
     const stream = getCaptureStream(video);
 
     if (!stream) {
+      logExportDecision({
+        reEncoded: false,
+        reason: "captureStream unavailable — copy original file",
+        sourceFileType: file.type || "(unknown)",
+        exportMimeType: null,
+        audioCodec: null,
+        videoCodec: null,
+        audioBitsPerSecond: null,
+        videoBitsPerSecond: null,
+      });
       return file;
     }
 
@@ -121,11 +173,10 @@ export async function exportVideoFile(file: File, options: ExportVideoOptions) {
     }
 
     const chunks: BlobPart[] = [];
-    // Use generous bitrates so quality and audio are preserved in the re-encode.
     const recorder = new MediaRecorder(stream, {
       mimeType,
-      videoBitsPerSecond: 12_000_000,
-      audioBitsPerSecond: 192_000,
+      videoBitsPerSecond: CAMERA_VIDEO_BITS_PER_SECOND,
+      audioBitsPerSecond: options.mute ? undefined : CAMERA_AUDIO_BITS_PER_SECOND,
     });
 
     const exported = await new Promise<File>((resolve, reject) => {
@@ -140,6 +191,15 @@ export async function exportVideoFile(file: File, options: ExportVideoOptions) {
       recorder.onstop = () => {
         const blob = new Blob(chunks, { type: mimeType });
         const extension = mimeType.includes("mp4") ? "mp4" : "webm";
+        const outCodecs = parseRecorderCodecs(recorder.mimeType || mimeType);
+        console.log("[SpotDrop export] export complete", {
+          reEncoded: true,
+          exportMimeType: recorder.mimeType || mimeType,
+          audioCodec: outCodecs.audioCodec,
+          videoCodec: outCodecs.videoCodec,
+          audioBitsPerSecond: options.mute ? 0 : CAMERA_AUDIO_BITS_PER_SECOND,
+          blobSize: blob.size,
+        });
         resolve(
           new File([blob], `spot-export-${Date.now()}.${extension}`, { type: blob.type })
         );

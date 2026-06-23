@@ -5,16 +5,45 @@ export type ZoomRange = {
 };
 
 /** User-facing zoom limits (clamped against hardware capabilities). */
-export const USER_ZOOM_MIN = 0.5;
+export const USER_ZOOM_MIN = 1;
 export const USER_ZOOM_MAX = 5;
 
 /** 200px of vertical drag = 1x zoom change (slow, TikTok-like). */
 export const ZOOM_PX_PER_1X = 200;
 export const ZOOM_POINTER_DEADZONE_PX = 12;
-export const ZOOM_APPLY_MIN_DELTA = 0.03;
+/** Minimum change before sending zoom to the camera hardware. */
+export const ZOOM_APPLY_MIN_DELTA = 0.05;
+/** Max hardware zoom updates per second while dragging (iOS recording-safe). */
+export const ZOOM_HARDWARE_MAX_FPS = 18;
+export const ZOOM_HARDWARE_INTERVAL_MS = 1000 / ZOOM_HARDWARE_MAX_FPS;
 /** Per-frame easing toward finger target — lower = slower, more controlled. */
 export const ZOOM_SMOOTH_FACTOR = 0.14;
 export const ZOOM_SETTLE_EPSILON = 0.005;
+export const ZOOM_PREVIEW_SCALE_EPSILON = 0.001;
+
+export function shouldApplyHardwareZoom(
+  nextZoom: number,
+  currentZoom: number,
+  lastApplyAtMs: number,
+  nowMs: number,
+  minDelta = ZOOM_APPLY_MIN_DELTA,
+  minIntervalMs = ZOOM_HARDWARE_INTERVAL_MS
+) {
+  if (nowMs - lastApplyAtMs < minIntervalMs) {
+    return false;
+  }
+
+  return Math.abs(nextZoom - currentZoom) >= minDelta;
+}
+
+/** CSS preview scale while hardware zoom catches up (never below 1 — avoids letterboxing). */
+export function previewCssScaleRatio(previewZoom: number, committedZoom: number) {
+  if (committedZoom <= 0 || previewZoom <= committedZoom + ZOOM_PREVIEW_SCALE_EPSILON) {
+    return 1;
+  }
+
+  return previewZoom / committedZoom;
+}
 
 export function readVideoTrackZoomRange(track: MediaStreamTrack | undefined): ZoomRange | null {
   if (!track?.getCapabilities) {
@@ -42,7 +71,7 @@ export function readVideoTrackZoomRange(track: MediaStreamTrack | undefined): Zo
   };
 }
 
-/** Read hardware zoom once at stream start and clamp to the 0.5x–5x user range. */
+/** Read hardware zoom once at stream start and clamp to the 1x–5x user range. */
 export function buildCachedZoomRange(track: MediaStreamTrack | undefined): ZoomRange | null {
   const hardware = readVideoTrackZoomRange(track);
 
@@ -142,6 +171,16 @@ export function zoomFromVerticalDrag(
   return clampZoomToRange(next, range);
 }
 
-export function formatZoomLevel(zoom: number) {
-  return `${(Math.round(zoom * 10) / 10).toFixed(1)}x`;
+/** CSS-only preview zoom while recording (no applyConstraints on iOS). */
+export const RECORDING_CSS_ZOOM_MIN = 1;
+export const RECORDING_CSS_ZOOM_MAX = 2.5;
+
+export const RECORDING_CSS_ZOOM_RANGE: ZoomRange = {
+  min: RECORDING_CSS_ZOOM_MIN,
+  max: RECORDING_CSS_ZOOM_MAX,
+  step: 0.01,
+};
+
+export function clampRecordingCssZoom(zoom: number) {
+  return Math.max(RECORDING_CSS_ZOOM_MIN, Math.min(RECORDING_CSS_ZOOM_MAX, zoom));
 }

@@ -10,9 +10,7 @@ import {
 import {
   ArrowLeft,
   ChevronRight,
-  Globe,
   Loader2,
-  Lock,
   MapPin,
   Play,
   Scissors,
@@ -21,8 +19,6 @@ import {
 } from "lucide-react";
 import SpotVideoPreviewExitSheet from "@/components/SpotVideoPreviewExitSheet";
 import SpotLocationPicker, { type SpotLocationSourceKind } from "@/components/SpotLocationPicker";
-import SpotUploadProgressOverlay from "@/components/SpotUploadProgressOverlay";
-import type { CollectionWithMeta } from "@/lib/collections";
 import { getVideoPreviewContinueBlockReason } from "@/lib/mediaEditor/continueReasons";
 import type { MediaEditorItem } from "@/lib/mediaEditor";
 import {
@@ -35,7 +31,7 @@ import {
 } from "@/lib/mediaEditor/trimTimeline";
 import { requiresTrimForVideo } from "@/lib/mediaEditor/trimValidation";
 import type { PlaceSearchResult, SpotGeoLocation } from "@/lib/spotLocation";
-import type { SpotUploadProgress } from "@/lib/spotUploadPipeline";
+import { formatSpotLocationLabel } from "@/lib/spotLocation";
 import { captureVideoFrameBlob, coverBlobToFile } from "@/lib/videoCover";
 import {
   generateFilmstripFrames,
@@ -59,62 +55,48 @@ const TRIM_TRACK_HEIGHT_PX = 104;
 type SpotVideoEditorScreenProps = {
   item: MediaEditorItem;
   spotName: string;
-  collections: CollectionWithMeta[];
-  collectionId: string;
-  collectionsLoading?: boolean;
   locating: boolean;
   location: SpotGeoLocation | null;
   locationSource: SpotLocationSourceKind;
   matchedPlaceName: string | null;
   needsLocationChoice: boolean;
   locationHint: string | null;
-  publishing: boolean;
-  uploadProgress?: SpotUploadProgress | null;
-  uploadFailed?: boolean;
   publishStatusMessage: string | null;
   offlineMode?: boolean;
   error: string | null;
   onItemChange: (patch: Partial<MediaEditorItem>) => void;
   onTrimChange: (trimStart: number, trimEnd: number) => void;
   onSpotNameChange: (value: string) => void;
-  onCollectionChange: (collectionId: string) => void;
   onUseCurrentLocation: () => void;
   onSelectPlace: (place: PlaceSearchResult) => void;
   onSaveToDrafts: () => void;
   onDiscardVideo: () => void;
   onRetake: () => void;
-  onPublish: () => void;
+  onNext: () => void;
   savingDraft?: boolean;
 };
 
 export default function SpotVideoEditorScreen({
   item,
   spotName,
-  collections,
-  collectionId,
-  collectionsLoading = false,
   locating,
   location,
   locationSource,
   matchedPlaceName,
   needsLocationChoice,
   locationHint,
-  publishing,
-  uploadProgress = null,
-  uploadFailed = false,
   publishStatusMessage,
   offlineMode = false,
   error,
   onItemChange,
   onTrimChange,
   onSpotNameChange,
-  onCollectionChange,
   onUseCurrentLocation,
   onSelectPlace,
   onSaveToDrafts,
   onDiscardVideo,
   onRetake,
-  onPublish,
+  onNext,
   savingDraft = false,
 }: SpotVideoEditorScreenProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -123,6 +105,8 @@ export default function SpotVideoEditorScreen({
   const initializedRef = useRef(false);
   const coverCaptureRef = useRef(0);
   const coverInitializedRef = useRef(false);
+  const previewReadyLoggedRef = useRef(false);
+  const durationSyncedRef = useRef(false);
   // Use a ref for muted so stale closures in callbacks always read the latest value.
   const previewMutedRef = useRef(true);
 
@@ -152,11 +136,14 @@ export default function SpotVideoEditorScreen({
   const clipDuration = getClipDurationFromTrim(trimStart, trimEnd, sourceDuration);
 
   const trimBlockReason = offlineMode ? null : getVideoPreviewContinueBlockReason(item);
-  const publishDisableReason = publishing
-    ? offlineMode ? "Saving offline draft…" : "Publishing spot…"
-    : offlineMode ? null : trimBlockReason ?? publishStatusMessage;
-  const publishBlocked = publishDisableReason !== null;
-  const isUploading = publishing && !offlineMode;
+  const nextDisableReason = offlineMode ? null : trimBlockReason ?? publishStatusMessage;
+  const nextBlocked = nextDisableReason !== null;
+
+  const locationLabel = locating
+    ? "Locating…"
+    : location
+      ? formatSpotLocationLabel(location)
+      : null;
 
   const playheadRatio = timeToRatio(currentTime, sourceDuration);
   const coverRatio = timeToRatio(coverTime, sourceDuration);
@@ -166,10 +153,6 @@ export default function SpotVideoEditorScreen({
   const displayStartRatio = timeToRatio(displayTrimStart, sourceDuration);
   const displayEndRatio = timeToRatio(displayTrimEnd, sourceDuration);
   const displayClipDuration = Math.max(0, displayTrimEnd - displayTrimStart);
-
-  // First private collection = "My Spots"; fall back to any first collection.
-  const mySpotsCollection =
-    collections.find((c) => c.visibility === "private") ?? collections[0] ?? null;
 
   const setMuted = useCallback((muted: boolean) => {
     previewMutedRef.current = muted;
@@ -197,6 +180,7 @@ export default function SpotVideoEditorScreen({
         }
         onItemChange({ coverFile: file, coverPreviewUrl: preview });
         setCoverTime(time);
+        console.log("[Spot Editor] thumbnail ready", { time });
       } catch {
         // keep previous cover
       }
@@ -209,8 +193,79 @@ export default function SpotVideoEditorScreen({
   useEffect(() => {
     initializedRef.current = false;
     coverInitializedRef.current = false;
+    previewReadyLoggedRef.current = false;
+    durationSyncedRef.current = false;
   }, [item.previewUrl]);
 
+  const syncSourceDurationFromVideo = useCallback(
+    (video: HTMLVideoElement) => {
+      const duration = Number.isFinite(video.duration) ? video.duration : 0;
+      if (duration <= 0 || durationSyncedRef.current) {
+        return;
+      }
+
+      durationSyncedRef.current = true;
+
+      if (requiresTrimForVideo(duration)) {
+        onItemChange({
+          sourceDuration: duration,
+          trimStart: 0,
+          trimEnd: MAX_TRIM_CLIP_SECONDS,
+          trimConfirmed: true,
+        });
+        onTrimChange(0, MAX_TRIM_CLIP_SECONDS);
+      } else {
+        onItemChange({
+          sourceDuration: duration,
+          trimStart: 0,
+          trimEnd: duration,
+          trimConfirmed: true,
+        });
+        onTrimChange(0, duration);
+      }
+
+      if (!initializedRef.current) {
+        initializedRef.current = true;
+      }
+
+      setLoadingDuration(false);
+    },
+    [onItemChange, onTrimChange]
+  );
+
+  const markPreviewReady = useCallback(
+    (video: HTMLVideoElement) => {
+      video.muted = true;
+      previewMutedRef.current = true;
+      setPreviewMuted(true);
+      setIsReady(true);
+
+      if (!previewReadyLoggedRef.current) {
+        previewReadyLoggedRef.current = true;
+        console.log("[Spot Editor] preview ready", {
+          duration: Number.isFinite(video.duration) ? video.duration : null,
+          videoWidth: video.videoWidth,
+          videoHeight: video.videoHeight,
+        });
+      }
+
+      syncSourceDurationFromVideo(video);
+
+      if (Number.isFinite(video.duration) && video.duration > 0) {
+        const start = trimStart > 0 ? trimStart : 0.01;
+        if (Math.abs(video.currentTime - start) > 0.05) {
+          video.currentTime = start;
+        }
+      }
+
+      if (video.paused) {
+        void video.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false));
+      }
+    },
+    [syncSourceDurationFromVideo, trimStart]
+  );
+
+  // Fallback duration read — only if preview metadata did not expose duration.
   useEffect(() => {
     if (sourceDuration > 0) {
       setLoadingDuration(false);
@@ -220,41 +275,80 @@ export default function SpotVideoEditorScreen({
     let cancelled = false;
     setLoadingDuration(true);
 
-    void getVideoDurationSeconds(item.previewUrl).then((duration) => {
-      if (cancelled || duration <= 0) {
-        if (!cancelled) setLoadingDuration(false);
+    const fallbackTimeoutId = window.setTimeout(() => {
+      if (cancelled || durationSyncedRef.current) {
         return;
       }
 
-      if (requiresTrimForVideo(duration)) {
-        onItemChange({ sourceDuration: duration, trimStart: 0, trimEnd: MAX_TRIM_CLIP_SECONDS, trimConfirmed: true });
-        onTrimChange(0, MAX_TRIM_CLIP_SECONDS);
-      } else {
-        onItemChange({ sourceDuration: duration, trimStart: 0, trimEnd: duration, trimConfirmed: true });
-        onTrimChange(0, duration);
-      }
+      void getVideoDurationSeconds(item.previewUrl).then((duration) => {
+        if (cancelled || duration <= 0 || durationSyncedRef.current) {
+          if (!cancelled) {
+            setLoadingDuration(false);
+          }
+          return;
+        }
 
-      if (!initializedRef.current) initializedRef.current = true;
-      setLoadingDuration(false);
-    });
+        durationSyncedRef.current = true;
 
-    return () => { cancelled = true; };
+        if (requiresTrimForVideo(duration)) {
+          onItemChange({
+            sourceDuration: duration,
+            trimStart: 0,
+            trimEnd: MAX_TRIM_CLIP_SECONDS,
+            trimConfirmed: true,
+          });
+          onTrimChange(0, MAX_TRIM_CLIP_SECONDS);
+        } else {
+          onItemChange({
+            sourceDuration: duration,
+            trimStart: 0,
+            trimEnd: duration,
+            trimConfirmed: true,
+          });
+          onTrimChange(0, duration);
+        }
+
+        if (!initializedRef.current) {
+          initializedRef.current = true;
+        }
+
+        setLoadingDuration(false);
+      });
+    }, 800);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(fallbackTimeoutId);
+    };
   }, [item.previewUrl, onItemChange, onTrimChange, sourceDuration]);
 
   // ── Filmstrip ─────────────────────────────────────────────────────────────
 
+  // Filmstrip is heavy (separate video load + frame extraction) — generate only when trim UI opens.
   useEffect(() => {
+    if (!showTrim) {
+      return;
+    }
+
     let cancelled = false;
     setFilmstripLoading(true);
 
     void generateFilmstripFrames(item.previewUrl, FILMSTRIP_COUNT).then((frames) => {
-      if (cancelled) { revokeFilmstripFrames(frames); return; }
-      setFilmstrip((current) => { revokeFilmstripFrames(current); return frames; });
+      if (cancelled) {
+        revokeFilmstripFrames(frames);
+        return;
+      }
+      setFilmstrip((current) => {
+        revokeFilmstripFrames(current);
+        return frames;
+      });
       setFilmstripLoading(false);
     });
 
-    return () => { cancelled = true; };
-  }, [item.previewUrl]);
+    return () => {
+      cancelled = true;
+    };
+  }, [item.previewUrl, showTrim]);
 
   useEffect(() => {
     return () => { revokeFilmstripFrames(filmstrip); };
@@ -287,31 +381,11 @@ export default function SpotVideoEditorScreen({
     [sourceDuration]
   );
 
-  const prepareAndAutoplay = useCallback(async () => {
-    const video = videoRef.current;
-    if (!video || sourceDuration <= 0) return;
-
-    // Must start muted for iOS autoplay policy; user can unmute via toolbar.
-    video.muted = true;
-    previewMutedRef.current = true;
-    setPreviewMuted(true);
-    setIsReady(true);
-
-    const start = trimStart > 0 ? trimStart : 0.01;
-    seekVideo(start, false);
-
-    try {
-      await video.play();
-      setIsPlaying(true);
-    } catch {
-      setIsPlaying(false);
-    }
-  }, [seekVideo, sourceDuration, trimStart]);
-
   useEffect(() => {
-    if (!isReady || sourceDuration <= 0 || coverInitializedRef.current) return;
+    if (!isReady || coverInitializedRef.current) return;
     coverInitializedRef.current = true;
-    void applyCoverFromTime(trimStart > 0 ? trimStart : 0.01);
+    const coverAt = sourceDuration > 0 && trimStart > 0 ? trimStart : 0.01;
+    void applyCoverFromTime(coverAt);
   }, [isReady, sourceDuration, trimStart, applyCoverFromTime]);
 
   useEffect(() => {
@@ -422,7 +496,7 @@ export default function SpotVideoEditorScreen({
 
   const startTrimDrag = useCallback(
     (handle: DragHandle, event: ReactPointerEvent<HTMLButtonElement>) => {
-      if (publishing || loadingDuration || !handle) return;
+      if (loadingDuration || !handle) return;
 
       event.preventDefault();
       event.stopPropagation();
@@ -488,11 +562,11 @@ export default function SpotVideoEditorScreen({
       document.addEventListener("pointerup", onEnd);
       document.addEventListener("pointercancel", onEnd);
     },
-    [applyTrimFromClientX, endTrimDrag, loadingDuration, publishing, resolvedEnd, trimStart]
+    [applyTrimFromClientX, endTrimDrag, loadingDuration, resolvedEnd, trimStart]
   );
 
   const handleFrameTap = (time: number) => {
-    if (dragRef.current || publishing) return;
+    if (dragRef.current) return;
     const video = videoRef.current;
     if (video) { video.pause(); setIsPlaying(false); }
     seekVideo(time, false);
@@ -500,24 +574,12 @@ export default function SpotVideoEditorScreen({
   };
 
   useEffect(() => {
-    if (!isUploading) {
-      return;
-    }
-
-    const video = videoRef.current;
-    if (video) {
-      video.pause();
-      setIsPlaying(false);
-    }
-  }, [isUploading]);
-
-  // ── Location label ────────────────────────────────────────────────────────
-
-  const locationLabel = locating
-    ? "Locating…"
-    : location
-      ? (location.city ?? location.country ?? `${location.latitude.toFixed(3)}, ${location.longitude.toFixed(3)}`)
-      : null;
+    return () => {
+      if (trimDragRafRef.current !== null) {
+        cancelAnimationFrame(trimDragRafRef.current);
+      }
+    };
+  }, []);
 
   // ─────────────────────────────────────────────────────────────────────────
 
@@ -527,14 +589,6 @@ export default function SpotVideoEditorScreen({
       className="fixed inset-0 z-[130] bg-black text-white select-none overflow-hidden"
       style={{ WebkitTapHighlightColor: "transparent" }}
     >
-      {/* Publishing overlay */}
-      <SpotUploadProgressOverlay
-        visible={publishing}
-        progress={uploadProgress}
-        showDetailed={!offlineMode}
-        offlineMode={offlineMode}
-      />
-
       {/* ── Fullscreen video ── */}
       <div className="absolute inset-0 z-0 h-full w-full">
         <video
@@ -546,28 +600,32 @@ export default function SpotVideoEditorScreen({
           muted
           preload="auto"
           disablePictureInPicture
-          onClick={isUploading ? undefined : () => void togglePlayback()}
+          onClick={() => void togglePlayback()}
           onLoadedMetadata={(e) => {
             const v = e.currentTarget;
             v.setAttribute("playsinline", "true");
             v.setAttribute("webkit-playsinline", "true");
-            v.muted = true;
-            void prepareAndAutoplay();
+            markPreviewReady(v);
           }}
-          onCanPlay={() => {
-            if (!isReady) void prepareAndAutoplay();
+          onDurationChange={(e) => {
+            syncSourceDurationFromVideo(e.currentTarget);
+          }}
+          onCanPlay={(e) => {
+            if (!previewReadyLoggedRef.current) {
+              markPreviewReady(e.currentTarget);
+            }
           }}
           onPlay={() => setIsPlaying(true)}
           onPause={() => setIsPlaying(false)}
         />
 
-        {!isUploading && !isReady ? (
+        {!isReady ? (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/50">
             <Loader2 className="h-10 w-10 animate-spin text-white/80" aria-hidden />
           </div>
         ) : null}
 
-        {!isUploading && isReady && !isPlaying ? (
+        {isReady && !isPlaying ? (
           <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
             <span className="flex h-16 w-16 items-center justify-center rounded-full bg-black/55 backdrop-blur-sm ring-2 ring-white/60">
               <Play className="ml-1 h-7 w-7" fill="currentColor" aria-hidden />
@@ -576,8 +634,6 @@ export default function SpotVideoEditorScreen({
         ) : null}
       </div>
 
-      {!isUploading ? (
-        <>
       {/* ── Gradient overlays ── */}
       <div
         aria-hidden
@@ -596,21 +652,37 @@ export default function SpotVideoEditorScreen({
         <button
           type="button"
           onClick={() => setShowExitSheet(true)}
-          disabled={publishing || savingDraft}
+          disabled={savingDraft}
           className="mt-2.5 flex h-10 w-10 items-center justify-center rounded-full bg-black/45 text-white backdrop-blur-sm disabled:opacity-50"
           aria-label="Back"
         >
           <ArrowLeft className="h-5 w-5" strokeWidth={2} aria-hidden />
         </button>
 
-        <button
-          type="button"
-          onClick={onRetake}
-          disabled={publishing}
-          className="mt-2.5 rounded-full bg-black/45 px-4 py-2 text-sm font-semibold text-white backdrop-blur-sm disabled:opacity-50"
-        >
-          Retake
-        </button>
+        <div className="mt-2.5 flex items-center gap-2">
+          <button
+            type="button"
+            onClick={onRetake}
+            className="rounded-full bg-black/45 px-4 py-2 text-sm font-semibold text-white backdrop-blur-sm"
+          >
+            Retake
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              if (!nextBlocked) onNext();
+            }}
+            aria-disabled={nextBlocked}
+            className={`rounded-full px-5 py-2 text-sm font-bold backdrop-blur-sm transition ${
+              nextBlocked
+                ? "cursor-not-allowed bg-white/15 text-white/35"
+                : "bg-white text-black active:scale-[0.98]"
+            }`}
+          >
+            Next
+          </button>
+        </div>
       </div>
 
       {/* ── Right sidebar tools ── */}
@@ -619,8 +691,7 @@ export default function SpotVideoEditorScreen({
         <button
           type="button"
           onClick={() => setMuted(!previewMuted)}
-          disabled={publishing}
-          className="flex h-11 w-11 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur-sm disabled:opacity-50"
+          className="flex h-11 w-11 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur-sm"
           aria-label={previewMuted ? "Unmute preview" : "Mute preview"}
         >
           {previewMuted ? (
@@ -637,8 +708,7 @@ export default function SpotVideoEditorScreen({
         <button
           type="button"
           onClick={() => setShowTrim((v) => !v)}
-          disabled={publishing}
-          className={`flex h-11 w-11 items-center justify-center rounded-full text-white backdrop-blur-sm transition disabled:opacity-50 ${
+          className={`flex h-11 w-11 items-center justify-center rounded-full text-white backdrop-blur-sm transition ${
             showTrim ? "bg-white/30 ring-2 ring-white/50" : "bg-black/50"
           }`}
           aria-label="Trim video"
@@ -697,7 +767,7 @@ export default function SpotVideoEditorScreen({
                       <button
                         key={frame.url}
                         type="button"
-                        disabled={publishing || loadingDuration || isDraggingTrim}
+                        disabled={loadingDuration || isDraggingTrim}
                         onClick={() => handleFrameTap(frame.time)}
                         className="h-full min-w-0 flex-1 overflow-hidden disabled:pointer-events-none"
                         aria-label={`Frame at ${formatTrimTime(frame.time)}`}
@@ -756,7 +826,7 @@ export default function SpotVideoEditorScreen({
                 >
                   <button
                     type="button"
-                    disabled={publishing || loadingDuration}
+                    disabled={loadingDuration}
                     aria-label="Adjust clip start"
                     onPointerDown={(e) => startTrimDrag("start", e)}
                     className={`pointer-events-auto absolute z-40 flex cursor-ew-resize items-center justify-center touch-none select-none ${
@@ -785,7 +855,7 @@ export default function SpotVideoEditorScreen({
 
                   <button
                     type="button"
-                    disabled={publishing || loadingDuration}
+                    disabled={loadingDuration}
                     aria-label="Adjust clip end"
                     onPointerDown={(e) => startTrimDrag("end", e)}
                     className={`pointer-events-auto absolute z-40 flex cursor-ew-resize items-center justify-center touch-none select-none ${
@@ -821,7 +891,7 @@ export default function SpotVideoEditorScreen({
           </div>
         ) : null}
 
-        {/* Location picker (expanded if user taps location badge) */}
+        {/* Location + caption */}
         {showLocationPicker ? (
           <div className="rounded-2xl bg-black/60 p-3 backdrop-blur-md ring-1 ring-white/10">
             <SpotLocationPicker
@@ -831,7 +901,6 @@ export default function SpotVideoEditorScreen({
               matchedPlaceName={matchedPlaceName}
               needsLocationChoice={needsLocationChoice}
               locationHint={locationHint}
-              disabled={publishing}
               onUseCurrentLocation={onUseCurrentLocation}
               onSelectPlace={onSelectPlace}
             />
@@ -845,100 +914,35 @@ export default function SpotVideoEditorScreen({
           </div>
         ) : null}
 
-        {/* Location badge + caption row */}
-        <div className="flex items-center gap-2">
-          {locationLabel ? (
-            <button
-              type="button"
-              onClick={() => setShowLocationPicker((v) => !v)}
-              className="flex shrink-0 items-center gap-1.5 rounded-full bg-black/50 px-3 py-1.5 text-xs font-medium text-white/90 backdrop-blur-sm ring-1 ring-white/15"
-            >
-              <MapPin className="h-3 w-3 shrink-0 text-primary" aria-hidden />
-              <span className="max-w-[120px] truncate">{locationLabel}</span>
-            </button>
-          ) : null}
+        <div className="flex flex-col gap-2">
+          <button
+            type="button"
+            onClick={() => setShowLocationPicker((v) => !v)}
+            className="flex w-full items-center gap-2 rounded-2xl bg-black/55 px-4 py-3 text-left text-sm text-white backdrop-blur-md ring-1 ring-white/12"
+          >
+            <MapPin className="h-4 w-4 shrink-0 text-primary" aria-hidden />
+            <span className="min-w-0 flex-1 truncate">
+              {locationLabel ?? "Add location"}
+            </span>
+            <ChevronRight className="h-4 w-4 shrink-0 text-white/40" aria-hidden />
+          </button>
 
           <input
             value={spotName}
             onChange={(e) => onSpotNameChange(e.target.value)}
-            placeholder="Add a caption…"
+            placeholder="Write a caption…"
             maxLength={120}
-            disabled={publishing}
-            className="min-w-0 flex-1 rounded-full bg-black/50 px-4 py-1.5 text-sm text-white placeholder-white/40 backdrop-blur-sm ring-1 ring-white/15 focus:outline-none focus:ring-white/40 disabled:opacity-50"
+            className="w-full rounded-2xl bg-black/55 px-4 py-3 text-sm text-white placeholder-white/40 backdrop-blur-md ring-1 ring-white/12 focus:outline-none focus:ring-white/30"
           />
         </div>
 
-        {/* Public / My Spots toggle */}
-        <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={() => onCollectionChange("")}
-            disabled={publishing}
-            className={`flex flex-1 items-center justify-center gap-1.5 rounded-2xl py-3 text-sm font-semibold transition disabled:opacity-50 ${
-              collectionId === ""
-                ? "bg-white text-black shadow-lg"
-                : "bg-white/10 text-white ring-1 ring-white/20 backdrop-blur-sm"
-            }`}
-          >
-            <Globe className="h-4 w-4" aria-hidden />
-            Public Spot
-          </button>
-
-          <button
-            type="button"
-            onClick={() => {
-              if (mySpotsCollection) onCollectionChange(mySpotsCollection.id);
-            }}
-            disabled={publishing || !mySpotsCollection}
-            className={`flex flex-1 items-center justify-center gap-1.5 rounded-2xl py-3 text-sm font-semibold transition disabled:opacity-50 ${
-              collectionId !== ""
-                ? "bg-white text-black shadow-lg"
-                : "bg-white/10 text-white ring-1 ring-white/20 backdrop-blur-sm"
-            }`}
-          >
-            <Lock className="h-4 w-4" aria-hidden />
-            My Spots
-          </button>
-        </div>
-
-        {/* Offline / error / status messages */}
-        {offlineMode ? (
-          <p className="text-center text-xs text-white/55">
-            Saved locally · will upload when online
-          </p>
-        ) : null}
         {error ? (
           <p className="text-center text-xs text-red-400">{error}</p>
         ) : null}
-        {!error && publishDisableReason ? (
-          <p className="text-center text-xs text-amber-200/80">{publishDisableReason}</p>
+        {!error && nextDisableReason ? (
+          <p className="text-center text-xs text-amber-200/80">{nextDisableReason}</p>
         ) : null}
-
-        {/* Publish button */}
-        <button
-          type="button"
-          onClick={() => { if (!publishBlocked) onPublish(); }}
-          aria-disabled={publishBlocked}
-          className={`flex w-full items-center justify-center gap-1.5 rounded-2xl py-3.5 text-sm font-bold tracking-wide transition ${
-            publishBlocked
-              ? "cursor-not-allowed bg-white/15 text-white/35"
-              : "bg-primary text-background hover:brightness-110 active:scale-[0.98]"
-          }`}
-        >
-          {publishing
-            ? offlineMode
-              ? "Saving…"
-              : "Publishing…"
-            : uploadFailed
-              ? "Retry upload"
-              : offlineMode
-                ? "Save offline draft"
-                : "Share Spot"}
-          {!publishing ? <ChevronRight className="h-4 w-4" aria-hidden /> : null}
-        </button>
       </div>
-        </>
-      ) : null}
     </div>
 
     <SpotVideoPreviewExitSheet

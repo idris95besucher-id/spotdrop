@@ -111,10 +111,10 @@ export const EXTENSION_EN = {
   "feed.exploreNearbyBody": "Visit city rooms, join local channels, and see spots shared in each destination.",
   "feed.error.loadSpots": "Unable to load spots.",
 
-  "spotStats.visited": "Visited",
+  "spotStats.visited": "Spot visits",
   "spotStats.comments": "Comments",
   "spotStats.saved": "Saved",
-  "spotStats.summary": "Visited {visited} • Comments {comments} • Saves {saved}",
+  "spotStats.summary": "Spot visits {visited} • Comments {comments} • Saves {saved}",
 
   "comments.title": "Comments",
   "comments.empty": "No comments yet.",
@@ -475,7 +475,7 @@ export const EXTENSION_EN = {
   "postDetail.saved": "Saved",
   "postDetail.like": "Like",
   "postDetail.comments": "Comments",
-  "postDetail.visited": "Visited",
+  "postDetail.visited": "Spot visits",
   "postDetail.send": "Send",
   "postDetail.share": "Share",
   "postDetail.linkCopied": "Link copied",

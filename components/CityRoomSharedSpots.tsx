@@ -208,6 +208,7 @@ export default function CityRoomSharedSpots({ room }: CityRoomSharedSpotsProps) 
                         className="text-xs"
                         location={{
                           id: spot.id,
+                          user_id: spot.user_id,
                           content_kind: spot.content_kind,
                           spot_name: spot.spot_name,
                           spot_address: spot.spot_address,

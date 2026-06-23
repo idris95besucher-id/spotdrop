@@ -1,5 +1,6 @@
 export type SpotLocationDisplayFields = {
   id?: string | null;
+  user_id?: string | null;
   content_kind?: string | null;
   spot_name?: string | null;
   spot_address?: string | null;

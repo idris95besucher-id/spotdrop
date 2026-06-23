@@ -10,8 +10,8 @@ import { haversineKm, type SpotGeoLocation } from "@/lib/spotLocation";
 import { hasSpotPublishLocation, resolveSpotName, SPOT_LOCATION_REQUIRED_MESSAGE } from "@/lib/spotPublish";
 import { POST_AUTHOR_PROFILES_INNER } from "@/lib/posts";
 import { uploadPostMedia } from "@/lib/postMedia";
-import { uploadVideoCoverForPublish } from "@/lib/publishVideoCover";
-import { spotUploadTime } from "@/lib/spotUploadLog";
+import { resolveVideoCoverFile } from "@/lib/videoCover";
+import { timeUploadStep } from "@/lib/spotUploadTiming";
 import { isGuideAccountUsername, publicProfileUsername } from "@/lib/publicProfile";
 import { addSpotToCollection, loadCollectionById, spotVisibilityForCollection } from "@/lib/collections";
 import { supabase } from "@/lib/supabaseClient";
@@ -60,6 +60,7 @@ export type CreateSpotInput = {
   accessToken?: string;
   onMediaUploadProgress?: (percent: number) => void;
   onCoverUploadProgress?: (percent: number) => void;
+  onTiming?: (phase: "thumbnail" | "storage" | "postInsert", durationMs: number) => void;
 };
 
 const NEAREST_PLACE_KM = 8;
@@ -189,41 +190,71 @@ export async function createGeoSpot(input: CreateSpotInput) {
 
   const uploadOptions = {
     accessToken: input.accessToken,
+    skipVerification: true,
   };
+
+  const placesPromise =
+    input.discoveryPlaces && input.discoveryPlaces.length > 0
+      ? Promise.resolve(input.discoveryPlaces)
+      : loadDiscoveryPlacesForMatching();
 
   let upload: Awaited<ReturnType<typeof uploadPostMedia>>;
   let videoCoverUrl: string | null = null;
 
   try {
-    const finishMediaUpload = spotUploadTime("storage media");
-    upload = await uploadPostMedia(input.userId, input.file, {
+    const finishStorage = timeUploadStep("[UPLOAD] Storage Upload");
+
+    const mediaUploadPromise = uploadPostMedia(input.userId, input.file, {
       ...uploadOptions,
       onProgress: input.onMediaUploadProgress,
     });
-    finishMediaUpload();
 
-    if (input.mediaType === "video") {
-      const finishCoverUpload = spotUploadTime("storage cover");
-      videoCoverUrl = await uploadVideoCoverForPublish(input.userId, input.file, input.coverFile ?? null, {
-        ...uploadOptions,
-        onProgress: input.onCoverUploadProgress,
-      });
-      finishCoverUpload();
-    } else {
+    const coverUploadPromise =
+      input.mediaType === "video"
+        ? (async () => {
+            let cover = input.coverFile ?? null;
+            if (cover) {
+              console.log("[UPLOAD] Thumbnail reused (editor cover)");
+              input.onTiming?.("thumbnail", 0);
+            } else {
+              const finishThumbnail = timeUploadStep("[UPLOAD] Thumbnail");
+              cover = await resolveVideoCoverFile(input.file, null, 1);
+              input.onTiming?.("thumbnail", finishThumbnail());
+            }
+
+            return uploadPostMedia(input.userId, cover, {
+              ...uploadOptions,
+              onProgress: input.onCoverUploadProgress,
+            });
+          })()
+        : Promise.resolve(null);
+
+    const [uploadResult, coverUploadResult] = await Promise.all([
+      mediaUploadPromise,
+      coverUploadPromise,
+    ]);
+
+    upload = uploadResult;
+    videoCoverUrl = coverUploadResult?.mediaUrl ?? null;
+
+    if (input.mediaType !== "video") {
       input.onCoverUploadProgress?.(100);
     }
+
+    const storageMs = finishStorage();
+    input.onTiming?.("storage", storageMs);
   } catch (uploadError) {
     const message = uploadError instanceof Error ? uploadError.message : "Unable to upload media.";
     console.log("UPLOAD FILE RESULT", { step: "createGeoSpot", failed: true, error: message });
     return { postId: null, matchedPlace: null, error: message };
   }
 
-  const finishLocation = spotUploadTime("location");
-  const places =
-    input.discoveryPlaces && input.discoveryPlaces.length > 0
-      ? input.discoveryPlaces
-      : await loadDiscoveryPlacesForMatching();
-  finishLocation();
+  const finishLocation = performance.now();
+  const places = await placesPromise;
+  console.log("[UPLOAD] discovery places ready", {
+    elapsedMs: Math.round(performance.now() - finishLocation),
+    count: places.length,
+  });
 
   const manualPlace =
     input.manualPlaceId && !input.manualPlaceId.startsWith("fallback-")
@@ -277,7 +308,7 @@ export async function createGeoSpot(input: CreateSpotInput) {
     media_type: row.media_type,
   });
 
-  const finishDbInsert = spotUploadTime("db insert");
+  const finishDbInsert = timeUploadStep("[UPLOAD] Post Insert");
 
   try {
     let insertRow: typeof row | Omit<typeof row, "video_cover_url" | "thumbnail_url"> = row;
@@ -365,7 +396,8 @@ export async function createGeoSpot(input: CreateSpotInput) {
 
     return { postId, matchedPlace, error: null };
   } finally {
-    finishDbInsert();
+    const postInsertMs = finishDbInsert();
+    input.onTiming?.("postInsert", postInsertMs);
   }
 }
 

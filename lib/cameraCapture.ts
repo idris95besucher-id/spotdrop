@@ -6,13 +6,19 @@ export const CAMERA_PERMISSION_MESSAGE = "Camera access is required to record a 
 export const HOLD_THRESHOLD_MS = 350;
 
 /** Minimum time between record start and stop (Safari needs time to emit chunks). */
-export const MIN_RECORDING_DURATION_MS = 2000;
+export const MIN_RECORDING_DURATION_MS = 400;
 
 /** Timeslice interval passed to MediaRecorder.start — required for Safari chunk delivery. */
-export const RECORDER_TIMESLICE_MS = 1000;
+export const RECORDER_TIMESLICE_MS = 250;
+
+/** iOS uses shorter timeslices so less media is buffered unreleased at stop. */
+export const IOS_RECORDER_TIMESLICE_MS = 250;
 
 /** Wait after stop() before validating chunks/blob. */
-export const POST_STOP_CHUNK_WAIT_MS = 300;
+export const POST_STOP_CHUNK_WAIT_MS = 200;
+
+/** Max wait for a dataavailable flush event (requestData / post-stop). */
+export const RECORDER_DATA_FLUSH_TIMEOUT_MS = 2500;
 
 export const RECORDING_BROWSER_UNSAVED_MESSAGE =
   "Recording was not saved by this browser. Please try again.";
@@ -27,7 +33,10 @@ export const IOS_CAMERA_VIDEO_BITS_PER_SECOND = 12_000_000;
 
 export const IOS_CAMERA_VIDEO_BITS_PER_SECOND_FALLBACK = 8_000_000;
 
-export const IOS_CAMERA_AUDIO_BITS_PER_SECOND = 192_000;
+export const IOS_CAMERA_AUDIO_BITS_PER_SECOND = 256_000;
+
+/** Desktop / export re-encode audio target — match iOS AAC quality tier. */
+export const CAMERA_AUDIO_BITS_PER_SECOND = 256_000;
 
 export type CameraFacingMode = "user" | "environment";
 
@@ -196,20 +205,28 @@ function createMediaRecorder(stream: MediaStream) {
     };
     try {
       const recorder = new MediaRecorder(stream, iosOptions);
+      const codecs = parseRecorderCodecs(recorder.mimeType);
       console.log("[SpotDrop camera] MediaRecorder created (iOS + bitrate options)", {
         mimeType: recorder.mimeType,
         state: recorder.state,
         videoBitsPerSecond: IOS_CAMERA_VIDEO_BITS_PER_SECOND,
         audioBitsPerSecond: IOS_CAMERA_AUDIO_BITS_PER_SECOND,
         audioTrackCount: stream.getAudioTracks().length,
+        audioCodec: codecs.audioCodec ?? "aac (browser default)",
+        videoCodec: codecs.videoCodec ?? "h264 (browser default)",
+        audioReEncoded: true,
       });
       return recorder;
     } catch {
       // Options not supported — fall back to no-options constructor.
       const recorder = new MediaRecorder(stream);
+      const codecs = parseRecorderCodecs(recorder.mimeType);
       console.warn("[SpotDrop camera] MediaRecorder created (iOS no-options fallback)", {
         mimeType: recorder.mimeType,
         state: recorder.state,
+        audioCodec: codecs.audioCodec ?? "aac (browser default)",
+        audioBitsPerSecond: "browser default (no bitrate option)",
+        audioReEncoded: true,
       });
       return recorder;
     }
@@ -218,15 +235,20 @@ function createMediaRecorder(stream: MediaStream) {
   const recordingStream = buildRecordingStream(stream);
   const desktopBitrateOptions: MediaRecorderOptions = {
     videoBitsPerSecond: CAMERA_VIDEO_BITS_PER_SECOND,
-    audioBitsPerSecond: IOS_CAMERA_AUDIO_BITS_PER_SECOND,
+    audioBitsPerSecond: CAMERA_AUDIO_BITS_PER_SECOND,
   };
 
   try {
     const recorder = new MediaRecorder(recordingStream, desktopBitrateOptions);
+    const codecs = parseRecorderCodecs(recorder.mimeType);
     console.log("[SpotDrop camera] MediaRecorder created (default + bitrates)", {
       mimeType: recorder.mimeType,
       state: recorder.state,
       videoBitsPerSecond: CAMERA_VIDEO_BITS_PER_SECOND,
+      audioBitsPerSecond: CAMERA_AUDIO_BITS_PER_SECOND,
+      audioCodec: codecs.audioCodec ?? "browser default",
+      videoCodec: codecs.videoCodec ?? "browser default",
+      audioReEncoded: true,
     });
     return recorder;
   } catch (caught) {
@@ -264,16 +286,21 @@ function createMediaRecorder(stream: MediaStream) {
   throw new Error("Unable to initialize video recorder.");
 }
 
+function getRecorderTimesliceMs() {
+  return isIosSafari() ? IOS_RECORDER_TIMESLICE_MS : RECORDER_TIMESLICE_MS;
+}
+
 function startMediaRecorder(recorder: MediaRecorder) {
   if (recorder.state !== "inactive") {
     throw new Error(`MediaRecorder is already ${recorder.state}.`);
   }
 
-  recorder.start(RECORDER_TIMESLICE_MS);
+  const timesliceMs = getRecorderTimesliceMs();
+  recorder.start(timesliceMs);
 
   console.log("[SpotDrop camera] MediaRecorder.start called", {
     state: recorder.state,
-    timesliceMs: RECORDER_TIMESLICE_MS,
+    timesliceMs,
   });
 }
 
@@ -283,42 +310,72 @@ function waitAfterStopForChunks() {
   });
 }
 
-function waitForFinalDataChunk(
+/** Wait for the next dataavailable event — used to flush buffers before/after stop. */
+function waitForRecorderDataEvent(
   recorder: MediaRecorder,
-  chunks: BlobPart[],
   pushChunk: (data: Blob) => void,
-  timeoutMs = 800
-) {
-  if (chunks.length > 0) {
-    return Promise.resolve();
-  }
+  timeoutMs = RECORDER_DATA_FLUSH_TIMEOUT_MS
+): Promise<boolean> {
+  return new Promise((resolve) => {
+    let received = false;
 
-  return new Promise<void>((resolve) => {
     const timeoutId = window.setTimeout(() => {
-      recorder.removeEventListener("dataavailable", onData);
-      console.warn("[SpotDrop camera] waitForFinalDataChunk timed out", {
+      cleanup();
+      console.warn("[SpotDrop camera] waitForRecorderDataEvent timed out", {
         state: recorder.state,
-        chunkCount: chunks.length,
+        received,
+        timeoutMs,
       });
-      resolve();
+      resolve(received);
     }, timeoutMs);
 
     const onData = (event: BlobEvent) => {
       if (event.data && event.data.size > 0) {
+        received = true;
         pushChunk(event.data);
-        console.log("[SpotDrop camera] late dataavailable chunk", {
+        console.log("[SpotDrop camera] dataavailable flush chunk", {
           size: event.data.size,
-          chunkCount: chunks.length,
         });
       }
+      cleanup();
+      resolve(received);
+    };
 
+    const cleanup = () => {
       window.clearTimeout(timeoutId);
       recorder.removeEventListener("dataavailable", onData);
-      resolve();
     };
 
     recorder.addEventListener("dataavailable", onData);
   });
+}
+
+async function readRecordedVideoDurationSeconds(blob: Blob): Promise<number | null> {
+  if (typeof document === "undefined") {
+    return null;
+  }
+
+  const url = URL.createObjectURL(blob);
+  try {
+    const video = document.createElement("video");
+    video.preload = "metadata";
+    video.muted = true;
+    video.playsInline = true;
+
+    const duration = await new Promise<number>((resolve, reject) => {
+      video.onloadedmetadata = () => {
+        resolve(Number.isFinite(video.duration) ? video.duration : 0);
+      };
+      video.onerror = () => reject(new Error("Unable to read recorded duration."));
+      video.src = url;
+    });
+
+    return duration > 0 ? duration : null;
+  } catch {
+    return null;
+  } finally {
+    URL.revokeObjectURL(url);
+  }
 }
 
 export const MIC_PERMISSION_MESSAGE =
@@ -355,45 +412,100 @@ type ExtendedVideoConstraints = MediaTrackConstraints & {
 function buildAdvancedVideoConstraints(
   facingMode: CameraFacingMode,
   width: number,
-  height: number,
-  minWidth?: number
+  height: number
 ): ExtendedVideoConstraints {
   return {
-    facingMode,
-    width: minWidth ? { ideal: width, min: minWidth } : { ideal: width },
+    facingMode: { ideal: facingMode },
+    width: { ideal: width },
     height: { ideal: height },
-    frameRate: { ideal: 30, max: 60 },
-    // Continuous autofocus, auto exposure, and auto white balance — no beauty/smoothing.
+    // Lock 30fps — high/unstable FPS causes jerky preview and recording on iOS WKWebView.
+    frameRate: { ideal: 30, max: 30 },
     focusMode: { ideal: "continuous" },
     exposureMode: { ideal: "continuous" },
     whiteBalanceMode: { ideal: "continuous" },
-    // Request the camera not downscale the sensor feed before delivery.
-    resizeMode: { ideal: "none" },
   };
 }
 
 function buildAudioConstraints(): MediaTrackConstraints {
-  // Prefer minimal audio processing to preserve natural microphone sound.
-  // Use `ideal` so iOS WKWebView doesn't hard-reject unsupported flags.
+  // Minimal processing — native Camera app does not apply WebRTC echo/noise DSP.
+  // echoCancellation in WKWebView often muffles voice and reduces clarity.
   return {
-    echoCancellation: { ideal: true },
+    echoCancellation: { ideal: false },
     noiseSuppression: { ideal: false },
     autoGainControl: { ideal: false },
+    sampleRate: { ideal: 48_000 },
   };
 }
 
-/** 4K capture — preferred on iPhone 15 Pro and newer rear cameras. */
+/** Parse audio/video codec names from a MediaRecorder mimeType string. */
+export function parseRecorderCodecs(mimeType: string): {
+  container: string;
+  videoCodec: string | null;
+  audioCodec: string | null;
+} {
+  const normalized = mimeType.trim().toLowerCase();
+  const container =
+    normalized.split(";")[0]?.split("/")[1] ?? (normalized || "unknown");
+  const codecsMatch = normalized.match(/codecs=([^;,]+(?:,[^;,]+)*)/);
+  const codecParts = codecsMatch?.[1]?.split(",").map((part) => part.trim()) ?? [];
+
+  let videoCodec: string | null = null;
+  let audioCodec: string | null = null;
+
+  for (const part of codecParts) {
+    if (/^(vp8|vp9|avc1|h264|hev1|h265)$/i.test(part)) {
+      videoCodec = part;
+    } else if (/^(opus|aac|mp4a|vorbis)$/i.test(part)) {
+      audioCodec = part;
+    }
+  }
+
+  if (!audioCodec && container === "mp4") {
+    audioCodec = "aac";
+  }
+
+  return { container, videoCodec, audioCodec };
+}
+
+export function logAudioTrackSettings(label: string, stream: MediaStream | null) {
+  if (!stream || typeof console === "undefined") {
+    return;
+  }
+
+  for (const track of stream.getAudioTracks()) {
+    const settings = track.getSettings();
+    const constraints = track.getConstraints?.() ?? {};
+
+    console.log(`[SpotDrop camera] ${label}`, {
+      label: track.label,
+      readyState: track.readyState,
+      muted: track.muted,
+      enabled: track.enabled,
+      appliedSettings: {
+        sampleRate: settings.sampleRate,
+        channelCount: settings.channelCount,
+        echoCancellation: settings.echoCancellation,
+        noiseSuppression: settings.noiseSuppression,
+        autoGainControl: settings.autoGainControl,
+        deviceId: settings.deviceId,
+      },
+      appliedConstraints: constraints,
+    });
+  }
+}
+
+/** 4K capture — desktop fallback only; iOS uses 1080p for stable preview/recording. */
 export function build4KVideoConstraints(
   facingMode: CameraFacingMode = "environment"
 ): ExtendedVideoConstraints {
-  return buildAdvancedVideoConstraints(facingMode, 3840, 2160, 1920);
+  return buildAdvancedVideoConstraints(facingMode, 3840, 2160);
 }
 
-/** Full HD capture — 1080p minimum quality tier. */
+/** Full HD capture — primary profile for smooth 1080p @ 30fps. */
 export function buildFullHdVideoConstraints(
   facingMode: CameraFacingMode = "environment"
 ): ExtendedVideoConstraints {
-  return buildAdvancedVideoConstraints(facingMode, 1920, 1080, 1920);
+  return buildAdvancedVideoConstraints(facingMode, 1920, 1080);
 }
 
 /** Balanced fallback — 720p only when 1080p/4K are unavailable. */
@@ -415,7 +527,7 @@ export function buildLowVideoConstraints(
   };
 }
 
-/** Apply continuous autofocus / exposure / white-balance after the stream is live. */
+/** Apply one-time autofocus / exposure tuning after the stream is live. Never call during recording. */
 export async function optimizeVideoTrack(track: MediaStreamTrack | undefined) {
   if (!track) {
     return;
@@ -425,8 +537,12 @@ export async function optimizeVideoTrack(track: MediaStreamTrack | undefined) {
     { focusMode: "continuous" } as MediaTrackConstraintSet,
     { exposureMode: "continuous" } as MediaTrackConstraintSet,
     { whiteBalanceMode: "continuous" } as MediaTrackConstraintSet,
-    { resizeMode: "none" } as MediaTrackConstraintSet,
   ];
+
+  // resizeMode can restart the capture pipeline on some iOS builds — skip on iPhone.
+  if (!isIosSafari()) {
+    advanced.push({ resizeMode: "none" } as MediaTrackConstraintSet);
+  }
 
   try {
     await track.applyConstraints({ advanced });
@@ -477,11 +593,17 @@ function getCameraConstraintAttempts(
   const videoProfiles =
     quality === "smooth"
       ? [buildLowVideoConstraints(facingMode)]
-      : [
-          build4KVideoConstraints(facingMode),
-          buildFullHdVideoConstraints(facingMode),
-          buildBalancedVideoConstraints(facingMode),
-        ];
+      : isIosSafari()
+        ? [
+            buildFullHdVideoConstraints(facingMode),
+            buildBalancedVideoConstraints(facingMode),
+            buildLowVideoConstraints(facingMode),
+          ]
+        : [
+            buildFullHdVideoConstraints(facingMode),
+            buildBalancedVideoConstraints(facingMode),
+            build4KVideoConstraints(facingMode),
+          ];
 
   const attempts: MediaStreamConstraints[] = [];
 
@@ -522,7 +644,7 @@ export function getMediaRecorderOptions(mimeType: string): MediaRecorderOptions 
   return {
     mimeType,
     videoBitsPerSecond: CAMERA_VIDEO_BITS_PER_SECOND,
-    audioBitsPerSecond: IOS_CAMERA_AUDIO_BITS_PER_SECOND,
+    audioBitsPerSecond: CAMERA_AUDIO_BITS_PER_SECOND,
   };
 }
 
@@ -579,6 +701,7 @@ export async function startCameraStream(
 
       await optimizeVideoTrack(videoTrack);
       logCameraTrackSettings("after getUserMedia", videoTrack);
+      logAudioTrackSettings("after getUserMedia", stream);
       return stream;
     } catch (caught) {
       console.warn(`[SpotDrop camera] attempt ${index + 1} failed`, caught);
@@ -704,7 +827,7 @@ export function recordVideoFromStream(
     mediaRecorderSupported: true,
     chosenMimeType: chosenMimeType || "(none — browser default)",
     isIosSafari: isIosSafari(),
-    timesliceMs: RECORDER_TIMESLICE_MS,
+    timesliceMs: getRecorderTimesliceMs(),
     ...getStreamRecordingDebug(recordingStream),
   });
 
@@ -750,9 +873,14 @@ export function recordVideoFromStream(
 
     recorder.onstart = () => {
       started = true;
-      console.log("[SpotDrop camera] MediaRecorder onstart", {
+      const codecs = parseRecorderCodecs(recorder.mimeType);
+      console.log("[SpotDrop camera] RECORD START", {
         state: recorder.state,
         mimeType: recorder.mimeType,
+        audioCodec: codecs.audioCodec ?? "browser default",
+        audioBitsPerSecond: isIosSafari()
+          ? IOS_CAMERA_AUDIO_BITS_PER_SECOND
+          : CAMERA_AUDIO_BITS_PER_SECOND,
         ...getStreamRecordingDebug(recordingStream),
       });
 
@@ -786,7 +914,14 @@ export function recordVideoFromStream(
           maxTimeoutId = null;
         }
 
-        await waitForFinalDataChunk(recorder, chunks, pushChunk);
+        console.log("[SpotDrop camera] MEDIARECORDER STOP event", {
+          state: recorder.state,
+          chunkCount: chunks.length,
+        });
+
+        // Always wait for the final post-stop dataavailable — iOS drops the last
+        // 1–3s when this is skipped (old logic only waited when chunkCount === 0).
+        await waitForRecorderDataEvent(recorder, pushChunk);
         await waitAfterStopForChunks();
 
         const blobType = resolvedMimeType || recorder.mimeType || "video/mp4";
@@ -798,8 +933,17 @@ export function recordVideoFromStream(
           chunks,
           blob.size
         );
+        const durationSeconds = await readRecordedVideoDurationSeconds(blob);
 
-        console.log("[SpotDrop camera] MediaRecorder onstop", debug);
+        console.log("[SpotDrop camera] VIDEO FINALIZED", {
+          ...debug,
+          durationSeconds,
+        });
+        console.log("[SpotDrop camera] FINAL DURATION", {
+          seconds: durationSeconds,
+          chunkCount: chunks.length,
+          blobSize: blob.size,
+        });
 
         if (blob.size === 0 || chunks.length === 0) {
           console.error("[SpotDrop camera] zero-chunk recording", formatRecordingFailureDebug(debug));
@@ -817,14 +961,14 @@ export function recordVideoFromStream(
     };
   });
 
-  const finishRecording = () => {
+  const finishRecording = async () => {
     if (stopped) {
       return;
     }
 
     stopped = true;
 
-    console.log("[SpotDrop camera] finishRecording", {
+    console.log("[SpotDrop camera] MEDIARECORDER STOP requested", {
       state: recorder.state,
       started,
       chunkCount: chunks.length,
@@ -833,13 +977,19 @@ export function recordVideoFromStream(
 
     if (recorder.state === "recording") {
       try {
+        if (chunks.length === 0 && typeof recorder.requestData === "function") {
+          recorder.requestData();
+          await waitForRecorderDataEvent(recorder, pushChunk, 800);
+        }
+
         if (typeof recorder.requestData === "function") {
           recorder.requestData();
           console.log("[SpotDrop camera] requestData() called before stop");
+          await waitForRecorderDataEvent(recorder, pushChunk);
         }
 
         recorder.stop();
-        console.log("[SpotDrop camera] MediaRecorder.stop called", { state: recorder.state });
+        console.log("[SpotDrop camera] MediaRecorder.stop() called", { state: recorder.state });
       } catch (caught) {
         const debug = buildRecordingDebugInfo(recordingStream, recorder, chosenMimeType, chunks, 0);
         console.error("[SpotDrop camera] MediaRecorder.stop failed", caught, debug);
@@ -865,7 +1015,7 @@ export function recordVideoFromStream(
 
   return {
     stop: async () => {
-      finishRecording();
+      await finishRecording();
       return recordingPromise;
     },
     cancel: () => {

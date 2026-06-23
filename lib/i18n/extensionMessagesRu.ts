@@ -111,10 +111,10 @@ export const EXTENSION_RU: Record<ExtensionKey, string> = {
   "feed.exploreNearbyBody": "Заходите в городские комнаты, присоединяйтесь к локальным каналам и смотрите места в каждом направлении.",
   "feed.error.loadSpots": "Не удалось загрузить места.",
 
-  "spotStats.visited": "Посещения",
+  "spotStats.visited": "Посещения Spot",
   "spotStats.comments": "Комментарии",
   "spotStats.saved": "Сохранения",
-  "spotStats.summary": "Посещения {visited} • Комментарии {comments} • Сохранения {saved}",
+  "spotStats.summary": "Посещения Spot {visited} • Комментарии {comments} • Сохранения {saved}",
 
   "comments.title": "Комментарии",
   "comments.empty": "Пока нет комментариев.",
@@ -475,7 +475,7 @@ export const EXTENSION_RU: Record<ExtensionKey, string> = {
   "postDetail.saved": "Сохранено",
   "postDetail.like": "Нравится",
   "postDetail.comments": "Комментарии",
-  "postDetail.visited": "Посещено",
+  "postDetail.visited": "Посещения Spot",
   "postDetail.send": "Отправить",
   "postDetail.share": "Поделиться",
   "postDetail.linkCopied": "Ссылка скопирована",
