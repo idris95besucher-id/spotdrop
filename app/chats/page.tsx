@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 import ChatInboxActionSheet, {
   type ChatInboxActionSheetTarget,
@@ -21,6 +21,7 @@ import { getSafeAuthSession } from "@/lib/authSession";
 import { formatUnreadBadge } from "@/lib/chatNotifications";
 import {
   CHATS_INBOX_REFRESH_EVENT,
+  CHATS_INBOX_SILENT_REFRESH_EVENT,
   loadChatsInbox,
   type InboxChatRow,
   type InboxItem,
@@ -56,6 +57,7 @@ export default function ChatsPage() {
   const [reloadKey, setReloadKey] = useState(0);
   const [actionTarget, setActionTarget] = useState<ActionTarget | null>(null);
   const { unreadCount, refreshUnreadCount } = useChatNotifications();
+  const silentReloadRef = useRef(false);
 
   const refresh = useCallback(() => {
     setReloadKey((current) => current + 1);
@@ -83,10 +85,17 @@ export default function ChatsPage() {
   useEffect(() => {
     const onInboxRefresh = () => refresh();
 
+    const onSilentRefresh = () => {
+      silentReloadRef.current = true;
+      setReloadKey((current) => current + 1);
+    };
+
     window.addEventListener(CHATS_INBOX_REFRESH_EVENT, onInboxRefresh);
+    window.addEventListener(CHATS_INBOX_SILENT_REFRESH_EVENT, onSilentRefresh);
 
     return () => {
       window.removeEventListener(CHATS_INBOX_REFRESH_EVENT, onInboxRefresh);
+      window.removeEventListener(CHATS_INBOX_SILENT_REFRESH_EVENT, onSilentRefresh);
     };
   }, [refresh]);
 
@@ -132,11 +141,21 @@ export default function ChatsPage() {
     const onDmIncoming = (event: Event) => {
       const detail = (event as CustomEvent<DmIncomingDetail>).detail;
 
-      if (!detail?.partnerId) {
+      if (!detail?.partnerId || !detail.message) {
         return;
       }
 
-      setItems((current) => patchInboxItemsForIncomingDm(current, detail.partnerId));
+      setItems((current) => {
+        const result = patchInboxItemsForIncomingDm(current, detail);
+
+        if (!result.partnerFound) {
+          silentReloadRef.current = true;
+          setReloadKey((key) => key + 1);
+          return current;
+        }
+
+        return result.items;
+      });
     };
 
     window.addEventListener(CHATS_INBOX_DM_INCOMING_EVENT, onDmIncoming);
@@ -158,7 +177,7 @@ export default function ChatsPage() {
         return;
       }
 
-      setLoadingChats(true);
+      setLoadingChats(!silentReloadRef.current);
       setError(null);
 
       const result = await loadChatsInbox(userId);
@@ -172,6 +191,7 @@ export default function ChatsPage() {
         setRequests(result.requests);
       }
 
+      silentReloadRef.current = false;
       setLoadingChats(false);
     };
 

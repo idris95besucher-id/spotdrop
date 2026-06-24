@@ -2,6 +2,7 @@ import {
   CHATS_INBOX_REFRESH_EVENT,
   type InboxItem,
 } from "@/lib/chatsInbox";
+import type { DirectMessageType } from "@/lib/directConversations";
 import {
   countUnreadDirectMessagesForPartner,
   formatUnreadBadge,
@@ -18,7 +19,18 @@ export type OptimisticInboxReadDetail =
   | { kind: "dm"; partnerId: string }
   | { kind: "room"; countrySlug: string; citySlug: string };
 
-export type DmIncomingDetail = { partnerId: string };
+export type DmIncomingMessagePreview = {
+  body: string | null;
+  message_type: string | null;
+  spot_share_id: string | null;
+  post_id: string | null;
+  created_at: string;
+};
+
+export type DmIncomingDetail = {
+  partnerId: string;
+  message: DmIncomingMessagePreview;
+};
 
 export type DmThreadReadDetail = {
   partnerId: string;
@@ -73,13 +85,15 @@ export function dispatchOptimisticInboxRead(detail: OptimisticInboxReadDetail) {
   window.dispatchEvent(new CustomEvent(CHATS_INBOX_OPTIMISTIC_READ_EVENT, { detail }));
 }
 
-export function dispatchDmIncomingMessage(partnerId: string) {
+export function dispatchDmIncomingMessage(partnerId: string, message: DmIncomingMessagePreview) {
   if (typeof window === "undefined") {
     return;
   }
 
   window.dispatchEvent(
-    new CustomEvent(CHATS_INBOX_DM_INCOMING_EVENT, { detail: { partnerId } satisfies DmIncomingDetail })
+    new CustomEvent(CHATS_INBOX_DM_INCOMING_EVENT, {
+      detail: { partnerId, message } satisfies DmIncomingDetail,
+    })
   );
 }
 
@@ -132,23 +146,51 @@ export function patchInboxItemsOptimistically(
   });
 }
 
-export function patchInboxItemsForIncomingDm(items: InboxItem[], partnerId: string): InboxItem[] {
-  return items.map((item) => {
-    if (item.kind !== "dm" || item.chat.partnerId !== partnerId) {
+function sortInboxItemsByLastAt(items: InboxItem[]): InboxItem[] {
+  return [...items].sort((left, right) => {
+    const leftAt = left.kind === "dm" ? left.chat.lastAt : left.room.lastAt;
+    const rightAt = right.kind === "dm" ? right.chat.lastAt : right.room.lastAt;
+
+    return new Date(rightAt).getTime() - new Date(leftAt).getTime();
+  });
+}
+
+export function patchInboxItemsForIncomingDm(
+  items: InboxItem[],
+  detail: DmIncomingDetail
+): { items: InboxItem[]; partnerFound: boolean } {
+  let partnerFound = false;
+
+  const patched = items.map((item) => {
+    if (item.kind !== "dm" || item.chat.partnerId !== detail.partnerId) {
       return item;
     }
 
+    partnerFound = true;
     const unreadCount = item.chat.unreadCount + 1;
 
     return {
       ...item,
       chat: {
         ...item.chat,
+        lastMessage: {
+          body: detail.message.body,
+          message_type: (detail.message.message_type ?? "text") as DirectMessageType,
+          spot_share_id: detail.message.spot_share_id,
+          post_id: detail.message.post_id,
+        },
+        lastAt: detail.message.created_at,
         unreadCount,
         unreadBadge: formatUnreadBadge(unreadCount),
       },
     };
   });
+
+  if (!partnerFound) {
+    return { items, partnerFound: false };
+  }
+
+  return { items: sortInboxItemsByLastAt(patched), partnerFound: true };
 }
 
 export async function markDmThreadOpened(

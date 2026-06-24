@@ -38,6 +38,7 @@ import {
   type DirectMessageType,
 } from "@/lib/directConversations";
 import { CHATS_INBOX_REFRESH_EVENT } from "@/lib/chatsInbox";
+import { startDmThreadLiveSync, type DmAppendSource } from "@/lib/dmThreadSync";
 import { checkCanMessageUser, type MessagePrivacyBlockReasonKey } from "@/lib/messagePrivacy";
 import { loadPrivateSpotSharesByIds, type PrivateSpotShare } from "@/lib/privateSpotShares";
 import { useChatScroll, useChatScrollEffect } from "@/lib/useChatScroll";
@@ -97,6 +98,9 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
   } = useChatScroll();
   const { refreshUnreadCount } = useChatNotifications();
   const markedReadForPartnerRef = useRef<string | null>(null);
+  const seenMessageIdsRef = useRef(new Set<string>());
+  const messagesRef = useRef<DirectMessage[]>([]);
+  messagesRef.current = messages;
   const currentUserId = session?.user?.id ?? null;
   const isSelfConversation = Boolean(currentUserId && partnerId && currentUserId === partnerId);
   const showIncomingRequestBanner = Boolean(
@@ -127,6 +131,7 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
 
   useEffect(() => {
     markedReadForPartnerRef.current = null;
+    seenMessageIdsRef.current.clear();
   }, [partnerId]);
 
   const reloadConversation = useCallback(async () => {
@@ -242,6 +247,7 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
         setShareById(new Map());
       } else {
         setMessages(loadedMessages as DirectMessage[]);
+        seenMessageIdsRef.current = new Set(loadedMessages.map((message) => message.id));
 
         const shareIds = [
           ...new Set(
@@ -259,93 +265,92 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
     };
 
     void loadConversation();
-  }, [currentUserId, partnerId, refreshUnreadCount, t]);
+  }, [currentUserId, partnerId, t]);
+
+  const refreshUnreadCountRef = useRef(refreshUnreadCount);
+  refreshUnreadCountRef.current = refreshUnreadCount;
+
+  const markForceScrollRef = useRef(markForceScroll);
+  markForceScrollRef.current = markForceScroll;
+
+  const reloadConversationRef = useRef(reloadConversation);
+  reloadConversationRef.current = reloadConversation;
 
   useEffect(() => {
     if (!currentUserId || !partnerId || isSelfConversation) {
       return;
     }
 
-    const channel = supabase
-      .channel(`direct_messages_${currentUserId}_${partnerId}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "direct_messages",
-        },
-        (payload) => {
-          const incoming = payload.new as DirectMessage;
-          const isThreadMessage =
-            (incoming.sender_id === currentUserId && incoming.recipient_id === partnerId) ||
-            (incoming.sender_id === partnerId && incoming.recipient_id === currentUserId);
+    const appendThreadMessage = (normalized: DirectMessage, source: DmAppendSource) => {
+      console.log("[DM append] added message id", normalized.id, { source });
 
-          if (!isThreadMessage) {
-            return;
-          }
-
-          const normalized = normalizeDirectMessageRow(incoming) as DirectMessage;
-
-          if (normalized.recipient_id === currentUserId) {
-            void markDirectMessagesReadInThread(currentUserId, partnerId).then(() => {
-              void refreshUnreadCount();
-            });
-          }
-
-          setMessages((current) => {
-            if (current.some((message) => message.id === normalized.id)) {
-              return current;
-            }
-
-            return [...current, normalized].sort(
-              (left, right) => new Date(left.created_at).getTime() - new Date(right.created_at).getTime()
-            );
-          });
-
-          window.dispatchEvent(new Event(CHATS_INBOX_REFRESH_EVENT));
-
-          if (normalized.spot_share_id) {
-            void loadPrivateSpotSharesByIds([normalized.spot_share_id]).then((result) => {
-              const share = result.shares.get(normalized.spot_share_id!);
-
-              if (share) {
-                setShareById((current) => new Map(current).set(share.id, share));
-              }
-            });
-          }
+      setMessages((current) => {
+        if (current.some((message) => message.id === normalized.id)) {
+          return current;
         }
-      )
-      .on(
-        "postgres_changes",
-        {
-          event: "UPDATE",
-          schema: "public",
-          table: "direct_messages",
-        },
-        (payload) => {
-          const updated = normalizeDirectMessageRow(payload.new as DirectMessage) as DirectMessage;
-          const isThreadMessage =
-            (updated.sender_id === currentUserId && updated.recipient_id === partnerId) ||
-            (updated.sender_id === partnerId && updated.recipient_id === currentUserId);
 
-          if (!isThreadMessage) {
-            return;
+        return [...current, normalized].sort(
+          (left, right) => new Date(left.created_at).getTime() - new Date(right.created_at).getTime()
+        );
+      });
+
+      markForceScrollRef.current();
+
+      if (normalized.recipient_id === currentUserId && normalized.sender_id === partnerId) {
+        void markDirectMessagesReadInThread(currentUserId, partnerId).then(() => {
+          void refreshUnreadCountRef.current();
+        });
+      }
+
+      window.dispatchEvent(new Event(CHATS_INBOX_REFRESH_EVENT));
+
+      if (normalized.spot_share_id) {
+        void loadPrivateSpotSharesByIds([normalized.spot_share_id]).then((result) => {
+          const share = result.shares.get(normalized.spot_share_id!);
+
+          if (share) {
+            setShareById((current) => new Map(current).set(share.id, share));
           }
+        });
+      }
+    };
 
-          setMessages((current) =>
-            current.map((message) =>
-              message.id === updated.id
-                ? {
-                    ...message,
-                    delivered_at: updated.delivered_at,
-                    read_at: updated.read_at,
-                  }
-                : message
-            )
-          );
+    const stopSync = startDmThreadLiveSync(currentUserId, partnerId, {
+      onAppendMessage: (message, source) => {
+        appendThreadMessage(message as DirectMessage, source);
+      },
+      onUpdateMessage: (updated) => {
+        setMessages((current) =>
+          current.map((message) =>
+            message.id === updated.id
+              ? {
+                  ...message,
+                  delivered_at: updated.delivered_at,
+                  read_at: updated.read_at,
+                }
+              : message
+          )
+        );
+      },
+      getLatestCreatedAt: () => {
+        const list = messagesRef.current;
+
+        if (list.length === 0) {
+          return null;
         }
-      )
+
+        return list[list.length - 1]?.created_at ?? null;
+      },
+      hasMessageId: (messageId) =>
+        seenMessageIdsRef.current.has(messageId) ||
+        messagesRef.current.some((message) => message.id === messageId),
+      rememberMessageId: (messageId) => {
+        seenMessageIdsRef.current.add(messageId);
+      },
+    });
+
+    const spotShareChannel = supabase
+      .channel(`dm_thread_shares_${currentUserId}_${partnerId}`)
       .on(
         "postgres_changes",
         {
@@ -372,6 +377,10 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
           });
         }
       )
+      .subscribe();
+
+    const conversationChannel = supabase
+      .channel(`dm_thread_conv_${currentUserId}_${partnerId}`)
       .on(
         "postgres_changes",
         {
@@ -380,15 +389,17 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
           table: "direct_conversations",
         },
         () => {
-          void reloadConversation();
+          void reloadConversationRef.current();
         }
       )
       .subscribe();
 
     return () => {
-      void supabase.removeChannel(channel);
+      stopSync();
+      void supabase.removeChannel(spotShareChannel);
+      void supabase.removeChannel(conversationChannel);
     };
-  }, [currentUserId, isSelfConversation, partnerId, refreshUnreadCount, reloadConversation]);
+  }, [currentUserId, isSelfConversation, partnerId]);
 
   const handleAcceptRequest = async () => {
     if (!conversation || !currentUserId) {
@@ -486,6 +497,7 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
     }
 
     if (inserted) {
+      seenMessageIdsRef.current.add(inserted.id);
       setMessages((current) => {
         if (current.some((message) => message.id === inserted.id)) {
           return current;

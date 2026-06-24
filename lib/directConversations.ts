@@ -129,6 +129,35 @@ export async function loadDirectMessagesForThread(userId: string, partnerId: str
   return { messages, error: null };
 }
 
+/** Fetch thread messages created after a timestamp (fallback polling). */
+export async function fetchNewDirectMessagesForThread(
+  userId: string,
+  partnerId: string,
+  afterCreatedAt: string | null
+) {
+  const threadFilter = `and(sender_id.eq.${userId},recipient_id.eq.${partnerId}),and(sender_id.eq.${partnerId},recipient_id.eq.${userId})`;
+
+  let query = supabase
+    .from("direct_messages")
+    .select(DIRECT_MESSAGE_SELECT)
+    .or(threadFilter)
+    .order("created_at", { ascending: true });
+
+  if (afterCreatedAt) {
+    query = query.gt("created_at", afterCreatedAt);
+  }
+
+  const { data, error } = await query;
+
+  if (error) {
+    return { messages: [] as DirectMessageRow[], error: error.message };
+  }
+
+  const messages = (data ?? []).map((row) => normalizeDirectMessageRow(row as DirectMessageRowInput));
+
+  return { messages, error: null as string | null };
+}
+
 export function normalizeConversationPair(userIdA: string, userIdB: string) {
   if (userIdA === userIdB) {
     throw new Error("Cannot create a conversation with yourself.");

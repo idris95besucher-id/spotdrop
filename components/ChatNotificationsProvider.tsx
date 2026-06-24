@@ -31,7 +31,10 @@ import {
   type DmThreadReadDetail,
 } from "@/lib/chatUnreadSync";
 import { messageMentionsUsername } from "@/lib/chatMentions";
-import { CHATS_INBOX_REFRESH_EVENT } from "@/lib/chatsInbox";
+import {
+  CHATS_INBOX_REFRESH_EVENT,
+  CHATS_INBOX_SILENT_REFRESH_EVENT,
+} from "@/lib/chatsInbox";
 import { isDmMuted } from "@/lib/chatInboxPreferences";
 import {
   isViewingCityRoomThread,
@@ -105,6 +108,18 @@ export default function ChatNotificationsProvider({ children }: { children: Reac
 
   const userId = session?.user?.id ?? null;
 
+  const pathnameRef = useRef(pathname);
+  pathnameRef.current = pathname;
+
+  const tRef = useRef(t);
+  tRef.current = t;
+
+  const localeRef = useRef(locale);
+  localeRef.current = locale;
+
+  const currentUsernameRef = useRef(currentUsername);
+  currentUsernameRef.current = currentUsername;
+
   const dismissToast = useCallback(() => {
     if (toastTimerRef.current) {
       clearTimeout(toastTimerRef.current);
@@ -113,6 +128,8 @@ export default function ChatNotificationsProvider({ children }: { children: Reac
 
     setToast(null);
   }, []);
+
+  const showToastRef = useRef<(next: ChatToast) => void>(() => {});
 
   const showToast = useCallback(
     (next: ChatToast) => {
@@ -126,13 +143,19 @@ export default function ChatNotificationsProvider({ children }: { children: Reac
     [dismissToast]
   );
 
+  showToastRef.current = showToast;
+
   const adjustDmUnreadTotal = useCallback((delta: number) => {
     setUnreadCount((current) => {
       const next = Math.max(0, current + delta);
-      console.log("[DM unread] total updated", next);
+      console.log("[DM global] unread count updated", next);
+      console.log("[DM global] badge updated", next);
       return next;
     });
   }, []);
+
+  const adjustDmUnreadTotalRef = useRef(adjustDmUnreadTotal);
+  adjustDmUnreadTotalRef.current = adjustDmUnreadTotal;
 
   const refreshUnreadCount = useCallback(async () => {
     if (!userId) {
@@ -143,13 +166,17 @@ export default function ChatNotificationsProvider({ children }: { children: Reac
     const { count, error } = await countUnreadInboxMessages(userId, getOptimisticReadExcludes());
 
     if (error) {
-      console.error("[DM unread] total refresh failed", error);
+      console.error("[DM global] unread count refresh failed", error);
       return;
     }
 
     setUnreadCount(count);
-    console.log("[DM read] total unread after clear=", count);
+    console.log("[DM global] unread count updated", count);
+    console.log("[DM global] badge updated", count);
   }, [userId]);
+
+  const refreshUnreadCountRef = useRef(refreshUnreadCount);
+  refreshUnreadCountRef.current = refreshUnreadCount;
 
   useEffect(() => {
     const {
@@ -236,10 +263,12 @@ export default function ChatNotificationsProvider({ children }: { children: Reac
       return;
     }
 
+    console.log("[DM global] subscribe start", { userId });
+
     const messagesEnabled = () => loadUserSettingsPreferences().notifications.messages;
 
     const channel = supabase
-      .channel(`chat_notifications_${userId}`)
+      .channel(`dm_global_${userId}`)
       .on(
         "postgres_changes",
         {
@@ -250,9 +279,14 @@ export default function ChatNotificationsProvider({ children }: { children: Reac
         },
         (payload) => {
           const row = payload.new as {
+            id: string;
             sender_id: string;
             recipient_id: string;
+            body?: string | null;
             message_type?: string | null;
+            spot_share_id?: string | null;
+            post_id?: string | null;
+            created_at: string;
           };
 
           if (row.sender_id === userId) {
@@ -260,22 +294,33 @@ export default function ChatNotificationsProvider({ children }: { children: Reac
             return;
           }
 
+          console.log("[DM global] incoming message", {
+            id: row.id,
+            partnerId: row.sender_id,
+          });
+
           const openThreadPath = `/dm?id=${row.sender_id}`;
 
-          if (isViewingDirectMessageThread(pathname, row.sender_id)) {
+          if (isViewingDirectMessageThread(pathnameRef.current, row.sender_id)) {
             skipMessageNotificationSound("viewing_thread");
-            void markDmThreadOpened(userId, row.sender_id, refreshUnreadCount);
+            void markDmThreadOpened(userId, row.sender_id, refreshUnreadCountRef.current);
             return;
           }
 
-          console.log("[DM unread] incoming message", { partnerId: row.sender_id });
-          adjustDmUnreadTotal(1);
-          dispatchDmIncomingMessage(row.sender_id);
+          adjustDmUnreadTotalRef.current(1);
+
+          dispatchDmIncomingMessage(row.sender_id, {
+            body: row.body ?? null,
+            message_type: row.message_type ?? null,
+            spot_share_id: row.spot_share_id ?? null,
+            post_id: row.post_id ?? null,
+            created_at: row.created_at,
+          });
+
+          console.log("[DM global] inbox updated", { partnerId: row.sender_id });
 
           void (async () => {
             await markDirectMessagesDeliveredFromSender(userId, row.sender_id);
-            void refreshUnreadCount();
-            window.dispatchEvent(new Event(CHATS_INBOX_REFRESH_EVENT));
 
             if (!messagesEnabled()) {
               skipMessageNotificationSound("messages_disabled");
@@ -288,18 +333,18 @@ export default function ChatNotificationsProvider({ children }: { children: Reac
             }
 
             const { username } = await fetchProfileUsername(row.sender_id);
-            const senderName = username === "Someone" ? t("common.someone") : username;
+            const senderName = username === "Someone" ? tRef.current("common.someone") : username;
             const message = buildIncomingMessageToast(
               {
                 senderUsername: senderName,
                 messageType: row.message_type ?? "text",
               },
-              t
+              tRef.current
             );
 
             void playMessageNotificationSound();
 
-            showToast({
+            showToastRef.current({
               id: `${row.sender_id}-${Date.now()}`,
               message,
               href: openThreadPath,
@@ -307,6 +352,30 @@ export default function ChatNotificationsProvider({ children }: { children: Reac
           })();
         }
       )
+      .subscribe((status) => {
+        if (status === "SUBSCRIBED") {
+          console.log("[DM global] subscribed", { userId });
+        } else if (status === "CHANNEL_ERROR") {
+          console.error("[DM global] status CHANNEL_ERROR", { userId });
+        } else if (status === "TIMED_OUT") {
+          console.error("[DM global] status TIMED_OUT", { userId });
+        } else if (status === "CLOSED") {
+          console.log("[DM global] status CLOSED", { userId });
+        }
+      });
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [userId]);
+
+  useEffect(() => {
+    if (!userId) {
+      return;
+    }
+
+    const channel = supabase
+      .channel(`room_notifications_${userId}`)
       .on(
         "postgres_changes",
         {
@@ -334,7 +403,7 @@ export default function ChatNotificationsProvider({ children }: { children: Reac
               return;
             }
 
-            const isMention = messageMentionsUsername(row.content, currentUsername);
+            const isMention = messageMentionsUsername(row.content, currentUsernameRef.current);
             const roomPath = buildRoomHref(membership.countrySlug, membership.citySlug);
 
             if (membership.isHidden && !isMention) {
@@ -347,37 +416,37 @@ export default function ChatNotificationsProvider({ children }: { children: Reac
               return;
             }
 
-            if (isViewingCityRoomThread(pathname, roomPath)) {
+            if (isViewingCityRoomThread(pathnameRef.current, roomPath)) {
               skipMessageNotificationSound("viewing_thread");
               return;
             }
 
-            void refreshUnreadCount();
+            void refreshUnreadCountRef.current();
             window.dispatchEvent(new Event(CHATS_INBOX_REFRESH_EVENT));
 
-            if (!messagesEnabled()) {
+            if (!loadUserSettingsPreferences().notifications.messages) {
               skipMessageNotificationSound("messages_disabled");
               return;
             }
 
             const message = buildIncomingRoomMessageToast(
               {
-                cityName: localizeCityName(locale, {
+                cityName: localizeCityName(localeRef.current, {
                   slug: membership.citySlug,
                   name: membership.cityName,
                   countrySlug: membership.countrySlug,
                 }),
-                countryName: localizeCountryName(locale, {
+                countryName: localizeCountryName(localeRef.current, {
                   slug: membership.countrySlug,
                   name: membership.countryName,
                 }),
               },
-              t
+              tRef.current
             );
 
             void playMessageNotificationSound();
 
-            showToast({
+            showToastRef.current({
               id: `${membership.citySlug}-${Date.now()}`,
               message,
               href: roomPath,
@@ -390,16 +459,7 @@ export default function ChatNotificationsProvider({ children }: { children: Reac
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, [
-    adjustDmUnreadTotal,
-    currentUsername,
-    pathname,
-    refreshUnreadCount,
-    showToast,
-    t,
-    locale,
-    userId,
-  ]);
+  }, [userId]);
 
   useEffect(() => {
     return () => {

@@ -1,4 +1,5 @@
 export const CHATS_INBOX_REFRESH_EVENT = "spotdrop:chats-inbox-refresh";
+export const CHATS_INBOX_SILENT_REFRESH_EVENT = "spotdrop:chats-inbox-silent-refresh";
 
 import {
   buildFirstMessageByPartner,
