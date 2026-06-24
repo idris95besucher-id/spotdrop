@@ -13,11 +13,32 @@ import {
   type LiveMapUser,
 } from "@/lib/userLiveLocation";
 import { supabase } from "@/lib/supabaseClient";
+import type { I18nLocale } from "@/lib/i18n/locales";
+import { localizeCityByEnglishName, localizeCountryByEnglishName } from "@/lib/i18n/localizeGeo";
+import { auditLocationLocaleOutput } from "@/lib/i18n/localizeGeoAudit";
 import { MOBILE_PANEL_SCROLL_CLASS } from "@/lib/mobileLayout";
 
-function locationLine(user: LiveMapUser) {
-  const parts = [user.city, user.country].filter(Boolean);
-  return parts.length > 0 ? parts.join(", ") : null;
+function locationLine(user: LiveMapUser, locale: I18nLocale) {
+  const city = user.city
+    ? localizeCityByEnglishName(locale, user.city, user.country) ?? user.city
+    : null;
+  const country = user.country
+    ? localizeCountryByEnglishName(locale, user.country) ?? user.country
+    : null;
+  const parts = [city, country].filter(Boolean);
+
+  if (parts.length === 0) {
+    return null;
+  }
+
+  const line = parts.join(", ");
+  auditLocationLocaleOutput(locale, line, {
+    kind: "location-line",
+    source: "VisitNearbyPanel.locationLine",
+    city: user.city ?? null,
+    country: user.country ?? null,
+  });
+  return line;
 }
 
 function distanceKm(
@@ -36,7 +57,7 @@ function distanceKm(
 }
 
 export default function VisitNearbyPanel() {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const [userId, setUserId] = useState<string | null>(null);
   const [authChecked, setAuthChecked] = useState(false);
   const [users, setUsers] = useState<LiveMapUser[]>([]);
@@ -204,7 +225,7 @@ export default function VisitNearbyPanel() {
       </p>
       <ul className="space-y-2">
         {sortedUsers.map((user) => {
-          const place = locationLine(user);
+          const place = locationLine(user, locale);
           const distance =
             viewerCoords != null
               ? distanceKm(viewerCoords, user)

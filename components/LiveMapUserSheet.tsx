@@ -4,7 +4,10 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { UserRound, X } from "lucide-react";
 import { useI18n } from "@/components/I18nProvider";
+import { localizeCityByEnglishName, localizeCountryByEnglishName } from "@/lib/i18n/localizeGeo";
+import { auditLocationLocaleOutput } from "@/lib/i18n/localizeGeoAudit";
 import { checkCanMessageUser } from "@/lib/messagePrivacy";
+import type { I18nLocale } from "@/lib/i18n/locales";
 import type { LiveMapUser } from "@/lib/userLiveLocation";
 import { supabase } from "@/lib/supabaseClient";
 
@@ -13,13 +16,31 @@ type LiveMapUserSheetProps = {
   onClose: () => void;
 };
 
-function locationLine(user: LiveMapUser) {
-  const parts = [user.city, user.country].filter(Boolean);
-  return parts.length > 0 ? parts.join(", ") : null;
+function locationLine(user: LiveMapUser, locale: I18nLocale) {
+  const city = user.city
+    ? localizeCityByEnglishName(locale, user.city, user.country) ?? user.city
+    : null;
+  const country = user.country
+    ? localizeCountryByEnglishName(locale, user.country) ?? user.country
+    : null;
+  const parts = [city, country].filter(Boolean);
+
+  if (parts.length === 0) {
+    return null;
+  }
+
+  const line = parts.join(", ");
+  auditLocationLocaleOutput(locale, line, {
+    kind: "location-line",
+    source: "LiveMapUserSheet.locationLine",
+    city: user.city ?? null,
+    country: user.country ?? null,
+  });
+  return line;
 }
 
 export default function LiveMapUserSheet({ user, onClose }: LiveMapUserSheetProps) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const [canMessage, setCanMessage] = useState(false);
 
   useEffect(() => {
@@ -58,7 +79,7 @@ export default function LiveMapUserSheet({ user, onClose }: LiveMapUserSheetProp
     return null;
   }
 
-  const place = locationLine(user);
+  const place = locationLine(user, locale);
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center md:items-center md:p-4">

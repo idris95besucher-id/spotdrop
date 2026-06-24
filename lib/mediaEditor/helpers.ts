@@ -12,6 +12,12 @@ export function createMediaEditorItem(file: File, mediaType: MediaEditorMediaTyp
     trimConfirmed: false,
     coverFile: null,
     coverPreviewUrl: null,
+    musicTrackId: null,
+    musicTrackTitle: null,
+    musicTrackArtist: null,
+    musicTrackCoverUrl: null,
+    musicTrackAudioUrl: null,
+    musicTrackDurationSeconds: null,
   };
 }
 

@@ -3,7 +3,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Copy, ExternalLink, X } from "lucide-react";
+import { useI18n } from "@/components/I18nProvider";
 import { bottomSheetLayout, useBottomSheetScrollLock } from "@/lib/bottomSheetScrollLock";
+import {
+  localizeCityByEnglishName,
+  localizeCountryByEnglishName,
+  localizeRegionByEnglishName,
+} from "@/lib/i18n/localizeGeo";
 import {
   formatSpotLocationDisplay,
   hasSpotCoordinates,
@@ -11,14 +17,14 @@ import {
   type SpotLocationDisplayFields,
 } from "@/lib/spotLocationDisplay";
 
-function getCopyableAddress(spot: SpotLocationDisplayFields) {
+function getCopyableAddress(spot: SpotLocationDisplayFields, locale: import("@/lib/i18n/locales").I18nLocale) {
   const address = spot.spot_address?.trim();
 
   if (address) {
     return address;
   }
 
-  return formatSpotLocationDisplay(spot);
+  return formatSpotLocationDisplay(spot, locale);
 }
 
 function buildMapsUrl(location: SpotLocationDisplayFields) {
@@ -47,6 +53,7 @@ export default function SpotLocationSheet({
   spot: SpotLocationDisplayFields | null;
   onClose: () => void;
 }) {
+  const { t, locale } = useI18n();
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -82,7 +89,7 @@ export default function SpotLocationSheet({
     return null;
   }
 
-  const copyableAddress = getCopyableAddress(spot);
+  const copyableAddress = getCopyableAddress(spot, locale);
 
   const handleCopyAddress = async () => {
     if (!copyableAddress) {
@@ -102,6 +109,15 @@ export default function SpotLocationSheet({
     city: spot.spot_city,
     country: spot.spot_country,
   });
+  const localizedCity = spot.spot_city
+    ? localizeCityByEnglishName(locale, spot.spot_city, spot.spot_country) ?? spot.spot_city
+    : null;
+  const localizedRegion = region
+    ? localizeRegionByEnglishName(locale, region, spot.spot_country) ?? region
+    : null;
+  const localizedCountry = spot.spot_country
+    ? localizeCountryByEnglishName(locale, spot.spot_country) ?? spot.spot_country
+    : null;
 
   const mapsUrl = buildMapsUrl(spot);
   const hasAnyDetails = Boolean(
@@ -172,25 +188,25 @@ export default function SpotLocationSheet({
           ) : null}
 
           <div className="grid grid-cols-2 gap-2">
-            {spot.spot_city ? (
+            {localizedCity ? (
               <div className="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3">
-                <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">City</p>
-                <p className="mt-1 text-sm text-white/90">{spot.spot_city}</p>
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">{t("search.city")}</p>
+                <p className="mt-1 text-sm text-white/90">{localizedCity}</p>
               </div>
             ) : null}
 
-            {region ? (
+            {localizedRegion ? (
               <div className="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3">
-                <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Region</p>
-                <p className="mt-1 text-sm text-white/90">{region}</p>
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">{t("spotLocation.region")}</p>
+                <p className="mt-1 text-sm text-white/90">{localizedRegion}</p>
               </div>
             ) : null}
           </div>
 
-          {spot.spot_country ? (
+          {localizedCountry ? (
             <div className="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3">
-              <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">Country</p>
-              <p className="mt-1 text-sm text-white/90">{spot.spot_country}</p>
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">{t("search.country")}</p>
+              <p className="mt-1 text-sm text-white/90">{localizedCountry}</p>
             </div>
           ) : null}
         </div>

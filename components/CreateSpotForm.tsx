@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import SpotOfflineDraftSavedScreen from "@/components/SpotOfflineDraftSavedScreen";
 import SpotInstagramCamera from "@/components/SpotInstagramCamera";
+import { useI18n } from "@/components/I18nProvider";
 import SpotCapturePreviewScreen from "@/components/SpotCapturePreviewScreen";
 import SpotPublishScreen from "@/components/SpotPublishScreen";
 import SpotVideoEditorScreen from "@/components/SpotVideoEditorScreen";
@@ -26,8 +27,7 @@ import {
   getSpotPublishBlockReason,
   hasSpotPublishLocation,
   resolveSpotName,
-  SPOT_LOCATION_REQUIRED_MESSAGE,
-  spotPublishStatusMessage,
+  type SpotPublishBlockReason,
 } from "@/lib/spotPublish";
 import {
   buildSpotDraftUpsertPayload,
@@ -50,6 +50,21 @@ import {
 } from "@/lib/spotUploadPipeline";
 import { setImmersiveOverlayActive } from "@/lib/immersiveOverlay";
 import { type SpotLocationSourceKind } from "@/components/SpotLocationPicker";
+import { localizeUserMessage } from "@/lib/i18n/localizeUserMessage";
+import type { TranslationKey } from "@/lib/i18n/messages";
+
+function publishStatusKey(reason: SpotPublishBlockReason): TranslationKey | null {
+  switch (reason) {
+    case "media":
+      return "spotPublish.mediaMissing";
+    case "location_loading":
+      return "spotPublish.locationLoading";
+    case "location_required":
+      return "spotPublish.locationRequired";
+    default:
+      return null;
+  }
+}
 
 type CreateSpotFormProps = {
   userId: string;
@@ -71,6 +86,7 @@ export default function CreateSpotForm({
   onDraftChanged,
 }: CreateSpotFormProps) {
   const router = useRouter();
+  const { t } = useI18n();
   const [step, setStep] = useState<Step>("camera");
   const [spotName, setSpotName] = useState("");
   const [collectionId, setCollectionId] = useState("");
@@ -214,7 +230,7 @@ export default function CreateSpotForm({
         const draft = await storage.getDraft(nextDraftId);
 
         if (!draft || draft.userId !== userId) {
-          setError("Unable to open this Spot draft.");
+          setError(t("spotEditor.error.openDraft"));
           setStep("camera");
           return;
         }
@@ -222,7 +238,7 @@ export default function CreateSpotForm({
         const mediaBlob = await storage.getDraftBlob(nextDraftId, "media");
 
         if (!mediaBlob) {
-          setError("This Spot draft is missing its media file.");
+          setError(t("spotEditor.error.missingMedia"));
           setStep("camera");
           return;
         }
@@ -243,7 +259,7 @@ export default function CreateSpotForm({
         setStep("preview");
         currentDraftIdRef.current = draft.id;
       } catch (caught) {
-        setError(caught instanceof Error ? caught.message : "Unable to open Spot draft.");
+        setError(caught instanceof Error ? caught.message : t("spotEditor.error.openDraft"));
         setStep("camera");
       } finally {
         setLoadingDraft(false);
@@ -344,7 +360,7 @@ export default function CreateSpotForm({
       skipSaveOnCloseRef.current = true;
       handleClose();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Unable to save draft.");
+      setError(caught instanceof Error ? caught.message : t("spotEditor.error.saveDraft"));
     } finally {
       setSavingDraft(false);
     }
@@ -420,7 +436,7 @@ export default function CreateSpotForm({
     } catch (caught) {
       setNeedsLocationChoice(true);
       setLocationHint(
-        caught instanceof Error ? caught.message : "Unable to detect your location."
+        caught instanceof Error ? caught.message : t("spotEditor.error.detectLocation")
       );
     } finally {
       setLocating(false);
@@ -435,7 +451,7 @@ export default function CreateSpotForm({
       applyResolvedLocation(place.latitude, place.longitude, "search");
     } catch (caught) {
       setLocationHint(
-        caught instanceof Error ? caught.message : "Unable to use the selected place."
+        caught instanceof Error ? caught.message : t("spotEditor.error.usePlace")
       );
       setNeedsLocationChoice(true);
     } finally {
@@ -470,7 +486,7 @@ export default function CreateSpotForm({
       // Fast lookup also failed — let user choose location manually.
       setNeedsLocationChoice(true);
       setLocationHint(
-        caught instanceof Error ? caught.message : "Unable to detect your location."
+        caught instanceof Error ? caught.message : t("spotEditor.error.detectLocation")
       );
     } finally {
       setLocating(false);
@@ -537,18 +553,19 @@ export default function CreateSpotForm({
 
   const handleNext = () => {
     if (!activeMedia) {
-      setError("Add a photo or video first.");
+      setError(t("spotEditor.error.addMediaFirst"));
       void backToCamera();
       return;
     }
 
     if (!offlineMode && !hasSpotPublishLocation(location)) {
-      setError(SPOT_LOCATION_REQUIRED_MESSAGE);
+      setError(t("spotPublish.locationRequired"));
       return;
     }
 
     if (publishBlockReason) {
-      setError(publishStatusMessage ?? SPOT_LOCATION_REQUIRED_MESSAGE);
+      const key = publishStatusKey(publishBlockReason);
+      setError(key ? t(key) : t("spotPublish.locationRequired"));
       return;
     }
 
@@ -563,13 +580,13 @@ export default function CreateSpotForm({
     }
 
     if (!activeMedia) {
-      setError("Add a photo or video first.");
+      setError(t("spotEditor.error.addMediaFirst"));
       void backToCamera();
       return;
     }
 
     if (!hasSpotPublishLocation(location)) {
-      setError(SPOT_LOCATION_REQUIRED_MESSAGE);
+      setError(t("spotPublish.locationRequired"));
       return;
     }
 
@@ -623,7 +640,7 @@ export default function CreateSpotForm({
           .then(() => notifyDraftChanged());
       }
     } catch (caught) {
-      const message = caught instanceof Error ? caught.message : "Unable to publish spot.";
+      const message = caught instanceof Error ? caught.message : t("spotEditor.error.publishFailed");
       setUploadFailed(true);
 
       if (isLikelyNetworkError(caught)) {
@@ -631,9 +648,9 @@ export default function CreateSpotForm({
           uploadStatus: "ready",
           uploadError: message,
         });
-        setError("Upload failed. Your Spot was saved as a draft on this device. Tap Publish to retry.");
+        setError(t("spotEditor.error.uploadFailedDraft"));
       } else {
-        setError(message);
+        setError(localizeUserMessage(t, message) ?? message);
       }
     } finally {
       setPublishing(false);
@@ -665,14 +682,17 @@ export default function CreateSpotForm({
         location,
       });
   const publishStatusMessage = offlineMode
-    ? "You're offline. This Spot will stay on your device until you upload it."
-    : spotPublishStatusMessage(publishBlockReason);
+    ? t("spotEditor.offlineHint")
+    : (() => {
+        const key = publishStatusKey(publishBlockReason);
+        return key ? t(key) : null;
+      })();
 
   const renderSpotFlow = () => {
     if (loadingDraft) {
       return (
         <div className="fixed inset-0 z-[130] flex items-center justify-center bg-[#050816] px-6 text-center">
-          <p className="text-sm text-muted">Opening Spot draft…</p>
+          <p className="text-sm text-muted">{t("spotEditor.openingDraft")}</p>
         </div>
       );
     }

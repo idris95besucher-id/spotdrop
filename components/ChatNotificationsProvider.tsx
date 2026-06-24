@@ -14,6 +14,7 @@ import {
 } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { useI18n } from "@/components/I18nProvider";
+import { localizeCountryName, localizeCityName } from "@/lib/i18n/localizeGeo";
 import { getSafeAuthSession } from "@/lib/authSession";
 import {
   buildIncomingMessageToast,
@@ -22,9 +23,19 @@ import {
   fetchProfileUsername,
   markDirectMessagesReadInThread,
 } from "@/lib/chatNotifications";
+import { messageMentionsUsername } from "@/lib/chatMentions";
 import { CHATS_INBOX_REFRESH_EVENT } from "@/lib/chatsInbox";
 import { isDmMuted } from "@/lib/chatInboxPreferences";
+import {
+  isViewingCityRoomThread,
+  isViewingDirectMessageThread,
+} from "@/lib/chatThreadRoutes";
+import {
+  playMessageNotificationSound,
+  skipMessageNotificationSound,
+} from "@/lib/messageNotificationSound";
 import { buildRoomHref, fetchRoomMembershipForCity } from "@/lib/roomMemberships";
+import { loadUserSettingsPreferences } from "@/lib/settingsPreferences";
 import { supabase } from "@/lib/supabaseClient";
 
 type ChatToast = {
@@ -75,11 +86,12 @@ function ChatToastBanner({
 }
 
 export default function ChatNotificationsProvider({ children }: { children: ReactNode }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const pathname = usePathname();
   const [session, setSession] = useState<Session | null>(null);
   const [unreadCount, setUnreadCount] = useState(0);
   const [toast, setToast] = useState<ChatToast | null>(null);
+  const [currentUsername, setCurrentUsername] = useState<string | null>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const userId = session?.user?.id ?? null;
@@ -149,8 +161,34 @@ export default function ChatNotificationsProvider({ children }: { children: Reac
 
   useEffect(() => {
     if (!userId) {
+      setCurrentUsername(null);
       return;
     }
+
+    let cancelled = false;
+
+    void supabase
+      .from("profiles")
+      .select("username")
+      .eq("id", userId)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (!cancelled) {
+          setCurrentUsername((data?.username as string | null) ?? null);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
+
+  useEffect(() => {
+    if (!userId) {
+      return;
+    }
+
+    const messagesEnabled = () => loadUserSettingsPreferences().notifications.messages;
 
     const channel = supabase
       .channel(`chat_notifications_${userId}`)
@@ -170,13 +208,14 @@ export default function ChatNotificationsProvider({ children }: { children: Reac
           };
 
           if (row.sender_id === userId) {
+            skipMessageNotificationSound("own_message");
             return;
           }
 
           const openThreadPath = `/dm?id=${row.sender_id}`;
-          const isViewingThread = pathname === openThreadPath;
 
-          if (isViewingThread) {
+          if (isViewingDirectMessageThread(pathname, row.sender_id)) {
+            skipMessageNotificationSound("viewing_thread");
             void markDirectMessagesReadInThread(userId, row.sender_id).then(() => {
               void refreshUnreadCount();
             });
@@ -187,7 +226,13 @@ export default function ChatNotificationsProvider({ children }: { children: Reac
             void refreshUnreadCount();
             window.dispatchEvent(new Event(CHATS_INBOX_REFRESH_EVENT));
 
+            if (!messagesEnabled()) {
+              skipMessageNotificationSound("messages_disabled");
+              return;
+            }
+
             if (await isDmMuted(userId, row.sender_id)) {
+              skipMessageNotificationSound("muted");
               return;
             }
 
@@ -200,6 +245,8 @@ export default function ChatNotificationsProvider({ children }: { children: Reac
               },
               t
             );
+
+            void playMessageNotificationSound();
 
             showToast({
               id: `${row.sender_id}-${Date.now()}`,
@@ -220,36 +267,64 @@ export default function ChatNotificationsProvider({ children }: { children: Reac
           const row = payload.new as {
             city_id: string;
             user_id: string;
+            content?: string | null;
           };
 
           if (row.user_id === userId) {
+            skipMessageNotificationSound("own_message");
             return;
           }
 
           void (async () => {
             const membership = await fetchRoomMembershipForCity(userId, row.city_id);
 
-            if (!membership || membership.isHidden || membership.isMuted) {
+            if (!membership) {
+              skipMessageNotificationSound("not_member");
               return;
             }
 
+            const isMention = messageMentionsUsername(row.content, currentUsername);
             const roomPath = buildRoomHref(membership.countrySlug, membership.citySlug);
-            const isViewingRoom = pathname === roomPath;
 
-            if (isViewingRoom) {
+            if (membership.isHidden && !isMention) {
+              skipMessageNotificationSound("hidden_room");
+              return;
+            }
+
+            if (membership.isMuted && !isMention) {
+              skipMessageNotificationSound("muted");
+              return;
+            }
+
+            if (isViewingCityRoomThread(pathname, roomPath)) {
+              skipMessageNotificationSound("viewing_thread");
               return;
             }
 
             void refreshUnreadCount();
             window.dispatchEvent(new Event(CHATS_INBOX_REFRESH_EVENT));
 
+            if (!messagesEnabled()) {
+              skipMessageNotificationSound("messages_disabled");
+              return;
+            }
+
             const message = buildIncomingRoomMessageToast(
               {
-                cityName: membership.cityName,
-                countryName: membership.countryName,
+                cityName: localizeCityName(locale, {
+                  slug: membership.citySlug,
+                  name: membership.cityName,
+                  countrySlug: membership.countrySlug,
+                }),
+                countryName: localizeCountryName(locale, {
+                  slug: membership.countrySlug,
+                  name: membership.countryName,
+                }),
               },
               t
             );
+
+            void playMessageNotificationSound();
 
             showToast({
               id: `${membership.citySlug}-${Date.now()}`,
@@ -264,7 +339,7 @@ export default function ChatNotificationsProvider({ children }: { children: Reac
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, [pathname, refreshUnreadCount, showToast, t, userId]);
+  }, [currentUsername, pathname, refreshUnreadCount, showToast, t, locale, userId]);
 
   useEffect(() => {
     return () => {

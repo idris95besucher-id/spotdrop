@@ -15,7 +15,7 @@ export const RECORDER_TIMESLICE_MS = 250;
 export const IOS_RECORDER_TIMESLICE_MS = 250;
 
 /** Wait after stop() before validating chunks/blob. */
-export const POST_STOP_CHUNK_WAIT_MS = 200;
+export const POST_STOP_CHUNK_WAIT_MS = 350;
 
 /** Max wait for a dataavailable flush event (requestData / post-stop). */
 export const RECORDER_DATA_FLUSH_TIMEOUT_MS = 2500;
@@ -416,10 +416,10 @@ function buildAdvancedVideoConstraints(
 ): ExtendedVideoConstraints {
   return {
     facingMode: { ideal: facingMode },
-    width: { ideal: width },
-    height: { ideal: height },
+    width: { min: Math.round(width * 0.75), ideal: width, max: width },
+    height: { min: Math.round(height * 0.75), ideal: height, max: height },
     // Lock 30fps — high/unstable FPS causes jerky preview and recording on iOS WKWebView.
-    frameRate: { ideal: 30, max: 30 },
+    frameRate: { min: 24, ideal: 30, max: 30 },
     focusMode: { ideal: "continuous" },
     exposureMode: { ideal: "continuous" },
     whiteBalanceMode: { ideal: "continuous" },
@@ -529,7 +529,8 @@ export function buildLowVideoConstraints(
 
 /** Apply one-time autofocus / exposure tuning after the stream is live. Never call during recording. */
 export async function optimizeVideoTrack(track: MediaStreamTrack | undefined) {
-  if (!track) {
+  if (!track || isIosSafari()) {
+    // iOS: constraints are set in getUserMedia — applyConstraints here can restart the pipeline.
     return;
   }
 
@@ -548,6 +549,12 @@ export async function optimizeVideoTrack(track: MediaStreamTrack | undefined) {
     await track.applyConstraints({ advanced });
   } catch {
     // Individual flags may be unsupported — best-effort only.
+  }
+}
+
+function enableLiveAudioTracks(stream: MediaStream) {
+  for (const track of stream.getAudioTracks()) {
+    track.enabled = true;
   }
 }
 
@@ -699,6 +706,7 @@ export async function startCameraStream(
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
       const videoTrack = stream.getVideoTracks()[0];
 
+      enableLiveAudioTracks(stream);
       await optimizeVideoTrack(videoTrack);
       logCameraTrackSettings("after getUserMedia", videoTrack);
       logAudioTrackSettings("after getUserMedia", stream);

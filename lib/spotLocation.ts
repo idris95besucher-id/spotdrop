@@ -1,4 +1,7 @@
 import { isCapacitorNative } from "@/lib/capacitorUtils";
+import { canonicalizeGeoLocationFields } from "@/lib/i18n/canonicalGeo";
+import type { I18nLocale } from "@/lib/i18n/locales";
+import { formatSpotLocationLabelLocalized } from "@/lib/spotLocationDisplay";
 import { spotUploadTime } from "@/lib/spotUploadLog";
 
 export const SPOT_MAX_VIDEO_SECONDS = 60;
@@ -28,6 +31,7 @@ export type PlaceSearchResult = {
 
 const NOMINATIM_HEADERS = {
   Accept: "application/json",
+  "Accept-Language": "en",
 };
 
 function isBrowserOffline() {
@@ -79,14 +83,8 @@ export async function spotLocationFromCoordinates(
   }
 }
 
-export function formatSpotLocationLabel(location: SpotGeoLocation) {
-  const parts = [location.address, location.city, location.country].filter(Boolean);
-
-  if (parts.length > 0) {
-    return parts.join(", ");
-  }
-
-  return `${location.latitude.toFixed(5)}, ${location.longitude.toFixed(5)}`;
+export function formatSpotLocationLabel(location: SpotGeoLocation, locale: I18nLocale = "en") {
+  return formatSpotLocationLabelLocalized(location, locale);
 }
 
 async function resolveCoordinates(latitude: number, longitude: number): Promise<SpotGeoLocation> {
@@ -195,9 +193,7 @@ export async function reverseGeocode(latitude: number, longitude: number): Promi
   url.searchParams.set("addressdetails", "1");
 
   const response = await fetch(url.toString(), {
-    headers: {
-      Accept: "application/json",
-    },
+    headers: NOMINATIM_HEADERS,
   });
 
   if (!response.ok) {
@@ -212,11 +208,12 @@ export async function reverseGeocode(latitude: number, longitude: number): Promi
   const addressParts = data.address ?? {};
   const city = cityFromNominatimAddress(addressParts);
   const country = addressParts.country ?? null;
+  const canonical = canonicalizeGeoLocationFields({ city, country });
 
   return {
     address: data.display_name ?? null,
-    city,
-    country,
+    city: canonical.city,
+    country: canonical.country,
   };
 }
 
@@ -261,14 +258,18 @@ export async function searchPlaces(query: string, limit = 6): Promise<PlaceSearc
     }
 
     const address = item.address ?? {};
+    const canonical = canonicalizeGeoLocationFields({
+      city: cityFromNominatimAddress(address),
+      country: address.country ?? null,
+    });
 
     results.push({
       id: String(item.place_id ?? `${latitude}-${longitude}-${results.length}`),
       label: item.display_name,
       latitude,
       longitude,
-      city: cityFromNominatimAddress(address),
-      country: address.country ?? null,
+      city: canonical.city,
+      country: canonical.country,
     });
   }
 

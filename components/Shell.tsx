@@ -51,8 +51,10 @@ export default function Shell({
 
   if (isFullScreenChat) {
     return (
-      <div className={MOBILE_FRAME_CLASS}>
-        <div className={`${MOBILE_FRAME_BODY_CLASS} ${MOBILE_WIDTH_SAFE_CLASS}`}>{children}</div>
+      <div className={`${MOBILE_FRAME_CLASS} min-h-0 flex-1`}>
+        <div className={`${MOBILE_FRAME_BODY_CLASS} ${MOBILE_WIDTH_SAFE_CLASS} min-h-0 flex-1`}>
+          {children}
+        </div>
       </div>
     );
   }

@@ -3,6 +3,7 @@
 import { useMemo, type FormEvent, type ReactNode, type RefObject } from "react";
 import { useI18n } from "@/components/I18nProvider";
 import { localizeUserMessage } from "@/lib/i18n/localizeUserMessage";
+import { chatComposerBottomPadding, useKeyboardInsets } from "@/lib/useKeyboardInsets";
 
 type CityRoomChatComposerProps = {
   value: string;
@@ -30,6 +31,7 @@ export default function CityRoomChatComposer({
   textareaRef,
 }: CityRoomChatComposerProps) {
   const { t } = useI18n();
+  const { isKeyboardOpen } = useKeyboardInsets();
   const messagePlaceholder = placeholder ?? t("rooms.messagePlaceholder");
 
   const displayError = useMemo(() => {
@@ -39,8 +41,8 @@ export default function CityRoomChatComposer({
   return (
     <form
       onSubmit={onSubmit}
-      className="absolute inset-x-0 bottom-0 z-20 border-t border-white/10 bg-slate-950/90 p-3 backdrop-blur-xl sm:p-4"
-      style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}
+      className="shrink-0 border-t border-white/10 bg-slate-950/90 p-3 backdrop-blur-xl sm:p-4"
+      style={{ paddingBottom: chatComposerBottomPadding(isKeyboardOpen) }}
     >
       {displayError ? <p className="mb-2 text-xs text-red-300">{displayError}</p> : null}
 

@@ -14,6 +14,13 @@ export type MediaEditorItem = {
   trimConfirmed: boolean;
   coverFile: File | null;
   coverPreviewUrl: string | null;
+  /** Background music selection (metadata only until export pipeline supports mixing). */
+  musicTrackId: string | null;
+  musicTrackTitle: string | null;
+  musicTrackArtist: string | null;
+  musicTrackCoverUrl: string | null;
+  musicTrackAudioUrl: string | null;
+  musicTrackDurationSeconds: number | null;
 };
 
 export type MediaEditorDraft = {

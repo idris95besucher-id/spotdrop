@@ -3,6 +3,7 @@ import type { PostMediaFields } from "@/lib/posts";
 import { isExplorePublishedSpot } from "@/lib/publishedToSpots";
 import { isMissingSpotRankingColumns, normalizeSpotPublicStats, type SpotPublicStats } from "@/lib/spotRanking";
 import { hasSpotPublishLocation } from "@/lib/spotPublish";
+import type { I18nLocale } from "@/lib/i18n/locales";
 import { formatSpotLocationDisplay } from "@/lib/spotLocationDisplay";
 import { isGuideAccountUsername, publicProfileUsername } from "@/lib/publicProfile";
 import { logExactLoadError } from "@/lib/safeLoad";
@@ -137,19 +138,22 @@ export function formatFeedSpotTitle(post: FeedSpotRow) {
   return post.spot_name?.trim() || null;
 }
 
-export function formatFeedSpotLocation(post: FeedSpotRow) {
+export function formatFeedSpotLocation(post: FeedSpotRow, locale: I18nLocale = "en") {
   const placeJoin = post.discovery_places;
   const placeName = Array.isArray(placeJoin) ? placeJoin[0]?.name : placeJoin?.name;
 
-  return formatSpotLocationDisplay({
-    spot_name: post.spot_name,
-    spot_address: post.spot_address,
-    spot_city: post.spot_city,
-    spot_country: post.spot_country,
-    spot_latitude: post.spot_latitude,
-    spot_longitude: post.spot_longitude,
-    placeName: placeName ?? null,
-  });
+  return formatSpotLocationDisplay(
+    {
+      spot_name: post.spot_name,
+      spot_address: post.spot_address,
+      spot_city: post.spot_city,
+      spot_country: post.spot_country,
+      spot_latitude: post.spot_latitude,
+      spot_longitude: post.spot_longitude,
+      placeName: placeName ?? null,
+    },
+    locale
+  );
 }
 
 function mapFeedSpotRow(row: Record<string, unknown>): FeedSpotRow {
@@ -189,14 +193,91 @@ function mapFeedSpotRow(row: Record<string, unknown>): FeedSpotRow {
   };
 }
 
-function filterFeedSpots(rows: FeedSpotRow[]) {
-  return rows.filter(
-    (post) =>
-      isExplorePublishedSpot(post) &&
-      isRealUserProfile(post.profiles) &&
-      isFeedSpotPost(post) &&
-      hasSpotPublishLocation(post)
-  );
+function filterFeedSpots(rows: FeedSpotRow[], logContext?: string) {
+  const kept: FeedSpotRow[] = [];
+
+  for (const post of rows) {
+    if (!isExplorePublishedSpot(post)) {
+      if (logContext) {
+        console.warn("[Search Grid] hidden/filtered spot reason", {
+          postId: post.id,
+          reason: "not_explore_published",
+        });
+      }
+      continue;
+    }
+
+    if (!isRealUserProfile(post.profiles)) {
+      if (logContext) {
+        console.warn("[Search Grid] hidden/filtered spot reason", {
+          postId: post.id,
+          reason: "guide_or_demo_profile",
+        });
+      }
+      continue;
+    }
+
+    if (!isFeedSpotPost(post)) {
+      if (logContext) {
+        console.warn("[Search Grid] hidden/filtered spot reason", {
+          postId: post.id,
+          reason: "not_spot_content_kind",
+        });
+      }
+      continue;
+    }
+
+    if (!hasSpotPublishLocation(post)) {
+      if (logContext) {
+        console.warn("[Search Grid] hidden/filtered spot reason", {
+          postId: post.id,
+          reason: "missing_publish_location",
+        });
+      }
+      continue;
+    }
+
+    kept.push(post);
+  }
+
+  if (logContext) {
+    console.log("[Search Grid] visible spots count", kept.length, `(from ${rows.length} fetched)`);
+  }
+
+  return kept;
+}
+
+/** Merge incoming feed rows without dropping existing posts (stable Search grid). */
+export function mergeFeedSpotPosts(existing: FeedSpotRow[], incoming: FeedSpotRow[]) {
+  if (existing.length === 0) {
+    return incoming;
+  }
+
+  const byId = new Map(existing.map((post) => [post.id, post]));
+
+  for (const post of incoming) {
+    const prior = byId.get(post.id);
+    byId.set(post.id, prior ? { ...prior, ...post } : post);
+  }
+
+  const seen = new Set<string>();
+  const merged: FeedSpotRow[] = [];
+
+  for (const post of existing) {
+    const next = byId.get(post.id);
+    if (next) {
+      merged.push(next);
+      seen.add(post.id);
+    }
+  }
+
+  for (const post of incoming) {
+    if (!seen.has(post.id)) {
+      merged.push(post);
+    }
+  }
+
+  return merged;
 }
 
 async function querySpotFeed(
@@ -247,44 +328,52 @@ export const EXPLORE_PAGE_SIZE = 18;
 
 async function loadSpotFeedPage(
   offset: number,
-  limit: number
-): Promise<{ posts: FeedSpotRow[]; error: string | null; hasMore: boolean }> {
-  let rankByScore = true;
-  let result = await querySpotFeed(FEED_SPOT_SELECT, { limit, offset, rankByScore });
+  limit: number,
+  options: { rankByScore?: boolean; logContext?: string } = {}
+): Promise<{ posts: FeedSpotRow[]; error: string | null; hasMore: boolean; fetchedCount: number }> {
+  const { rankByScore = true, logContext } = options;
+  let useRankByScore = rankByScore;
+  let result = await querySpotFeed(FEED_SPOT_SELECT, { limit, offset, rankByScore: useRankByScore });
 
   if (result.error && isMissingSpotRankingColumns(result.error)) {
-    rankByScore = false;
+    useRankByScore = false;
     result = await querySpotFeed(FEED_SPOT_SELECT, { limit, offset, rankByScore: false });
   }
 
   if (isMissingSpotColumns(result.error)) {
-    result = await querySpotFeed(FEED_SPOT_SELECT_NO_THUMBNAIL, { limit, offset, rankByScore });
+    result = await querySpotFeed(FEED_SPOT_SELECT_NO_THUMBNAIL, { limit, offset, rankByScore: useRankByScore });
   }
 
   if (isMissingVideoCoverColumn(result.error)) {
-    result = await querySpotFeed(FEED_SPOT_SELECT_NO_THUMBNAIL, { limit, offset, rankByScore });
+    result = await querySpotFeed(FEED_SPOT_SELECT_NO_THUMBNAIL, { limit, offset, rankByScore: useRankByScore });
   }
 
   if (result.error) {
     logExactLoadError(result.error);
-    return { posts: [], error: result.error.message || "Unable to load spots.", hasMore: false };
+    return { posts: [], error: result.error.message || "Unable to load spots.", hasMore: false, fetchedCount: 0 };
   }
 
-  const mapped = (result.data ?? []).map((row) => mapFeedSpotRow(row as unknown as Record<string, unknown>));
-  const posts = filterFeedSpots(mapped);
+  const rawRows = result.data ?? [];
+  if (logContext) {
+    console.log("[Search Grid] fetched spots count", rawRows.length, { offset, limit });
+  }
+
+  const mapped = rawRows.map((row) => mapFeedSpotRow(row as unknown as Record<string, unknown>));
+  const posts = filterFeedSpots(mapped, logContext);
 
   return {
     posts,
     error: null,
-    hasMore: posts.length >= limit,
+    hasMore: rawRows.length >= limit,
+    fetchedCount: rawRows.length,
   };
 }
 
 export async function loadExploreSpotPostsPage(
   offset = 0,
   limit = EXPLORE_PAGE_SIZE
-): Promise<{ posts: FeedSpotRow[]; error: string | null; hasMore: boolean }> {
-  return loadSpotFeedPage(offset, limit);
+): Promise<{ posts: FeedSpotRow[]; error: string | null; hasMore: boolean; fetchedCount: number }> {
+  return loadSpotFeedPage(offset, limit, { rankByScore: false, logContext: "search-explore" });
 }
 
 export async function loadFeedPosts(): Promise<{

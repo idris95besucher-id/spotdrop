@@ -6,6 +6,7 @@ import type { FormEvent } from "react";
 import { UserRound } from "lucide-react";
 import { useI18n } from "@/components/I18nProvider";
 import { getCountryFlag } from "@/lib/countryFlags";
+import { localizeCountryName, localizeCityName } from "@/lib/i18n/localizeGeo";
 import { localizeUserMessage } from "@/lib/i18n/localizeUserMessage";
 import { excludeGuideProfiles, publicProfileUsername, sanitizePublicProfiles } from "@/lib/publicProfile";
 import { supabase } from "@/lib/supabaseClient";
@@ -20,6 +21,7 @@ type Country = {
 type City = {
   id: string;
   name: string;
+  slug: string;
   country_id: string;
 };
 
@@ -61,7 +63,7 @@ function calculateAge(dateOfBirth: string | null | undefined) {
 }
 
 export default function PeopleSearchScreen() {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const [countries, setCountries] = useState<Country[]>([]);
   const [cities, setCities] = useState<City[]>([]);
   const [allProfiles, setAllProfiles] = useState<SearchProfile[]>([]);
@@ -101,7 +103,7 @@ export default function PeopleSearchScreen() {
         { data: profilesData, error: profilesError },
       ] = await Promise.all([
         supabase.from("countries").select("id, name, slug, emoji").order("name", { ascending: true }),
-        supabase.from("cities").select("id, name, country_id").order("name", { ascending: true }),
+        supabase.from("cities").select("id, name, slug, country_id").order("name", { ascending: true }),
         profilesWithFallback,
       ]);
 
@@ -148,7 +150,7 @@ export default function PeopleSearchScreen() {
     return cities.filter((city) => city.country_id === selectedCountry.id);
   }, [cities, selectedCountry]);
 
-  const cityNameById = useMemo(() => new Map(cities.map((city) => [city.id, city.name])), [cities]);
+  const cityById = useMemo(() => new Map(cities.map((city) => [city.id, city])), [cities]);
 
   const usernameResults = useMemo(() => {
     if (!activeUsernameQuery) {
@@ -282,10 +284,20 @@ export default function PeopleSearchScreen() {
 
   const renderUserCard = (profile: SearchProfile) => {
     const country = countries.find((item) => item.slug === profile.country_slug) ?? null;
-    const cityName = cityNameById.get(profile.city_id ?? "") ?? null;
+    const city = cityById.get(profile.city_id ?? "") ?? null;
+    const localizedCityName = city
+      ? localizeCityName(locale, {
+          slug: city.slug,
+          name: city.name,
+          countrySlug: country?.slug ?? null,
+        })
+      : null;
+    const localizedCountryName = country
+      ? localizeCountryName(locale, { slug: country.slug, name: country.name })
+      : null;
     const location = country
-      ? `${getCountryFlag(country.slug, country.emoji)} ${cityName ? `${cityName}, ` : ""}${country.name}`
-      : cityName ?? null;
+      ? `${getCountryFlag(country.slug, country.emoji)} ${localizedCityName ? `${localizedCityName}, ` : ""}${localizedCountryName}`
+      : localizedCityName ?? null;
 
     return (
       <Link
@@ -432,7 +444,8 @@ export default function PeopleSearchScreen() {
                     <option value="">{t("search.allCountries")}</option>
                     {countries.map((country) => (
                       <option key={country.id} value={country.slug}>
-                        {getCountryFlag(country.slug, country.emoji)} {country.name}
+                        {getCountryFlag(country.slug, country.emoji)}{" "}
+                        {localizeCountryName(locale, { slug: country.slug, name: country.name })}
                       </option>
                     ))}
                   </select>
@@ -449,7 +462,11 @@ export default function PeopleSearchScreen() {
                     <option value="">{t("search.allCities")}</option>
                     {availableCities.map((city) => (
                       <option key={city.id} value={city.id}>
-                        {city.name}
+                        {localizeCityName(locale, {
+                          slug: city.slug,
+                          name: city.name,
+                          countrySlug: selectedCountry?.slug ?? null,
+                        })}
                       </option>
                     ))}
                   </select>

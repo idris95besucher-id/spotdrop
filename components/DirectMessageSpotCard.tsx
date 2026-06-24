@@ -25,7 +25,7 @@ export default function DirectMessageSpotCard({
   createdAt,
 }: DirectMessageSpotCardProps) {
   const router = useRouter();
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const postViewer = usePostViewerOptional();
   const [preview, setPreview] = useState<SpotMessagePreview | null>(null);
   const [viewerItem, setViewerItem] = useState<ViewerPostListItem | null>(null);
@@ -38,7 +38,7 @@ export default function DirectMessageSpotCard({
   useEffect(() => {
     let cancelled = false;
 
-    void loadSpotMessagePreview(postId).then((result) => {
+    void loadSpotMessagePreview(postId, locale).then((result) => {
       if (cancelled) {
         return;
       }
@@ -52,7 +52,7 @@ export default function DirectMessageSpotCard({
     return () => {
       cancelled = true;
     };
-  }, [postId]);
+  }, [postId, locale]);
 
   const openSpot = async () => {
     if (opening) {
@@ -65,7 +65,7 @@ export default function DirectMessageSpotCard({
     let nextPreview = preview;
 
     if (!item) {
-      const result = await loadSpotMessagePreview(postId);
+      const result = await loadSpotMessagePreview(postId, locale);
       item = result.viewerItem;
       nextPreview = result.preview;
       setViewerItem(item);

@@ -1,4 +1,6 @@
 import type { FeedSpotRow } from "@/lib/feed";
+import type { I18nLocale } from "@/lib/i18n/locales";
+import { localizeCityByEnglishName, localizeRegionByEnglishName } from "@/lib/i18n/localizeGeo";
 import { isGuideAccountUsername, publicProfileUsername } from "@/lib/publicProfile";
 import { inferSpotRegionFromAddress } from "@/lib/spotLocationDisplay";
 import { supabase } from "@/lib/supabaseClient";
@@ -7,6 +9,7 @@ export type CityRoomContext = {
   cityId: string;
   cityName: string;
   citySlug: string;
+  countrySlug?: string | null;
 };
 
 type SharedSpotRow = FeedSpotRow & {
@@ -142,12 +145,26 @@ function mapSharedSpotRow(row: Record<string, unknown>): SharedSpotRow {
 }
 
 /** Label for “{username} shared a Spot in {place}”. */
-export function getSharedSpotPlaceLabel(spot: Pick<SharedSpotRow, "spot_name" | "spot_city" | "spot_address">) {
+export function getSharedSpotPlaceLabel(
+  spot: Pick<SharedSpotRow, "spot_name" | "spot_city" | "spot_address" | "spot_country">,
+  locale: I18nLocale = "en"
+) {
   const fromName = spot.spot_name?.trim();
-  const fromCity = spot.spot_city?.trim();
-  const fromAddress = spot.spot_address?.split(",")[0]?.trim();
+  if (fromName) {
+    return fromName;
+  }
 
-  return fromName || fromCity || fromAddress || "this area";
+  const fromCity = spot.spot_city?.trim();
+  if (fromCity) {
+    return (
+      localizeCityByEnglishName(locale, fromCity, spot.spot_country) ??
+      localizeRegionByEnglishName(locale, fromCity, spot.spot_country) ??
+      fromCity
+    );
+  }
+
+  const fromAddress = spot.spot_address?.split(",")[0]?.trim();
+  return fromAddress || "this area";
 }
 
 export function spotMatchesCityRoom(spot: SharedSpotRow, room: CityRoomContext) {

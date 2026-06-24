@@ -42,6 +42,7 @@ import { loadSpotCollectionSaveState } from "@/lib/collections";
 import { setImmersiveOverlayActive } from "@/lib/immersiveOverlay";
 import { useI18n } from "@/components/I18nProvider";
 import { localizeUserMessage } from "@/lib/i18n/localizeUserMessage";
+import { seeSpotLocation } from "@/lib/seeSpotLocation";
 import { supabase } from "@/lib/supabaseClient";
 
 const REEL_TOP_INSET = "top-[max(0.75rem,env(safe-area-inset-top))]";
@@ -558,16 +559,23 @@ export default function PostDetailPage({ postIdOverride }: PostDetailPageProps =
       return;
     }
 
-    openSpotLocation({
-      id: post.id,
-      user_id: post.user_id,
-      content_kind: post.content_kind,
-      spot_name: post.spot_name,
-      spot_address: post.spot_address,
-      spot_city: post.spot_city,
-      spot_country: post.spot_country,
-      spot_latitude: post.spot_latitude,
-      spot_longitude: post.spot_longitude,
+    seeSpotLocation({
+      location: {
+        id: post.id,
+        user_id: post.user_id,
+        content_kind: post.content_kind,
+        spot_name: post.spot_name,
+        spot_address: post.spot_address,
+        spot_city: post.spot_city,
+        spot_country: post.spot_country,
+        spot_latitude: post.spot_latitude,
+        spot_longitude: post.spot_longitude,
+      },
+      viewerId: userId,
+      ownerId: post.user_id,
+      authResolved: engagementReady && sessionReady,
+      currentVisitedCount: spotStats.visited_count,
+      openSpotLocation,
     });
   };
 
@@ -690,6 +698,7 @@ export default function PostDetailPage({ postIdOverride }: PostDetailPageProps =
                   {showSpotLocation && post ? (
                     <SpotLocationSummary
                       className="text-xs"
+                      currentVisitedCount={spotStats.visited_count}
                       location={{
                         id: post.id,
                         user_id: post.user_id,

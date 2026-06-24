@@ -1,8 +1,10 @@
 "use client";
 
 import { ArrowLeft, ChevronRight, Globe, Lock } from "lucide-react";
+import { useI18n } from "@/components/I18nProvider";
 import SpotUploadProgressOverlay from "@/components/SpotUploadProgressOverlay";
 import type { CollectionWithMeta } from "@/lib/collections";
+import { localizeUserMessage } from "@/lib/i18n/localizeUserMessage";
 import type { MediaEditorItem } from "@/lib/mediaEditor";
 import type { SpotUploadProgress } from "@/lib/spotUploadPipeline";
 
@@ -35,6 +37,9 @@ export default function SpotPublishScreen({
   onBack,
   onPublish,
 }: SpotPublishScreenProps) {
+  const { t } = useI18n();
+  const localizedError = localizeUserMessage(t, error);
+
   const mySpotsCollection =
     collections.find((c) => c.visibility === "private") ?? collections[0] ?? null;
 
@@ -64,12 +69,12 @@ export default function SpotPublishScreen({
           onClick={onBack}
           disabled={publishing}
           className="flex h-10 w-10 items-center justify-center rounded-full text-white transition hover:bg-white/10 disabled:opacity-50"
-          aria-label="Back"
+          aria-label={t("spotEditor.back")}
         >
           <ArrowLeft className="h-5 w-5" strokeWidth={2} aria-hidden />
         </button>
 
-        <h1 className="text-sm font-semibold tracking-wide text-white/90">Share</h1>
+        <h1 className="text-sm font-semibold tracking-wide text-white/90">{t("spotEditor.shareTitle")}</h1>
 
         <div className="h-10 w-10" aria-hidden />
       </div>
@@ -84,13 +89,13 @@ export default function SpotPublishScreen({
             )
           ) : (
             <div className="flex aspect-[4/5] w-full items-center justify-center text-sm text-white/40">
-              Preview
+              {t("spotEditor.preview")}
             </div>
           )}
         </div>
 
         <div className="space-y-3">
-          <p className="text-xs font-medium uppercase tracking-wider text-white/45">Where to share</p>
+          <p className="text-xs font-medium uppercase tracking-wider text-white/45">{t("spotEditor.whereToShare")}</p>
 
           <div className="flex gap-2">
             <button
@@ -104,7 +109,7 @@ export default function SpotPublishScreen({
               }`}
             >
               <Globe className="h-4 w-4" aria-hidden />
-              Public Spot
+              {t("spotEditor.publicSpot")}
             </button>
 
             <button
@@ -120,17 +125,15 @@ export default function SpotPublishScreen({
               }`}
             >
               <Lock className="h-4 w-4" aria-hidden />
-              My Spots
+              {t("spotEditor.mySpots")}
             </button>
           </div>
         </div>
 
         {offlineMode ? (
-          <p className="text-center text-xs text-white/55">
-            Saved locally · will upload when online
-          </p>
+          <p className="text-center text-xs text-white/55">{t("spotEditor.offlineSavedHint")}</p>
         ) : null}
-        {error ? <p className="text-center text-xs text-red-400">{error}</p> : null}
+        {localizedError ? <p className="text-center text-xs text-red-400">{localizedError}</p> : null}
       </div>
 
       <div
@@ -145,13 +148,13 @@ export default function SpotPublishScreen({
         >
           {publishing
             ? offlineMode
-              ? "Saving…"
-              : "Publishing…"
+              ? t("spotEditor.saving")
+              : t("spotEditor.publishing")
             : uploadFailed
-              ? "Retry upload"
+              ? t("spotEditor.retryUpload")
               : offlineMode
-                ? "Save offline draft"
-                : "Share Spot"}
+                ? t("spotEditor.saveOfflineDraft")
+                : t("spotEditor.shareSpot")}
           {!publishing ? <ChevronRight className="h-4 w-4" aria-hidden /> : null}
         </button>
       </div>

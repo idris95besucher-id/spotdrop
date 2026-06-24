@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { PostMediaFields } from "@/lib/posts";
 import { getPostMedia, getPostThumbnailUrl } from "@/lib/posts";
 
@@ -10,6 +10,8 @@ type PostCardMediaProps = {
   imageClassName?: string;
   /** When true, video spots autoplay muted+looped in the grid. Default: false. */
   autoplay?: boolean;
+  /** Shown when media fails to load or is missing — keeps grid tiles stable. */
+  fallbackLabel?: string | null;
 };
 
 /**
@@ -72,12 +74,26 @@ export default function PostCardMedia({
   className = "",
   imageClassName = "h-full w-full object-cover",
   autoplay = false,
+  fallbackLabel = null,
 }: PostCardMediaProps) {
   const { mediaUrl, mediaType } = getPostMedia(post);
   const thumbnailUrl = getPostThumbnailUrl(post);
+  const [mediaFailed, setMediaFailed] = useState(false);
 
-  if (!mediaUrl && !thumbnailUrl) {
-    return null;
+  useEffect(() => {
+    setMediaFailed(false);
+  }, [mediaUrl, thumbnailUrl, post.media_url, post.image_url, post.video_url]);
+
+  const fallback = (
+    <div
+      className={`flex items-center justify-center bg-slate-900 px-2 text-center text-[11px] leading-snug text-slate-400 ${className}`}
+    >
+      <span className="line-clamp-4">{fallbackLabel ?? "Spot"}</span>
+    </div>
+  );
+
+  if (mediaFailed || (!mediaUrl && !thumbnailUrl)) {
+    return fallback;
   }
 
   if (mediaType === "video") {
@@ -115,8 +131,15 @@ export default function PostCardMedia({
   const imageSrc = thumbnailUrl ?? mediaUrl;
 
   if (!imageSrc) {
-    return null;
+    return fallback;
   }
 
-  return <img src={imageSrc} alt="" className={imageClassName} />;
+  return (
+    <img
+      src={imageSrc}
+      alt=""
+      className={imageClassName}
+      onError={() => setMediaFailed(true)}
+    />
+  );
 }

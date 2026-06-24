@@ -3,6 +3,9 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { Filter, MapPin, Mountain, X } from "lucide-react";
+import { useI18n } from "@/components/I18nProvider";
+import { localizeRegionByEnglishName } from "@/lib/i18n/localizeGeo";
+import { formatSpotLocationShort } from "@/lib/spotLocationDisplay";
 import {
   BERN_MAP_BOUNDS,
   DISCOVERY_CATEGORY_COLORS,
@@ -24,6 +27,7 @@ type BernDiscoveryMapProps = {
 const INSTANT_PLACES = getBernDiscoveryPlacesInstant();
 
 export default function BernDiscoveryMap({ userId }: BernDiscoveryMapProps) {
+  const { locale } = useI18n();
   const [region, setRegion] = useState<DiscoveryRegion | null>({
     id: "fallback-region",
     country_slug: "switzerland",
@@ -117,13 +121,35 @@ export default function BernDiscoveryMap({ userId }: BernDiscoveryMapProps) {
     return Array.from(unique) as DiscoveryPlaceCategory[];
   }, [places]);
 
+  const regionTitle = useMemo(() => {
+    const raw = region?.name ?? "Bern & Oberland";
+    return localizeRegionByEnglishName(locale, raw, region?.country_slug ?? "switzerland") ?? raw;
+  }, [locale, region?.country_slug, region?.name]);
+
+  const formatPinLabel = (pin: MapSpotPin) => {
+    if (pin.spot_name?.trim()) {
+      return pin.spot_name.trim();
+    }
+
+    const localized = formatSpotLocationShort(
+      {
+        spot_city: pin.spot_city,
+        spot_country: pin.spot_country,
+        spot_address: pin.spot_address,
+      },
+      locale
+    );
+
+    return localized ?? pin.label;
+  };
+
   return (
     <div className="relative z-10 flex w-full min-h-[520px] flex-col">
       <div className="shrink-0 border-b border-white/10 bg-slate-950/80 px-4 py-3 backdrop-blur-md">
         <div className="flex items-start justify-between gap-3">
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-[0.28em] text-cyan-300">Discovery map</p>
-            <h2 className="mt-1 text-lg font-semibold text-white">{region?.name ?? "Bern & Oberland"}</h2>
+            <h2 className="mt-1 text-lg font-semibold text-white">{regionTitle}</h2>
             <p className="mt-1 text-xs text-slate-400">Tap a pin or card to open place details.</p>
           </div>
           <div className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-right">
@@ -171,7 +197,7 @@ export default function BernDiscoveryMap({ userId }: BernDiscoveryMapProps) {
 
         <div className="absolute inset-4 rounded-[2rem] border border-cyan-400/20 bg-slate-900/50 shadow-inner shadow-black/50">
           <p className="absolute left-5 top-4 text-[10px] font-semibold uppercase tracking-[0.22em] text-cyan-300/90">
-            Bern & Oberland · Discovery map
+            {regionTitle} · Discovery map
           </p>
           <div className="absolute inset-x-8 top-[22%] h-px bg-gradient-to-r from-transparent via-cyan-300/30 to-transparent" />
           <div className="absolute inset-x-10 top-[48%] h-px bg-gradient-to-r from-transparent via-blue-400/20 to-transparent" />
@@ -185,6 +211,7 @@ export default function BernDiscoveryMap({ userId }: BernDiscoveryMapProps) {
 
         {spotPins.map((pin) => {
           const position = projectLatLngToPercent(pin.latitude, pin.longitude, bounds);
+          const pinLabel = formatPinLabel(pin);
 
           return (
             <button
@@ -202,13 +229,13 @@ export default function BernDiscoveryMap({ userId }: BernDiscoveryMapProps) {
               }}
               className="group absolute z-[25] -translate-x-1/2 -translate-y-full transition hover:z-30 focus:z-30 focus:outline-none"
               style={{ left: `${position.x}%`, top: `${position.y}%` }}
-              aria-label={`Open spot ${pin.label}`}
+              aria-label={`Open spot ${pinLabel}`}
             >
               <span className="relative flex h-8 w-8 items-center justify-center rounded-full border-2 border-rose-300 bg-rose-500 text-white shadow-lg shadow-black/50 transition group-hover:scale-110">
                 <MapPin className="h-3.5 w-3.5" strokeWidth={2.5} aria-hidden />
               </span>
               <span className="mt-1 block max-w-[88px] truncate rounded-full border border-rose-300/40 bg-slate-950/95 px-2 py-0.5 text-[10px] font-semibold text-rose-100 shadow-md">
-                {pin.label}
+                {pinLabel}
               </span>
             </button>
           );

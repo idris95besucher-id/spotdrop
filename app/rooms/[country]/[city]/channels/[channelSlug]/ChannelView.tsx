@@ -21,11 +21,13 @@ import {
   shouldShowCityRoomSenderName,
 } from "@/lib/cityRoomChatGrouping";
 import { getCountryFlag } from "@/lib/countryFlags";
+import { localizeCountryName, localizeCityName } from "@/lib/i18n/localizeGeo";
 import { ensureProfileRow } from "@/lib/profile";
 import { publicProfileUsername } from "@/lib/publicProfile";
 import { localizeUserMessage } from "@/lib/i18n/localizeUserMessage";
 import { supabase } from "@/lib/supabaseClient";
-import { useChatScroll, useChatScrollEffect, CHAT_MESSAGES_BOTTOM_PADDING } from "@/lib/useChatScroll";
+import { useChatScroll, useChatScrollEffect } from "@/lib/useChatScroll";
+import { CHAT_MESSAGES_FLEX_PADDING } from "@/lib/useKeyboardInsets";
 
 type Country = {
   id: string;
@@ -90,7 +92,7 @@ function mergeMessages(currentMessages: ChannelMessage[], incomingMessages: Chan
 }
 
 export default function CityChannelPage() {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const params = useParams<{ country: string; city: string; channelSlug: string }>();
   const countrySlug = String(params.country ?? "").toLowerCase();
   const citySlug = String(params.city ?? "").toLowerCase();
@@ -399,7 +401,17 @@ export default function CityChannelPage() {
               </h1>
               {city && country ? (
                 <p className="truncate text-xs text-slate-400">
-                  {city.name}, {country.name}
+                  {localizeCityName(locale, {
+                    slug: city.slug,
+                    name: city.name,
+                    countrySlug: country.slug,
+                  })}
+                  ,{" "}
+                  {localizeCountryName(locale, {
+                    slug: country.slug,
+                    name: country.name,
+                    countryCode: country.code,
+                  })}
                 </p>
               ) : null}
             </div>
@@ -412,7 +424,7 @@ export default function CityChannelPage() {
           <div
             ref={messagesContainerRef}
             onScroll={handleScroll}
-            className={`relative z-10 min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-3 py-3 ${CHAT_MESSAGES_BOTTOM_PADDING}`}
+            className={`relative z-10 min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-3 py-3 ${CHAT_MESSAGES_FLEX_PADDING}`}
           >
             {chatLoading ? (
               <div className="rounded-3xl border border-dashed border-white/10 bg-slate-950/55 p-8 text-center text-slate-300 backdrop-blur-md">
@@ -455,16 +467,17 @@ export default function CityChannelPage() {
             ) : null}
           </div>
 
-          {showNewMessages ? (
-            <div className="pointer-events-none absolute inset-x-0 bottom-[calc(4.75rem+env(safe-area-inset-bottom,0px))] z-30 flex justify-center px-4">
-              <ChatNewMessagesPill
-                onClick={() => scrollToBottom("smooth")}
-                className="pointer-events-auto"
-              />
-            </div>
-          ) : null}
+          <div className="relative z-20 shrink-0">
+            {showNewMessages ? (
+              <div className="pointer-events-none absolute inset-x-0 bottom-full z-30 mb-2 flex justify-center px-4">
+                <ChatNewMessagesPill
+                  onClick={() => scrollToBottom("smooth")}
+                  className="pointer-events-auto"
+                />
+              </div>
+            ) : null}
 
-          <CityRoomChatComposer
+            <CityRoomChatComposer
             value={draft}
             onChange={setDraft}
             onSubmit={handleSend}
@@ -473,7 +486,8 @@ export default function CityChannelPage() {
             sendError={sendError}
             inputDisabled={sending || Boolean(error)}
             placeholder={session?.user?.id ? t("rooms.channelPlaceholder") : t("rooms.signInToChat")}
-          />
+            />
+          </div>
         </section>
       </ChatThreadShell>
     </Shell>

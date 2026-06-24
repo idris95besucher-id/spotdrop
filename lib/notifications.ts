@@ -6,7 +6,8 @@ export type NotificationType =
   | "direct_message"
   | "new_follower"
   | "post_comment"
-  | "room_message";
+  | "room_message"
+  | "room_mention";
 
 export type NotificationRow = {
   id: string;
@@ -81,6 +82,17 @@ export function buildNotificationCopy(
         body: t("notifications.roomMessagesIn", { city }),
       };
     }
+    case "room_mention": {
+      const name = publicProfileUsername(metadataString(metadata, "senderUsername") || "Someone");
+      const city = metadataString(metadata, "cityName") || t("notifications.aCityRoom");
+      const preview = metadataString(metadata, "preview");
+      return {
+        title: t("notifications.roomMention"),
+        body: preview
+          ? t("notifications.mentionedPreview", { name, city, preview })
+          : t("notifications.mentionedIn", { name, city }),
+      };
+    }
     default:
       return {
         title: t("notifications.title"),
@@ -123,6 +135,15 @@ export function buildNotificationPushPayload(notification: Pick<NotificationRow,
     case "room_message": {
       const city = metadataString(metadata, "cityName") || "your city room";
       return { title: "City room", body: `New messages in ${city}` };
+    }
+    case "room_mention": {
+      const name = publicProfileUsername(metadataString(metadata, "senderUsername") || "Someone");
+      const city = metadataString(metadata, "cityName") || "a city room";
+      const preview = metadataString(metadata, "preview");
+      return {
+        title: "You were mentioned",
+        body: preview ? `${name} mentioned you in ${city}: ${preview}` : `${name} mentioned you in ${city}`,
+      };
     }
     default:
       return { title: "SpotDrop", body: "You have a new notification" };

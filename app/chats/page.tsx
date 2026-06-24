@@ -15,6 +15,7 @@ import RoomInboxListItem from "@/components/RoomInboxListItem";
 import Shell from "@/components/Shell";
 import { hideDmChat, setDmMuted } from "@/lib/chatInboxPreferences";
 import { MOBILE_WIDTH_SAFE_CLASS } from "@/lib/mobileLayout";
+import { localizeCountryName, localizeCityName } from "@/lib/i18n/localizeGeo";
 import { localizeUserMessage } from "@/lib/i18n/localizeUserMessage";
 import { getSafeAuthSession } from "@/lib/authSession";
 import { formatUnreadBadge } from "@/lib/chatNotifications";
@@ -34,7 +35,7 @@ type ActionTarget =
   | { kind: "room"; room: RoomInboxRow };
 
 export default function ChatsPage() {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const [session, setSession] = useState<Session | null>(null);
   const [loadingSession, setLoadingSession] = useState(true);
   const [loadingChats, setLoadingChats] = useState(false);
@@ -198,10 +199,14 @@ export default function ChatsPage() {
 
     return {
       kind: "room",
-      title: actionTarget.room.cityName,
+      title: localizeCityName(locale, {
+        slug: actionTarget.room.citySlug,
+        name: actionTarget.room.cityName,
+        countrySlug: actionTarget.room.countrySlug,
+      }),
       isMuted: actionTarget.room.isMuted,
     };
-  }, [actionTarget]);
+  }, [actionTarget, locale]);
 
   const handleToggleMute = useCallback(async () => {
     if (!session?.user?.id || !actionTarget) {

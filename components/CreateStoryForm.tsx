@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import type { ChangeEvent, FormEvent } from "react";
 import { ImagePlus, Loader2, MapPin, Video, X } from "lucide-react";
+import { useI18n } from "@/components/I18nProvider";
+import { localizeCityName, localizeCountryName } from "@/lib/i18n/localizeGeo";
 import { BERN_DISCOVERY_REGION_SLUG } from "@/lib/discoveryMap";
 import { createStory, type StoryVisibility } from "@/lib/stories";
 import {
@@ -35,6 +37,7 @@ export default function CreateStoryForm({
   onClose,
   profileMode = false,
 }: CreateStoryFormProps) {
+  const { locale } = useI18n();
   const [isOpenInternal, setIsOpenInternal] = useState(false);
   const isControlled = isOpenControlled !== undefined;
   const isOpen = isControlled ? Boolean(isOpenControlled) : isOpenInternal;
@@ -349,7 +352,7 @@ export default function CreateStoryForm({
           >
             {countries.map((c) => (
               <option key={c.id} value={c.slug}>
-                {c.name}
+                {localizeCountryName(locale, { slug: c.slug, name: c.name })}
               </option>
             ))}
           </select>
@@ -360,7 +363,11 @@ export default function CreateStoryForm({
           >
             {cities.map((c) => (
               <option key={c.id} value={c.id}>
-                {c.name}
+                {localizeCityName(locale, {
+                  slug: c.slug,
+                  name: c.name,
+                  countrySlug: countrySlug || undefined,
+                })}
               </option>
             ))}
           </select>

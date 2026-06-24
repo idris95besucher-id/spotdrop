@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Bookmark, CircleCheck, Heart, Loader2, MessageCircle, Send, Share2 } from "lucide-react";
+import { Bookmark, Footprints, Heart, Loader2, MessageCircle, Send, Share2 } from "lucide-react";
 import { useI18n } from "@/components/I18nProvider";
 import type { PostReactionState, PostReactionType } from "@/lib/postReactions";
 import { togglePostReaction } from "@/lib/postReactions";
@@ -210,7 +210,7 @@ export default function PostDetailActionRail({
           className={`${actionButtonClass} min-w-[3rem]`}
           aria-label={`${t("postDetail.visited")}, ${visitedCount}`}
         >
-          <CircleCheck className="h-7 w-7" strokeWidth={1.75} aria-hidden />
+          <Footprints className="h-7 w-7" strokeWidth={1.75} aria-hidden />
           <span className={actionLabelClass}>{t("postDetail.visited")}</span>
           <span className={actionCountClass}>{visitedCount}</span>
         </button>

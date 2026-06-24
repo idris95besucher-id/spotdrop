@@ -3,7 +3,7 @@ self.addEventListener("push", (event) => {
     return;
   }
 
-  let payload: { title?: string; body?: string; href?: string };
+  let payload: { title?: string; body?: string; href?: string; badge?: number; type?: string };
 
   try {
     payload = event.data.json();
@@ -22,9 +22,9 @@ self.addEventListener("push", (event) => {
   event.waitUntil(
     self.registration.showNotification(title, {
       body,
-      icon: "/globe.svg",
-      badge: "/globe.svg",
-      data: { href },
+      icon: "/icon.png",
+      badge: "/icon.png",
+      data: { href, type: payload.type ?? "", badge: payload.badge ?? 0 },
       tag: href,
     })
   );

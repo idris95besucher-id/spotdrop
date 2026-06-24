@@ -2,6 +2,7 @@ import { isGuideAccountProfile } from "@/lib/guideAccounts";
 import { CLIENT_DEMO_FEED_POSTS } from "@/lib/demoFeed";
 import type { GuidePlace } from "@/lib/guidePlaces";
 import type { PostMediaFields } from "@/lib/posts";
+import type { I18nLocale } from "@/lib/i18n/locales";
 import { formatSpotLocationDisplay } from "@/lib/spotLocationDisplay";
 import { isDemoPostId, normalizePostId, postIdForQuery } from "@/lib/postIds";
 import { logExactLoadError, userFacingSupabaseListError } from "@/lib/safeLoad";
@@ -30,16 +31,19 @@ export type PostDetailRow = PostMediaFields & {
   guide_places?: GuidePlace | GuidePlace[] | null;
 };
 
-export function formatPostDetailLocation(post: PostDetailRow) {
-  return formatSpotLocationDisplay({
-    content_kind: post.content_kind,
-    spot_name: post.spot_name,
-    spot_address: post.spot_address,
-    spot_city: post.spot_city,
-    spot_country: post.spot_country,
-    spot_latitude: post.spot_latitude,
-    spot_longitude: post.spot_longitude,
-  });
+export function formatPostDetailLocation(post: PostDetailRow, locale: I18nLocale = "en") {
+  return formatSpotLocationDisplay(
+    {
+      content_kind: post.content_kind,
+      spot_name: post.spot_name,
+      spot_address: post.spot_address,
+      spot_city: post.spot_city,
+      spot_country: post.spot_country,
+      spot_latitude: post.spot_latitude,
+      spot_longitude: post.spot_longitude,
+    },
+    locale
+  );
 }
 
 export function formatPostDetailSpotTitle(post: PostDetailRow) {

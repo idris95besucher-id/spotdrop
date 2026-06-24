@@ -2,7 +2,7 @@
   "name": "SpotDrop",
   "short_name": "SpotDrop",
   "description": "Discover city spots, join local chat rooms, and share your world.",
-  "start_url": "/",
+  "start_url": "/profile/",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait",

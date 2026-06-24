@@ -184,3 +184,7 @@ export const RECORDING_CSS_ZOOM_RANGE: ZoomRange = {
 export function clampRecordingCssZoom(zoom: number) {
   return Math.max(RECORDING_CSS_ZOOM_MIN, Math.min(RECORDING_CSS_ZOOM_MAX, zoom));
 }
+
+export function formatRecordingZoomLabel(zoom: number) {
+  return `${clampRecordingCssZoom(zoom).toFixed(1)}×`;
+}

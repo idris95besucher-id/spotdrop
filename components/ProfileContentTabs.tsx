@@ -96,7 +96,7 @@ export function ProfileContentGridPanel({
   collectionsPanel = null,
   compact = false,
 }: ProfileContentGridPanelProps) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const activeItems = (activeTab === "posts" ? personalPosts : activeTab === "spots" ? spotPosts : []).filter(
     (post) => Boolean(normalizePostId(post.id))
   );
@@ -148,7 +148,7 @@ export function ProfileContentGridPanel({
       {activeItems.map((post, gridIndex) => {
         const { mediaUrl } = getProfilePostMedia(post);
         const spotTitle = getSpotDisplayLabel(post);
-        const spotLocation = getSpotLocationLine(post);
+        const spotLocation = getSpotLocationLine(post, locale);
         const clickedSpot = viewerItems[gridIndex];
 
         const isOwner = Boolean(viewerUserId && post.user_id === viewerUserId);

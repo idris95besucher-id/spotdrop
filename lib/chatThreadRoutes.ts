@@ -36,3 +36,32 @@ export function isChatThreadRoute(pathname: string | null) {
     isCityChannelChatThread(pathname)
   );
 }
+
+export function isViewingDirectMessageThread(pathname: string | null, partnerId: string) {
+  if (!pathname || !partnerId) {
+    return false;
+  }
+
+  if (pathname === "/dm" || pathname === "/dm/") {
+    if (typeof window === "undefined") {
+      return false;
+    }
+
+    return new URLSearchParams(window.location.search).get("id") === partnerId;
+  }
+
+  if (pathname.startsWith("/dm/")) {
+    const segment = pathname.split("/").filter(Boolean)[1];
+    return segment === partnerId;
+  }
+
+  return false;
+}
+
+export function isViewingCityRoomThread(pathname: string | null, roomPath: string) {
+  if (!pathname || !roomPath) {
+    return false;
+  }
+
+  return pathname === roomPath || pathname.startsWith(`${roomPath}/`);
+}

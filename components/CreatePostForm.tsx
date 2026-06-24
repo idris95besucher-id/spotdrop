@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { FormEvent } from "react";
 import { ArrowLeft, Loader2, MapPin, X } from "lucide-react";
+import { useI18n } from "@/components/I18nProvider";
+import { canonicalizeGeoLocationFields } from "@/lib/i18n/canonicalGeo";
 import SpotLocationPicker from "@/components/SpotLocationPicker";
 import { setImmersiveOverlayActive } from "@/lib/immersiveOverlay";
 import { getPostMediaType, NOT_SIGNED_IN_UPLOAD_MESSAGE, uploadPostMedia } from "@/lib/postMedia";
@@ -64,6 +66,10 @@ function buildPostInsertRow(
   videoCoverUrl: string | null,
   location: SpotGeoLocation | null
 ): PostInsertRow {
+  const canonicalLocation = location
+    ? canonicalizeGeoLocationFields({ city: location.city, country: location.country })
+    : { city: null, country: null };
+
   const row: PostInsertRow = {
     user_id: authUserId,
     content,
@@ -79,8 +85,8 @@ function buildPostInsertRow(
     spot_latitude: location?.latitude ?? null,
     spot_longitude: location?.longitude ?? null,
     spot_address: location?.address ?? null,
-    spot_city: location?.city ?? null,
-    spot_country: location?.country ?? null,
+    spot_city: canonicalLocation.city,
+    spot_country: canonicalLocation.country,
   };
 
   if (mediaUrl && mediaType === "image") {
@@ -122,6 +128,7 @@ export default function CreatePostForm({
   isOpen: isOpenProp,
   onClose,
 }: CreatePostFormProps) {
+  const { t } = useI18n();
   const controlled = isOpenProp !== undefined;
   const [internalOpen, setInternalOpen] = useState(false);
   const isOpen = controlled ? Boolean(isOpenProp) : internalOpen;
@@ -436,7 +443,7 @@ export default function CreatePostForm({
             onClick={handleClose}
             disabled={publishing}
             className="inline-flex h-10 w-10 items-center justify-center rounded-full text-slate-300 transition hover:bg-white/10 hover:text-white disabled:opacity-50"
-            aria-label="Close"
+            aria-label={t("common.close")}
           >
             <X className="h-5 w-5" aria-hidden />
           </button>
@@ -479,7 +486,7 @@ export default function CreatePostForm({
             <textarea
               value={content}
               onChange={(event) => setContent(event.target.value)}
-              placeholder="Write a caption…"
+              placeholder={t("spotEditor.captionPlaceholder")}
               rows={3}
               disabled={publishing}
               className="w-full resize-none rounded-2xl border border-white/10 bg-slate-900 px-4 py-3 text-sm leading-7 text-white placeholder:text-slate-500 focus:border-cyan-400/50 focus:outline-none focus:ring-2 focus:ring-cyan-400/20 disabled:opacity-60"
@@ -504,7 +511,7 @@ export default function CreatePostForm({
               >
                 <span className="inline-flex items-center gap-2 text-sm font-medium text-white">
                   <MapPin className="h-4 w-4 text-cyan-300" aria-hidden />
-                  Add location
+                  {t("spotEditor.addLocation")}
                   <span className="text-xs font-normal text-slate-500">(optional)</span>
                 </span>
                 <span className="text-xs text-slate-400">{showLocation ? "On" : "Off"}</span>

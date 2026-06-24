@@ -111,9 +111,11 @@ async function recordUniqueSpotSeeVisit(postId: string): Promise<RecordSpotSeeVi
 
     if (error) {
       if (isMissingSpotRankingColumns(error) || error.code === "42883") {
+        console.warn("[See Spot] RPC unavailable — ranking columns or function missing", { postId, error });
         return { visitedCount: null, incremented: false, error: null };
       }
 
+      console.warn("[See Spot] RPC error", { postId, error: error.message });
       return { visitedCount: null, incremented: false, error: error.message };
     }
 
@@ -123,6 +125,8 @@ async function recordUniqueSpotSeeVisit(postId: string): Promise<RecordSpotSeeVi
       incremented?: boolean;
       error?: string;
     } | null;
+
+    console.log("[See Spot] RPC result", { postId, payload });
 
     if (payload?.ok === false) {
       return {
@@ -138,7 +142,8 @@ async function recordUniqueSpotSeeVisit(postId: string): Promise<RecordSpotSeeVi
       incremented: Boolean(payload?.incremented),
       error: null,
     };
-  } catch {
+  } catch (error) {
+    console.warn("[See Spot] RPC threw", { postId, error });
     return { visitedCount: null, incremented: false, error: null };
   }
 }
@@ -149,6 +154,8 @@ export type RecordSpotSeeVisitInput = {
   ownerId?: string | null;
   /** Wait until auth session is resolved so we never fire as anonymous then again as signed-in. */
   authResolved?: boolean;
+  /** Optimistic UI bump when this is the viewer's first See Spot tap this session. */
+  currentVisitedCount?: number;
 };
 
 /** Record a unique "See Spot" visit — not a passive open/view of the Spot detail. */
@@ -157,32 +164,61 @@ export async function recordSpotSeeVisit({
   viewerId,
   ownerId = null,
   authResolved = true,
+  currentVisitedCount,
 }: RecordSpotSeeVisitInput): Promise<RecordSpotSeeVisitResult> {
-  if (!authResolved || !viewerId || !postId) {
-    return { visitedCount: null, incremented: false, error: null };
+  console.log("[See Spot] clicked postId", postId);
+
+  if (!authResolved) {
+    console.log("[See Spot] deferred — auth not resolved yet", { postId });
+    return { visitedCount: null, incremented: false, error: "auth_pending" };
+  }
+
+  if (!viewerId || !postId) {
+    console.log("[See Spot] skipped — missing viewer or post", { postId, viewerId });
+    return { visitedCount: null, incremented: false, error: "not_authenticated" };
   }
 
   if (ownerId && viewerId === ownerId) {
+    console.log("[See Spot] skipped — owner viewing own spot", { postId });
     return { visitedCount: null, incremented: false, error: null };
   }
 
   const sessionKey = spotSeeVisitSessionKey(postId, viewerId);
 
-  if (spotSeeVisitRecorded.has(sessionKey) || spotSeeVisitInFlight.has(sessionKey)) {
+  if (spotSeeVisitRecorded.has(sessionKey)) {
+    console.log("[See Spot] skipped — already recorded this session", { postId });
+    return { visitedCount: null, incremented: false, error: null };
+  }
+
+  if (spotSeeVisitInFlight.has(sessionKey)) {
     return { visitedCount: null, incremented: false, error: null };
   }
 
   spotSeeVisitInFlight.add(sessionKey);
 
+  const canOptimisticBump = currentVisitedCount != null && Number.isFinite(currentVisitedCount);
+
+  if (canOptimisticBump) {
+    const optimistic = Math.max(0, currentVisitedCount) + 1;
+    console.log("[See Spot] optimistic visited_count", { postId, optimistic });
+    dispatchSpotStatsUpdated({
+      postId,
+      visited_count: optimistic,
+    });
+  }
+
   try {
     const result = await recordUniqueSpotSeeVisit(postId);
-    spotSeeVisitRecorded.add(sessionKey);
 
     if (result.visitedCount != null) {
+      console.log("[See Spot] updated visited_count", { postId, visited_count: result.visitedCount });
       dispatchSpotStatsUpdated({
         postId,
         visited_count: result.visitedCount,
       });
+      spotSeeVisitRecorded.add(sessionKey);
+    } else if (result.error) {
+      console.warn("[See Spot] visit not recorded", { postId, error: result.error });
     }
 
     return result;

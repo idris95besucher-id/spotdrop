@@ -1,11 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Crosshair, Minus, Plus, Radio } from "lucide-react";
 import { useI18n } from "@/components/I18nProvider";
 import LiveMapUserSheet from "@/components/LiveMapUserSheet";
 import SpotMapPinSheet from "@/components/SpotMapPinSheet";
 import { DEFAULT_MAP_CENTER, DEFAULT_MAP_ZOOM, getMapLibreStyleUrl } from "@/lib/mapLibre";
+import { getMapSpotPinPreviewUrl, getMapSpotPinTitle, resolveSpotMapLngLat } from "@/lib/mapSpotPin";
 import { loadNearbyMapSpotPins, loadSavedMapSpotPinIds, type MapSpotPin } from "@/lib/spots";
 import { supabase } from "@/lib/supabaseClient";
 import { publicProfileUsername } from "@/lib/publicProfile";
@@ -83,19 +84,28 @@ function createLiveUserMarkerElement(user: LiveMapUser, ariaLabel: string, onSel
   return button;
 }
 
-function createSpotMarkerElement(pin: MapSpotPin, isSaved: boolean) {
+function createSpotMarkerElement(pin: MapSpotPin, isSaved: boolean, animateIn = false) {
+  const anchor = document.createElement("div");
+  anchor.className = "spot-live-spot-marker-anchor";
+
   const button = document.createElement("button");
   button.type = "button";
-  button.className = "spot-live-spot-marker";
-  button.setAttribute("aria-label", pin.spot_name || pin.label);
+  button.className = [
+    "spot-live-spot-marker",
+    animateIn ? "spot-live-spot-marker--appear" : "",
+    isSaved ? "spot-live-spot-marker--saved" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+  button.setAttribute("aria-label", getMapSpotPinTitle(pin));
 
-  const previewUrl =
-    pin.video_cover_url ?? pin.thumbnail_url ?? (pin.media_type === "image" ? pin.media_url : null);
+  const previewUrl = getMapSpotPinPreviewUrl(pin);
 
   if (previewUrl) {
     const image = document.createElement("img");
     image.src = previewUrl;
     image.alt = "";
+    image.loading = "lazy";
     button.appendChild(image);
   } else {
     const icon = document.createElement("span");
@@ -104,11 +114,13 @@ function createSpotMarkerElement(pin: MapSpotPin, isSaved: boolean) {
     button.appendChild(icon);
   }
 
-  if (isSaved) {
-    button.classList.add("spot-live-spot-marker--saved");
-  }
+  anchor.appendChild(button);
+  return anchor;
+}
 
-  return button;
+function updateSpotMarkerSavedState(anchor: HTMLElement, isSaved: boolean) {
+  const button = anchor.querySelector(".spot-live-spot-marker");
+  button?.classList.toggle("spot-live-spot-marker--saved", isSaved);
 }
 
 function formatLiveLocationError(t: (key: TranslationKey) => string, error: string | null) {
@@ -140,7 +152,9 @@ export default function SpotLiveMap({ userId, embedded = false }: SpotLiveMapPro
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<import("maplibre-gl").Map | null>(null);
   const maplibreRef = useRef<typeof import("maplibre-gl") | null>(null);
-  const markersRef = useRef<Map<string, import("maplibre-gl").Marker>>(new Map());
+  const liveMarkersRef = useRef<Map<string, import("maplibre-gl").Marker>>(new Map());
+  const spotMarkersRef = useRef<Map<string, import("maplibre-gl").Marker>>(new Map());
+  const seenSpotPinIdsRef = useRef<Set<string>>(new Set());
   const userMarkerRef = useRef<import("maplibre-gl").Marker | null>(null);
   const watchIdRef = useRef<number | null>(null);
   const pushIntervalRef = useRef<number | null>(null);
@@ -322,7 +336,10 @@ export default function SpotLiveMap({ userId, embedded = false }: SpotLiveMapPro
 
         map.addControl(new maplibregl.AttributionControl({ compact: true }), "bottom-left");
 
-        map.on("load", () => setMapReady(true));
+        map.on("load", () => {
+          map.resize();
+          setMapReady(true);
+        });
         map.on("error", () => setMapLoadError(true));
         map.on("click", () => {
           setSelectedPin(null);
@@ -339,8 +356,11 @@ export default function SpotLiveMap({ userId, embedded = false }: SpotLiveMapPro
 
     return () => {
       disposed = true;
-      markersRef.current.forEach((marker) => marker.remove());
-      markersRef.current.clear();
+      liveMarkersRef.current.forEach((marker) => marker.remove());
+      liveMarkersRef.current.clear();
+      spotMarkersRef.current.forEach((marker) => marker.remove());
+      spotMarkersRef.current.clear();
+      seenSpotPinIdsRef.current.clear();
       userMarkerRef.current?.remove();
       userMarkerRef.current = null;
       mapRef.current?.remove();
@@ -348,6 +368,31 @@ export default function SpotLiveMap({ userId, embedded = false }: SpotLiveMapPro
       setMapReady(false);
     };
   }, [mapStyle]);
+
+  useEffect(() => {
+    const container = mapContainerRef.current;
+    const map = mapRef.current;
+
+    if (!container || !map || !mapReady) {
+      return;
+    }
+
+    const resizeMap = () => {
+      map.resize();
+    };
+
+    resizeMap();
+
+    const observer = new ResizeObserver(resizeMap);
+    observer.observe(container);
+
+    window.addEventListener("orientationchange", resizeMap);
+
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("orientationchange", resizeMap);
+    };
+  }, [mapReady]);
 
   const clearLiveTracking = useCallback(() => {
     if (watchIdRef.current != null) {
@@ -573,11 +618,19 @@ export default function SpotLiveMap({ userId, embedded = false }: SpotLiveMapPro
       return;
     }
 
-    markersRef.current.forEach((marker) => marker.remove());
-    markersRef.current.clear();
+    const nextLiveIds = new Set<string>();
 
     for (const liveUser of liveUsers) {
       if (liveUser.user_id === userId) {
+        continue;
+      }
+
+      nextLiveIds.add(liveUser.user_id);
+      const markerKey = liveUser.user_id;
+      const existing = liveMarkersRef.current.get(markerKey);
+
+      if (existing) {
+        existing.setLngLat([liveUser.longitude, liveUser.latitude]);
         continue;
       }
 
@@ -591,30 +644,74 @@ export default function SpotLiveMap({ userId, embedded = false }: SpotLiveMapPro
         .setLngLat([liveUser.longitude, liveUser.latitude])
         .addTo(map);
 
-      markersRef.current.set(`live-${liveUser.user_id}`, marker);
+      liveMarkersRef.current.set(markerKey, marker);
     }
 
+    liveMarkersRef.current.forEach((marker, userIdKey) => {
+      if (!nextLiveIds.has(userIdKey)) {
+        marker.remove();
+        liveMarkersRef.current.delete(userIdKey);
+      }
+    });
+  }, [handleSelectLiveUser, liveUsers, mapReady, t, userId]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    const maplibregl = maplibreRef.current;
+
+    if (!map || !maplibregl || !mapReady) {
+      return;
+    }
+
+    const nextPinIds = new Set(pins.map((pin) => pin.id));
+
+    spotMarkersRef.current.forEach((marker, pinId) => {
+      if (!nextPinIds.has(pinId)) {
+        marker.remove();
+        spotMarkersRef.current.delete(pinId);
+      }
+    });
+
     for (const pin of pins) {
-      const element = createSpotMarkerElement(pin, savedIds.has(pin.id));
+      const lngLat = resolveSpotMapLngLat(pin);
+      if (!lngLat) {
+        continue;
+      }
+
+      const isSaved = savedIds.has(pin.id);
+      const existing = spotMarkersRef.current.get(pin.id);
+
+      if (existing) {
+        existing.setLngLat(lngLat);
+        updateSpotMarkerSavedState(existing.getElement(), isSaved);
+        continue;
+      }
+
+      const animateIn = !seenSpotPinIdsRef.current.has(pin.id);
+      if (animateIn) {
+        seenSpotPinIdsRef.current.add(pin.id);
+      }
+
+      const element = createSpotMarkerElement(pin, isSaved, animateIn);
 
       element.addEventListener("click", (event) => {
         event.stopPropagation();
         setSelectedPin(pin);
         setSelectedLiveUser(null);
         map.flyTo({
-          center: [pin.longitude, pin.latitude],
+          center: lngLat,
           zoom: Math.max(map.getZoom(), 14),
           essential: true,
         });
       });
 
-      const marker = new maplibregl.Marker({ element, anchor: "bottom" })
-        .setLngLat([pin.longitude, pin.latitude])
+      const marker = new maplibregl.Marker({ element, anchor: "center" })
+        .setLngLat(lngLat)
         .addTo(map);
 
-      markersRef.current.set(`spot-${pin.id}`, marker);
+      spotMarkersRef.current.set(pin.id, marker);
     }
-  }, [handleSelectLiveUser, mapReady, pins, liveUsers, savedIds, t, userId]);
+  }, [mapReady, pins, savedIds]);
 
   const liveCount = liveUsers.length;
 

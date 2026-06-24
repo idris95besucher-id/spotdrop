@@ -14,7 +14,7 @@ import GuidePlaceCard from "@/components/GuidePlaceCard";
 import SpotLocationSummary from "@/components/SpotLocationSummary";
 import { deleteOwnedSpot } from "@/lib/deleteContent";
 import { getSafeAuthSession } from "@/lib/authSession";
-import { isDemoPostId } from "@/lib/postIds";
+import { isDemoPostId, postIdsEqual } from "@/lib/postIds";
 import {
   findDemoPost,
   formatPostDetailSpotTitle,
@@ -28,8 +28,8 @@ import { publicProfileUsername } from "@/lib/publicProfile";
 import { normalizeGuidePlace } from "@/lib/guidePlaces";
 import { isSpotContent, shouldShowSpotLocation } from "@/lib/spotLocationDisplay";
 import { normalizeSpotPublicStats, type SpotPublicStats } from "@/lib/spotRanking";
-import { dispatchSpotStatsUpdated } from "@/lib/spotStatsEvents";
-import type { SpotStatsUpdatedDetail } from "@/lib/spotStatsEvents";
+import { SPOT_STATS_UPDATED_EVENT, dispatchSpotStatsUpdated, type SpotStatsUpdatedDetail } from "@/lib/spotStatsEvents";
+import { seeSpotLocation } from "@/lib/seeSpotLocation";
 import { loadSpotCollectionSaveState } from "@/lib/collections";
 import { getViewerSpotMediaUrl, type ViewerPostListItem } from "@/lib/postViewer";
 import { useI18n } from "@/components/I18nProvider";
@@ -239,7 +239,7 @@ export default function PostViewerSlide({
     const handleStatsUpdated = (event: Event) => {
       const detail = (event as CustomEvent<SpotStatsUpdatedDetail>).detail;
 
-      if (!detail || detail.postId !== item.id) {
+      if (!detail || !postIdsEqual(detail.postId, item.id)) {
         return;
       }
 
@@ -254,10 +254,10 @@ export default function PostViewerSlide({
       }
     };
 
-    window.addEventListener("spotdrop:spot-stats-updated", handleStatsUpdated);
+    window.addEventListener(SPOT_STATS_UPDATED_EVENT, handleStatsUpdated);
 
     return () => {
-      window.removeEventListener("spotdrop:spot-stats-updated", handleStatsUpdated);
+      window.removeEventListener(SPOT_STATS_UPDATED_EVENT, handleStatsUpdated);
     };
   }, [item.id]);
 
@@ -364,16 +364,23 @@ export default function PostViewerSlide({
       return;
     }
 
-    openSpotLocation({
-      id: post.id,
-      user_id: post.user_id,
-      content_kind: post.content_kind,
-      spot_name: post.spot_name,
-      spot_address: post.spot_address,
-      spot_city: post.spot_city,
-      spot_country: post.spot_country,
-      spot_latitude: post.spot_latitude,
-      spot_longitude: post.spot_longitude,
+    seeSpotLocation({
+      location: {
+        id: post.id,
+        user_id: post.user_id,
+        content_kind: post.content_kind,
+        spot_name: post.spot_name,
+        spot_address: post.spot_address,
+        spot_city: post.spot_city,
+        spot_country: post.spot_country,
+        spot_latitude: post.spot_latitude,
+        spot_longitude: post.spot_longitude,
+      },
+      viewerId: userId,
+      ownerId: post.user_id,
+      authResolved,
+      currentVisitedCount: spotStats.visited_count,
+      openSpotLocation,
     });
   };
 
@@ -470,6 +477,7 @@ export default function PostViewerSlide({
           {showSpotLocation ? (
             <SpotLocationSummary
               className="text-xs"
+              currentVisitedCount={spotStats.visited_count}
               location={{
                 id: post.id,
                 user_id: post.user_id,

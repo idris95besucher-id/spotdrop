@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { FolderPlus, Globe2, Lock, UserPlus, Users } from "lucide-react";
+import CollectionCardCover, { isMySpotsCollectionName } from "@/components/CollectionCardCover";
 import { useI18n } from "@/components/I18nProvider";
 import {
   COLLECTION_VISIBILITY_OPTIONS,
@@ -11,6 +12,7 @@ import {
   type CollectionVisibility,
   type CollectionWithMeta,
 } from "@/lib/collections";
+import { loadCollectionsPreviewMap } from "@/lib/collectionPreview";
 import { localizeError } from "@/lib/i18n/localizeError";
 import type { TranslationKey } from "@/lib/i18n/messages";
 
@@ -56,6 +58,7 @@ export default function ProfileCollectionsTab({ userId, viewerId, isOwner }: Pro
   const [description, setDescription] = useState("");
   const [visibility, setVisibility] = useState<CollectionVisibility>("private");
   const [creating, setCreating] = useState(false);
+  const [previewMap, setPreviewMap] = useState<Record<string, string[]>>({});
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -65,6 +68,14 @@ export default function ProfileCollectionsTab({ userId, viewerId, isOwner }: Pro
 
     setCollections(result.collections);
     setError(result.error);
+
+    if (result.collections.length > 0) {
+      const previews = await loadCollectionsPreviewMap(result.collections.map((collection) => collection.id));
+      setPreviewMap(previews);
+    } else {
+      setPreviewMap({});
+    }
+
     setLoading(false);
   }, [userId, viewerId]);
 
@@ -175,7 +186,8 @@ export default function ProfileCollectionsTab({ userId, viewerId, isOwner }: Pro
         <div className="grid grid-cols-2 gap-3">
           {collections.map((collection) => {
             const Icon = visibilityIcon(collection.visibility);
-            const cover = collection.cover_image_url;
+            const previews = previewMap[collection.id] ?? [];
+            const isMySpots = isMySpotsCollectionName(collection.name, t("spotEditor.mySpots"));
 
             return (
               <Link
@@ -183,19 +195,12 @@ export default function ProfileCollectionsTab({ userId, viewerId, isOwner }: Pro
                 href={`/collections?id=${collection.id}`}
                 className="group overflow-hidden rounded-2xl border border-white/[0.08] bg-[#0B1026] transition hover:border-primary/25"
               >
-                <div className="relative aspect-[4/3] bg-[#050816]">
-                  {cover ? (
-                    <img src={cover} alt="" className="h-full w-full object-cover transition group-hover:scale-[1.02]" />
-                  ) : (
-                    <div className="flex h-full items-center justify-center text-muted">
-                      <FolderPlus className="h-8 w-8 opacity-40" aria-hidden />
-                    </div>
-                  )}
-                  <span className="absolute left-2 top-2 inline-flex items-center gap-1 rounded-full bg-black/55 px-2 py-0.5 text-[10px] font-semibold text-white backdrop-blur-sm">
-                    <Icon className="h-3 w-3" aria-hidden />
-                    {t(visibilityLabelKey(collection.visibility))}
-                  </span>
-                </div>
+                <CollectionCardCover
+                  previews={previews}
+                  visibilityIcon={Icon}
+                  visibilityLabel={t(visibilityLabelKey(collection.visibility))}
+                  fallbackCoverUrl={isMySpots ? null : collection.cover_image_url}
+                />
                 <div className="p-3">
                   <p className="line-clamp-2 text-sm font-semibold text-white">{collection.name}</p>
                   <p className="mt-1 text-[11px] text-muted">

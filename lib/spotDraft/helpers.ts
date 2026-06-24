@@ -62,6 +62,12 @@ export function buildSpotDraftUpsertPayload(options: {
       trimEnd: options.mediaItem.trimEnd,
       trimConfirmed: options.mediaItem.trimConfirmed,
       coverFile: options.mediaItem.coverFile,
+      musicTrackId: options.mediaItem.musicTrackId,
+      musicTrackTitle: options.mediaItem.musicTrackTitle,
+      musicTrackArtist: options.mediaItem.musicTrackArtist,
+      musicTrackCoverUrl: options.mediaItem.musicTrackCoverUrl,
+      musicTrackAudioUrl: options.mediaItem.musicTrackAudioUrl,
+      musicTrackDurationSeconds: options.mediaItem.musicTrackDurationSeconds,
     },
     uploadStatus: resolveSpotDraftUploadStatus({
       hasMedia: true,
@@ -101,6 +107,12 @@ export async function mediaEditorItemFromDraft(
     trimConfirmed: draft.media.trimConfirmed,
     coverFile,
     coverPreviewUrl,
+    musicTrackId: draft.media.musicTrackId ?? null,
+    musicTrackTitle: draft.media.musicTrackTitle ?? null,
+    musicTrackArtist: draft.media.musicTrackArtist ?? null,
+    musicTrackCoverUrl: draft.media.musicTrackCoverUrl ?? null,
+    musicTrackAudioUrl: draft.media.musicTrackAudioUrl ?? null,
+    musicTrackDurationSeconds: draft.media.musicTrackDurationSeconds ?? null,
   };
 }
 

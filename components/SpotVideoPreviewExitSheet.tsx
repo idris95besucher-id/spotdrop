@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { Bookmark, Trash2 } from "lucide-react";
+import { useI18n } from "@/components/I18nProvider";
 
 type SpotVideoPreviewExitSheetProps = {
   isOpen: boolean;
@@ -19,6 +20,7 @@ export default function SpotVideoPreviewExitSheet({
   onDiscard,
   onCancel,
 }: SpotVideoPreviewExitSheetProps) {
+  const { t } = useI18n();
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
@@ -47,7 +49,7 @@ export default function SpotVideoPreviewExitSheet({
       <button
         type="button"
         className="absolute inset-0 bg-black/60 backdrop-blur-[2px]"
-        aria-label="Close dialog"
+        aria-label={t("common.close")}
         onClick={onCancel}
       />
 
@@ -61,11 +63,9 @@ export default function SpotVideoPreviewExitSheet({
       >
         <div className="border-b border-white/8 px-5 py-4 text-center">
           <h2 id="spot-video-exit-title" className="text-base font-semibold text-white">
-            Leave without sharing?
+            {t("spotEditor.exit.title")}
           </h2>
-          <p className="mt-1.5 text-sm leading-relaxed text-white/55">
-            Save your video to drafts or discard it and return to the camera.
-          </p>
+          <p className="mt-1.5 text-sm leading-relaxed text-white/55">{t("spotEditor.exit.body")}</p>
         </div>
 
         <div className="p-2">
@@ -76,7 +76,7 @@ export default function SpotVideoPreviewExitSheet({
             className="flex w-full items-center justify-center gap-2.5 rounded-xl px-4 py-3.5 text-[15px] font-semibold text-white transition active:bg-white/10 disabled:opacity-50"
           >
             <Bookmark className="h-5 w-5 text-white/80" strokeWidth={1.75} aria-hidden />
-            {saving ? "Saving…" : "Save to drafts"}
+            {saving ? t("spotEditor.saving") : t("spotEditor.exit.saveToDrafts")}
           </button>
 
           <button
@@ -86,7 +86,7 @@ export default function SpotVideoPreviewExitSheet({
             className="flex w-full items-center justify-center gap-2.5 rounded-xl px-4 py-3.5 text-[15px] font-semibold text-red-400 transition active:bg-red-500/10 disabled:opacity-50"
           >
             <Trash2 className="h-5 w-5" strokeWidth={1.75} aria-hidden />
-            Discard video
+            {t("spotEditor.exit.discardVideo")}
           </button>
         </div>
       </div>
@@ -98,7 +98,7 @@ export default function SpotVideoPreviewExitSheet({
         className="relative z-10 mx-3 mb-3 rounded-2xl bg-[#1c1c1c]/95 py-3.5 text-[15px] font-semibold text-white shadow-lg backdrop-blur-xl transition active:bg-white/10 disabled:opacity-50"
         style={{ marginBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}
       >
-        Cancel
+        {t("common.cancel")}
       </button>
     </div>
   );

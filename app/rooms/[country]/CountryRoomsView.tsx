@@ -9,6 +9,7 @@ import { MOBILE_WIDTH_SAFE_CLASS } from "@/lib/mobileLayout";
 import { useI18n } from "@/components/I18nProvider";
 import { getSafeAuthSession } from "@/lib/authSession";
 import { getCountryFlag } from "@/lib/countryFlags";
+import { localizeCountryName, localizeCityName } from "@/lib/i18n/localizeGeo";
 import { localizeUserMessage } from "@/lib/i18n/localizeUserMessage";
 import {
   filterRussiaRoomPickerCities,
@@ -48,7 +49,7 @@ function InvalidCountryPanel({ t }: { t: ReturnType<typeof useI18n>["t"] }) {
 }
 
 export default function CountryRoomsPage() {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const params = useParams<{ country: string }>();
   const countrySlug = String(params.country ?? "").toLowerCase();
   const [countries, setCountries] = useState<Country[]>([]);
@@ -142,6 +143,10 @@ export default function CountryRoomsPage() {
 
   const localizedError = localizeUserMessage(t, error);
 
+  const localizedCountryName = foundCountry
+    ? localizeCountryName(locale, { slug: foundCountry.slug, name: foundCountry.name })
+    : null;
+
   if (!countrySlug) {
     return (
       <Shell showHeader={false} flushTop>
@@ -153,7 +158,7 @@ export default function CountryRoomsPage() {
   return (
     <Shell showHeader={false} flushTop>
       <div className={`flex min-h-0 flex-1 flex-col ${MOBILE_WIDTH_SAFE_CLASS}`}>
-        <MobileSecondaryHeader title={foundCountry?.name ?? t("rooms.cities")} backHref="/visit" />
+        <MobileSecondaryHeader title={localizedCountryName ?? t("rooms.cities")} backHref="/visit" />
         <div className="space-y-8 px-4 py-6 sm:px-0">
         <section className="rounded-3xl border border-white/10 bg-slate-900/90 p-8 text-center shadow-xl shadow-black/30">
           <p className="text-sm uppercase tracking-[0.35em] text-cyan-300">{t("rooms.title")}</p>
@@ -161,7 +166,7 @@ export default function CountryRoomsPage() {
             {foundCountry ? (
               <div className="text-4xl">{getCountryFlag(foundCountry.slug, foundCountry.emoji, foundCountry.code)}</div>
             ) : null}
-            <h1 className="text-4xl font-semibold text-white">{foundCountry?.name ?? t("rooms.country")}</h1>
+            <h1 className="text-4xl font-semibold text-white">{localizedCountryName ?? t("rooms.country")}</h1>
           </div>
         </section>
 
@@ -181,13 +186,19 @@ export default function CountryRoomsPage() {
                 href={`/rooms/${countrySlug}/${city.slug}`}
                 className="rounded-3xl border border-white/10 bg-white/5 p-6 transition hover:border-cyan-300/40 hover:bg-white/10"
               >
-                <div className="text-2xl font-semibold text-white">{city.name}</div>
+                <div className="text-2xl font-semibold text-white">
+                  {localizeCityName(locale, {
+                    slug: city.slug,
+                    name: city.name,
+                    countrySlug,
+                  })}
+                </div>
               </Link>
             ))}
           </div>
         ) : (
           <div className="rounded-3xl border border-dashed border-white/10 bg-white/5 p-8 text-slate-300">
-            <p className="text-base">{t("rooms.noCities", { name: foundCountry.name })}</p>
+            <p className="text-base">{t("rooms.noCities", { name: localizedCountryName ?? foundCountry.name })}</p>
             <p className="mt-4 text-sm text-slate-400">{t("rooms.returnToList")}</p>
             <Link href="/visit" className="mt-6 inline-flex rounded-full bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400">
               {t("rooms.backToCountries")}

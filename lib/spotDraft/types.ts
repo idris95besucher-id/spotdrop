@@ -15,6 +15,12 @@ export type SpotDraftMediaMeta = {
   trimConfirmed: boolean;
   coverFileName: string | null;
   coverMimeType: string | null;
+  musicTrackId: string | null;
+  musicTrackTitle: string | null;
+  musicTrackArtist: string | null;
+  musicTrackCoverUrl: string | null;
+  musicTrackAudioUrl: string | null;
+  musicTrackDurationSeconds: number | null;
 };
 
 export type SpotDraftRecord = {
@@ -51,6 +57,12 @@ export type SpotDraftUpsertPayload = {
     trimEnd: number;
     trimConfirmed: boolean;
     coverFile: File | null;
+    musicTrackId: string | null;
+    musicTrackTitle: string | null;
+    musicTrackArtist: string | null;
+    musicTrackCoverUrl: string | null;
+    musicTrackAudioUrl: string | null;
+    musicTrackDurationSeconds: number | null;
   };
   uploadStatus: SpotDraftUploadStatus;
   uploadError?: string | null;

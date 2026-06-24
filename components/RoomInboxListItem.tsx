@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { Globe2 } from "lucide-react";
 import { useI18n } from "@/components/I18nProvider";
+import { localizeCountryName, localizeCityName } from "@/lib/i18n/localizeGeo";
 import { formatRoomMessagePreview, formatRoomUnreadLabel } from "@/lib/roomMessagePreview";
 import {
   buildRoomHref,
@@ -38,7 +39,7 @@ function formatRoomTime(createdAt: string) {
 }
 
 export default function RoomInboxListItem({ room, onLongPress }: RoomInboxListItemProps) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const hasUnread = !room.isMuted && room.unreadCount > 0;
   const preview = formatRoomMessagePreview(room.lastMessageContent, t);
   const unreadLabel = formatRoomUnreadLabel(room.unreadCount, t);
@@ -77,13 +78,19 @@ export default function RoomInboxListItem({ room, onLongPress }: RoomInboxListIt
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline justify-between gap-2">
             <p className={`truncate text-[15px] sm:text-base ${hasUnread ? "font-bold text-white" : "font-semibold text-white"}`}>
-              {room.cityName}
+              {localizeCityName(locale, {
+                slug: room.citySlug,
+                name: room.cityName,
+                countrySlug: room.countrySlug,
+              })}
             </p>
             <time className={`shrink-0 text-xs ${hasUnread ? "font-semibold text-primary" : "text-muted"}`}>
               {formatRoomTime(room.lastAt)}
             </time>
           </div>
-          <p className="mt-0.5 truncate text-xs text-slate-500">{room.countryName}</p>
+          <p className="mt-0.5 truncate text-xs text-slate-500">
+            {localizeCountryName(locale, { slug: room.countrySlug, name: room.countryName })}
+          </p>
           <div className="mt-0.5 flex items-center justify-between gap-2">
             <p className={`truncate text-sm ${hasUnread ? "font-medium text-slate-200" : "text-muted"}`}>
               {unreadLabel ?? preview}

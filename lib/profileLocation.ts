@@ -1,4 +1,9 @@
 import { supabase } from "@/lib/supabaseClient";
+import type { I18nLocale } from "@/lib/i18n/locales";
+import {
+  localizeCityByEnglishName,
+  localizeCountryByEnglishName,
+} from "@/lib/i18n/localizeGeo";
 
 type ProfileLocationInput = {
   country_slug?: string | null;
@@ -66,6 +71,21 @@ function isUnexpectedLocationError(error: { code?: string; message?: string } | 
 
 export function formatProfileLocationLine(location: ResolvedProfileLocation) {
   const parts = [location.countryName, location.cityName].filter(
+    (part): part is string => typeof part === "string" && part.length > 0
+  );
+
+  return parts.length > 0 ? parts.join(", ") : null;
+}
+
+export function formatProfileLocationLineLocalized(
+  location: ResolvedProfileLocation,
+  locale: I18nLocale
+) {
+  const country = localizeCountryByEnglishName(locale, location.countryName) ?? location.countryName;
+  const city =
+    localizeCityByEnglishName(locale, location.cityName, location.countryName) ?? location.cityName;
+
+  const parts = [country, city].filter(
     (part): part is string => typeof part === "string" && part.length > 0
   );
 

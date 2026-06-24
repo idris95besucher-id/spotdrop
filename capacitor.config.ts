@@ -4,6 +4,16 @@ const config: CapacitorConfig = {
   appId: 'com.spotdrop.app',
   appName: 'SpotDrop',
   webDir: 'out',
+  server: {
+    // Load profile HTML directly (correct RSC payload); recover via errorPath on failure.
+    appStartPath: 'profile/index.html',
+    errorPath: 'capacitor-error.html',
+  },
+  plugins: {
+    FirebaseMessaging: {
+      presentationOptions: ['alert', 'badge', 'sound'],
+    },
+  },
   ios: {
     // Allow the WKWebView to extend edge-to-edge (behind status bar and home indicator).
     // Safe-area insets are then handled via CSS: env(safe-area-inset-*) at the root wrapper.

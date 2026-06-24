@@ -1,14 +1,29 @@
+import { isCapacitorNative } from "@/lib/capacitorUtils";
+import { enableNativePush, isNativePushSupported } from "@/lib/nativePush";
 import { supabase } from "@/lib/supabaseClient";
 
 const SW_PATH = "/sw.js";
 
-export function isPushSupported() {
+/** True when the browser Web Notifications API exists (not available in Capacitor iOS WKWebView). */
+export function isBrowserNotificationAvailable(): boolean {
+  return typeof window !== "undefined" && "Notification" in window;
+}
+
+export function isWebPushSupported() {
   return (
     typeof window !== "undefined" &&
     "serviceWorker" in navigator &&
     "PushManager" in window &&
-    "Notification" in window
+    isBrowserNotificationAvailable()
   );
+}
+
+export function isPushSupported() {
+  if (isNativePushSupported()) {
+    return true;
+  }
+
+  return isWebPushSupported();
 }
 
 export function isIosDevice() {
@@ -20,11 +35,11 @@ export function isIosDevice() {
 }
 
 export function pushPermissionState(): NotificationPermission | "unsupported" {
-  if (!isPushSupported()) {
+  if (!isBrowserNotificationAvailable()) {
     return "unsupported";
   }
 
-  return Notification.permission;
+  return window.Notification.permission;
 }
 
 async function registerServiceWorker() {
@@ -104,12 +119,20 @@ export async function removePushSubscription(subscription: PushSubscription | nu
   return { error: null as string | null };
 }
 
+export async function enablePush(userId: string) {
+  if (isNativePushSupported()) {
+    return enableNativePush(userId);
+  }
+
+  return enableWebPush(userId);
+}
+
 export async function enableWebPush(userId: string) {
-  if (!isPushSupported()) {
+  if (!isWebPushSupported()) {
     return { subscription: null as PushSubscription | null, error: "unsupported" as const };
   }
 
-  const permission = await Notification.requestPermission();
+  const permission = await window.Notification.requestPermission();
 
   if (permission !== "granted") {
     return { subscription: null as PushSubscription | null, error: "denied" as const };
@@ -144,8 +167,17 @@ export async function showLocalPushNotification(input: {
   title: string;
   body: string;
   href: string;
+  badge?: number;
 }) {
-  if (!isPushSupported() || Notification.permission !== "granted") {
+  if (isCapacitorNative()) {
+    return;
+  }
+
+  if (!isBrowserNotificationAvailable() || window.Notification.permission !== "granted") {
+    return;
+  }
+
+  if (!isWebPushSupported()) {
     return;
   }
 
@@ -153,9 +185,9 @@ export async function showLocalPushNotification(input: {
 
   await registration.showNotification(input.title, {
     body: input.body,
-    icon: "/globe.svg",
-    badge: "/globe.svg",
-    data: { href: input.href },
+    icon: "/icon.png",
+    badge: "/icon.png",
+    data: { href: input.href, badge: input.badge ?? 0 },
     tag: input.href,
   });
 }

@@ -12,13 +12,18 @@ import {
   ChevronRight,
   Loader2,
   MapPin,
+  Music2,
   Play,
   Scissors,
   Volume2,
   VolumeX,
 } from "lucide-react";
+import { logMusicSelected } from "@/lib/spotMusic/previewUrls";
+import { useSpotEditorMusicPlayback } from "@/lib/spotMusic/useSpotEditorMusicPlayback";
+import SpotEditorMusicSheet from "@/components/SpotEditorMusicSheet";
 import SpotVideoPreviewExitSheet from "@/components/SpotVideoPreviewExitSheet";
 import SpotLocationPicker, { type SpotLocationSourceKind } from "@/components/SpotLocationPicker";
+import { useI18n } from "@/components/I18nProvider";
 import { getVideoPreviewContinueBlockReason } from "@/lib/mediaEditor/continueReasons";
 import type { MediaEditorItem } from "@/lib/mediaEditor";
 import {
@@ -31,7 +36,8 @@ import {
 } from "@/lib/mediaEditor/trimTimeline";
 import { requiresTrimForVideo } from "@/lib/mediaEditor/trimValidation";
 import type { PlaceSearchResult, SpotGeoLocation } from "@/lib/spotLocation";
-import { formatSpotLocationLabel } from "@/lib/spotLocation";
+import { formatSpotLocationLabelLocalized } from "@/lib/spotLocationDisplay";
+import { localizeUserMessage } from "@/lib/i18n/localizeUserMessage";
 import { captureVideoFrameBlob, coverBlobToFile } from "@/lib/videoCover";
 import {
   generateFilmstripFrames,
@@ -99,6 +105,8 @@ export default function SpotVideoEditorScreen({
   onNext,
   savingDraft = false,
 }: SpotVideoEditorScreenProps) {
+  const { t, locale } = useI18n();
+  const localizedError = localizeUserMessage(t, error);
   const videoRef = useRef<HTMLVideoElement>(null);
   const trackRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<DragHandle>(null);
@@ -125,6 +133,7 @@ export default function SpotVideoEditorScreen({
   /** Local preview while dragging — keeps handles glued to the finger without React/parent lag. */
   const [dragPreview, setDragPreview] = useState<{ start: number; end: number } | null>(null);
   const [showExitSheet, setShowExitSheet] = useState(false);
+  const [showMusicSheet, setShowMusicSheet] = useState(false);
   const trimDragRafRef = useRef<number | null>(null);
   const trimDragPendingXRef = useRef<number | null>(null);
   const dragPreviewRef = useRef<{ start: number; end: number } | null>(null);
@@ -140,9 +149,9 @@ export default function SpotVideoEditorScreen({
   const nextBlocked = nextDisableReason !== null;
 
   const locationLabel = locating
-    ? "Locating…"
+    ? t("spotEditor.locating")
     : location
-      ? formatSpotLocationLabel(location)
+      ? formatSpotLocationLabelLocalized(location, locale)
       : null;
 
   const playheadRatio = timeToRatio(currentTime, sourceDuration);
@@ -153,6 +162,10 @@ export default function SpotVideoEditorScreen({
   const displayStartRatio = timeToRatio(displayTrimStart, sourceDuration);
   const displayEndRatio = timeToRatio(displayTrimEnd, sourceDuration);
   const displayClipDuration = Math.max(0, displayTrimEnd - displayTrimStart);
+
+  const { startMusic: startEditorMusic, stopMusic: stopEditorMusic } = useSpotEditorMusicPlayback(
+    item.musicTrackAudioUrl
+  );
 
   const setMuted = useCallback((muted: boolean) => {
     previewMutedRef.current = muted;
@@ -418,15 +431,20 @@ export default function SpotVideoEditorScreen({
       try {
         await video.play();
         setIsPlaying(true);
+        if (item.musicTrackAudioUrl) {
+          void startEditorMusic();
+        }
       } catch {
         setIsPlaying(false);
+        stopEditorMusic();
       }
       return;
     }
 
     video.pause();
+    stopEditorMusic();
     setIsPlaying(false);
-  }, [isReady, resolvedEnd, trimStart]);
+  }, [isReady, item.musicTrackAudioUrl, resolvedEnd, startEditorMusic, stopEditorMusic, trimStart]);
 
   // ── Trim drag ─────────────────────────────────────────────────────────────
 
@@ -504,6 +522,7 @@ export default function SpotVideoEditorScreen({
       const video = videoRef.current;
       if (video) {
         video.pause();
+        stopEditorMusic();
         setIsPlaying(false);
       }
 
@@ -562,13 +581,17 @@ export default function SpotVideoEditorScreen({
       document.addEventListener("pointerup", onEnd);
       document.addEventListener("pointercancel", onEnd);
     },
-    [applyTrimFromClientX, endTrimDrag, loadingDuration, resolvedEnd, trimStart]
+    [applyTrimFromClientX, endTrimDrag, loadingDuration, resolvedEnd, stopEditorMusic, trimStart]
   );
 
   const handleFrameTap = (time: number) => {
     if (dragRef.current) return;
     const video = videoRef.current;
-    if (video) { video.pause(); setIsPlaying(false); }
+    if (video) {
+      video.pause();
+      stopEditorMusic();
+      setIsPlaying(false);
+    }
     seekVideo(time, false);
     void applyCoverFromTime(time);
   };
@@ -665,7 +688,7 @@ export default function SpotVideoEditorScreen({
             onClick={onRetake}
             className="rounded-full bg-black/45 px-4 py-2 text-sm font-semibold text-white backdrop-blur-sm"
           >
-            Retake
+            {t("spotEditor.retake")}
           </button>
 
           <button
@@ -680,19 +703,40 @@ export default function SpotVideoEditorScreen({
                 : "bg-white text-black active:scale-[0.98]"
             }`}
           >
-            Next
+            {t("spotEditor.next")}
           </button>
         </div>
       </div>
 
       {/* ── Right sidebar tools ── */}
-      <div className="absolute right-3 top-1/2 z-30 flex -translate-y-1/2 flex-col items-center gap-3">
+      <div
+        className="absolute z-30 flex -translate-y-1/2 flex-col items-center gap-3"
+        style={{
+          top: "calc(50% + 2.75rem)",
+          right: "max(0.75rem, env(safe-area-inset-right))",
+        }}
+      >
+        {/* Music */}
+        <button
+          type="button"
+          onClick={() => setShowMusicSheet(true)}
+          className={`flex h-11 w-11 items-center justify-center rounded-full text-white backdrop-blur-sm transition ${
+            item.musicTrackId ? "bg-white/30 ring-2 ring-white/50" : "bg-black/50"
+          }`}
+          aria-label={t("spotEditor.music")}
+        >
+          <Music2 className="h-5 w-5" aria-hidden />
+        </button>
+        <span className="max-w-[52px] truncate text-center text-[9px] font-medium text-white/60">
+          {item.musicTrackTitle ?? t("spotEditor.music")}
+        </span>
+
         {/* Mute / unmute preview */}
         <button
           type="button"
           onClick={() => setMuted(!previewMuted)}
           className="flex h-11 w-11 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur-sm"
-          aria-label={previewMuted ? "Unmute preview" : "Mute preview"}
+          aria-label={previewMuted ? t("spotEditor.unmutePreview") : t("spotEditor.mutePreview")}
         >
           {previewMuted ? (
             <VolumeX className="h-5 w-5" aria-hidden />
@@ -701,7 +745,7 @@ export default function SpotVideoEditorScreen({
           )}
         </button>
         <span className="text-[9px] font-medium text-white/60">
-          {previewMuted ? "Muted" : "Sound"}
+          {previewMuted ? t("spotEditor.muted") : t("spotEditor.sound")}
         </span>
 
         {/* Trim toggle */}
@@ -711,12 +755,12 @@ export default function SpotVideoEditorScreen({
           className={`flex h-11 w-11 items-center justify-center rounded-full text-white backdrop-blur-sm transition ${
             showTrim ? "bg-white/30 ring-2 ring-white/50" : "bg-black/50"
           }`}
-          aria-label="Trim video"
+          aria-label={t("spotEditor.trimVideo")}
           aria-pressed={showTrim}
         >
           <Scissors className="h-5 w-5" aria-hidden />
         </button>
-        <span className="text-[9px] font-medium text-white/60">Trim</span>
+        <span className="text-[9px] font-medium text-white/60">{t("spotEditor.trim")}</span>
       </div>
 
       {/* ── Bottom overlay ── */}
@@ -730,9 +774,9 @@ export default function SpotVideoEditorScreen({
             {/* Live times while dragging */}
             {isDraggingTrim ? (
               <div className="mb-2 flex items-center justify-between rounded-full bg-black/80 px-4 py-2 text-xs font-semibold tabular-nums text-white ring-1 ring-white/30 backdrop-blur-sm">
-                <span>Start {formatTrimTime(displayTrimStart)}</span>
+                <span>{t("spotEditor.trimStart")} {formatTrimTime(displayTrimStart)}</span>
                 <span className="text-white/50">·</span>
-                <span>End {formatTrimTime(displayTrimEnd)}</span>
+                <span>{t("spotEditor.trimEnd")} {formatTrimTime(displayTrimEnd)}</span>
                 <span className="text-white/50">·</span>
                 <span className="text-emerald-300">{formatTrimTime(displayClipDuration)}</span>
               </div>
@@ -813,7 +857,7 @@ export default function SpotVideoEditorScreen({
                       aria-hidden
                       className="pointer-events-none absolute top-1 z-20 h-3 w-3 -translate-x-1/2 rounded-full bg-cyan-300 ring-2 ring-white"
                       style={{ left: `${coverRatio * 100}%` }}
-                      title="Cover frame"
+                      title={t("spotEditor.coverFrame")}
                     />
                   </>
                 ) : null}
@@ -827,7 +871,7 @@ export default function SpotVideoEditorScreen({
                   <button
                     type="button"
                     disabled={loadingDuration}
-                    aria-label="Adjust clip start"
+                    aria-label={t("spotEditor.adjustClipStart")}
                     onPointerDown={(e) => startTrimDrag("start", e)}
                     className={`pointer-events-auto absolute z-40 flex cursor-ew-resize items-center justify-center touch-none select-none ${
                       activeTrimHandle === "start" ? "scale-105" : ""
@@ -856,7 +900,7 @@ export default function SpotVideoEditorScreen({
                   <button
                     type="button"
                     disabled={loadingDuration}
-                    aria-label="Adjust clip end"
+                    aria-label={t("spotEditor.adjustClipEnd")}
                     onPointerDown={(e) => startTrimDrag("end", e)}
                     className={`pointer-events-auto absolute z-40 flex cursor-ew-resize items-center justify-center touch-none select-none ${
                       activeTrimHandle === "end" ? "scale-105" : ""
@@ -886,7 +930,7 @@ export default function SpotVideoEditorScreen({
             </div>
 
             <p className="mt-2 text-center text-[11px] text-white/50">
-              Drag the white handles · tap a thumbnail for cover
+              {t("spotEditor.trimHint")}
             </p>
           </div>
         ) : null}
@@ -909,12 +953,45 @@ export default function SpotVideoEditorScreen({
               onClick={() => setShowLocationPicker(false)}
               className="mt-2 w-full text-center text-xs text-white/50"
             >
-              Close
+              {t("common.close")}
             </button>
           </div>
         ) : null}
 
         <div className="flex flex-col gap-2">
+          {item.musicTrackId && item.musicTrackTitle ? (
+            <div className="rounded-2xl bg-black/55 px-4 py-3 backdrop-blur-md ring-1 ring-cyan-400/25">
+              <div className="flex items-start gap-2">
+                <Music2 className="mt-0.5 h-4 w-4 shrink-0 text-cyan-300" aria-hidden />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-semibold text-white">{item.musicTrackTitle}</p>
+                  {item.musicTrackArtist ? (
+                    <p className="truncate text-xs text-white/55">{item.musicTrackArtist}</p>
+                  ) : null}
+                  <p className="mt-1 text-[10px] leading-snug text-cyan-200/75">
+                    {t("spotEditor.musicMetadataOnly")}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() =>
+                    onItemChange({
+                      musicTrackId: null,
+                      musicTrackTitle: null,
+                      musicTrackArtist: null,
+                      musicTrackCoverUrl: null,
+                      musicTrackAudioUrl: null,
+                      musicTrackDurationSeconds: null,
+                    })
+                  }
+                  className="shrink-0 rounded-full px-2 py-1 text-[10px] font-semibold text-red-300 transition active:bg-red-500/10"
+                >
+                  {t("spotEditor.musicRemove")}
+                </button>
+              </div>
+            </div>
+          ) : null}
+
           <button
             type="button"
             onClick={() => setShowLocationPicker((v) => !v)}
@@ -922,7 +999,7 @@ export default function SpotVideoEditorScreen({
           >
             <MapPin className="h-4 w-4 shrink-0 text-primary" aria-hidden />
             <span className="min-w-0 flex-1 truncate">
-              {locationLabel ?? "Add location"}
+              {locationLabel ?? t("spotEditor.addLocation")}
             </span>
             <ChevronRight className="h-4 w-4 shrink-0 text-white/40" aria-hidden />
           </button>
@@ -930,16 +1007,16 @@ export default function SpotVideoEditorScreen({
           <input
             value={spotName}
             onChange={(e) => onSpotNameChange(e.target.value)}
-            placeholder="Write a caption…"
+            placeholder={t("spotEditor.captionPlaceholder")}
             maxLength={120}
             className="w-full rounded-2xl bg-black/55 px-4 py-3 text-sm text-white placeholder-white/40 backdrop-blur-md ring-1 ring-white/12 focus:outline-none focus:ring-white/30"
           />
         </div>
 
-        {error ? (
-          <p className="text-center text-xs text-red-400">{error}</p>
+        {localizedError ? (
+          <p className="text-center text-xs text-red-400">{localizedError}</p>
         ) : null}
-        {!error && nextDisableReason ? (
+        {!localizedError && nextDisableReason ? (
           <p className="text-center text-xs text-amber-200/80">{nextDisableReason}</p>
         ) : null}
       </div>
@@ -957,6 +1034,44 @@ export default function SpotVideoEditorScreen({
         onDiscardVideo();
       }}
       onCancel={() => setShowExitSheet(false)}
+    />
+
+    <SpotEditorMusicSheet
+      isOpen={showMusicSheet}
+      selectedTrack={
+        item.musicTrackId && item.musicTrackTitle
+          ? {
+              id: item.musicTrackId,
+              title: item.musicTrackTitle,
+              artist: item.musicTrackArtist ?? "",
+              audioUrl: item.musicTrackAudioUrl,
+              coverUrl: item.musicTrackCoverUrl,
+              durationSeconds: item.musicTrackDurationSeconds,
+            }
+          : null
+      }
+      onSelectTrack={(track) => {
+        logMusicSelected(track);
+        onItemChange({
+          musicTrackId: track.id,
+          musicTrackTitle: track.title,
+          musicTrackArtist: track.artist,
+          musicTrackCoverUrl: track.coverUrl,
+          musicTrackAudioUrl: track.audioUrl,
+          musicTrackDurationSeconds: track.durationSeconds,
+        });
+      }}
+      onRemoveMusic={() => {
+        onItemChange({
+          musicTrackId: null,
+          musicTrackTitle: null,
+          musicTrackArtist: null,
+          musicTrackCoverUrl: null,
+          musicTrackAudioUrl: null,
+          musicTrackDurationSeconds: null,
+        });
+      }}
+      onClose={() => setShowMusicSheet(false)}
     />
     </>
   );

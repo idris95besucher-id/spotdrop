@@ -1,5 +1,7 @@
+import type { I18nLocale } from "@/lib/i18n/locales";
 import { normalizePostId } from "@/lib/postIds";
 import { isExplorePublishedSpot } from "@/lib/publishedToSpots";
+import { formatSpotLocationDisplay } from "@/lib/spotLocationDisplay";
 import { normalizeSpotPublicStats } from "@/lib/spotRanking";
 import { supabase } from "@/lib/supabaseClient";
 
@@ -225,13 +227,23 @@ export function getSpotDisplayLabel(post: ProfileContentPost) {
   return post.location_label?.trim() || post.place_name?.trim() || null;
 }
 
-export function getSpotLocationLine(post: ProfileContentPost) {
-  const parts = [post.spot_address, post.spot_city, post.spot_country].filter(
-    (part): part is string => typeof part === "string" && part.trim().length > 0
+export function getSpotLocationLine(post: ProfileContentPost, locale: I18nLocale = "en") {
+  const localized = formatSpotLocationDisplay(
+    {
+      content_kind: post.content_kind,
+      spot_name: post.spot_name,
+      spot_address: post.spot_address,
+      spot_city: post.spot_city,
+      spot_country: post.spot_country,
+      spot_latitude: post.spot_latitude,
+      spot_longitude: post.spot_longitude,
+      placeName: post.place_name,
+    },
+    locale
   );
 
-  if (parts.length > 0) {
-    return parts.join(", ");
+  if (localized) {
+    return localized;
   }
 
   if (post.spot_latitude != null && post.spot_longitude != null) {

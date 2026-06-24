@@ -2,9 +2,12 @@
 
 import { useState } from "react";
 import { ArrowLeft, ChevronRight, MapPin } from "lucide-react";
+import { useI18n } from "@/components/I18nProvider";
 import SpotLocationPicker, { type SpotLocationSourceKind } from "@/components/SpotLocationPicker";
+import { localizeUserMessage } from "@/lib/i18n/localizeUserMessage";
 import type { MediaEditorItem } from "@/lib/mediaEditor";
-import { formatSpotLocationLabel, type PlaceSearchResult, type SpotGeoLocation } from "@/lib/spotLocation";
+import { formatSpotLocationLabelLocalized } from "@/lib/spotLocationDisplay";
+import type { PlaceSearchResult, SpotGeoLocation } from "@/lib/spotLocation";
 
 type SpotCapturePreviewScreenProps = {
   item: MediaEditorItem;
@@ -27,7 +30,6 @@ type SpotCapturePreviewScreenProps = {
 };
 
 export default function SpotCapturePreviewScreen({
-  item,
   spotName,
   locating,
   location,
@@ -44,16 +46,19 @@ export default function SpotCapturePreviewScreen({
   onDismiss,
   onRetake,
   onNext,
+  item,
 }: SpotCapturePreviewScreenProps) {
+  const { t, locale } = useI18n();
   const [showLocationPicker, setShowLocationPicker] = useState(false);
 
   const nextDisableReason = offlineMode ? null : publishStatusMessage;
   const nextBlocked = nextDisableReason !== null;
+  const localizedError = localizeUserMessage(t, error);
 
   const locationLabel = locating
-    ? "Locating…"
+    ? t("spotEditor.locating")
     : location
-      ? formatSpotLocationLabel(location)
+      ? formatSpotLocationLabelLocalized(location, locale)
       : null;
 
   return (
@@ -85,7 +90,7 @@ export default function SpotCapturePreviewScreen({
           type="button"
           onClick={onDismiss}
           className="mt-2.5 flex h-10 w-10 items-center justify-center rounded-full bg-black/45 text-white backdrop-blur-sm"
-          aria-label="Save draft and go back"
+          aria-label={t("spotEditor.saveDraftBack")}
         >
           <ArrowLeft className="h-5 w-5" strokeWidth={2} aria-hidden />
         </button>
@@ -96,7 +101,7 @@ export default function SpotCapturePreviewScreen({
             onClick={onRetake}
             className="rounded-full bg-black/45 px-4 py-2 text-sm font-semibold text-white backdrop-blur-sm"
           >
-            Retake
+            {t("spotEditor.retake")}
           </button>
 
           <button
@@ -111,7 +116,7 @@ export default function SpotCapturePreviewScreen({
                 : "bg-white text-black active:scale-[0.98]"
             }`}
           >
-            Next
+            {t("spotEditor.next")}
           </button>
         </div>
       </div>
@@ -137,7 +142,7 @@ export default function SpotCapturePreviewScreen({
               onClick={() => setShowLocationPicker(false)}
               className="mt-2 w-full text-center text-xs text-white/50"
             >
-              Close
+              {t("common.close")}
             </button>
           </div>
         ) : null}
@@ -150,7 +155,7 @@ export default function SpotCapturePreviewScreen({
           >
             <MapPin className="h-4 w-4 shrink-0 text-primary" aria-hidden />
             <span className="min-w-0 flex-1 truncate">
-              {locationLabel ?? "Add location"}
+              {locationLabel ?? t("spotEditor.addLocation")}
             </span>
             <ChevronRight className="h-4 w-4 shrink-0 text-white/40" aria-hidden />
           </button>
@@ -158,16 +163,16 @@ export default function SpotCapturePreviewScreen({
           <input
             value={spotName}
             onChange={(e) => onSpotNameChange(e.target.value)}
-            placeholder="Write a caption…"
+            placeholder={t("spotEditor.captionPlaceholder")}
             maxLength={120}
             className="w-full rounded-2xl bg-black/55 px-4 py-3 text-sm text-white placeholder-white/40 backdrop-blur-md ring-1 ring-white/12 focus:outline-none focus:ring-white/30"
           />
         </div>
 
-        {error ? (
-          <p className="text-center text-xs text-red-400">{error}</p>
+        {localizedError ? (
+          <p className="text-center text-xs text-red-400">{localizedError}</p>
         ) : null}
-        {!error && nextDisableReason ? (
+        {!localizedError && nextDisableReason ? (
           <p className="text-center text-xs text-amber-200/80">{nextDisableReason}</p>
         ) : null}
       </div>

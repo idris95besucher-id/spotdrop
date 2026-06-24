@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>SpotDrop</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: #050816;
+        color: #fff;
+        font-family: system-ui, -apple-system, sans-serif;
+      }
+    </style>
+    <script>
+      (function () {
+        var home = "/profile/";
+        try {
+          window.location.replace(home);
+        } catch (e) {
+          window.location.href = home;
+        }
+      })();
+    </script>
+  </head>
+  <body></body>
+</html>

@@ -9,6 +9,7 @@ import {
   EXPLORE_PAGE_SIZE,
   formatFeedSpotTitle,
   loadExploreSpotPostsPage,
+  mergeFeedSpotPosts,
   type FeedSpotRow,
 } from "@/lib/feed";
 import { MOBILE_WIDTH_SAFE_CLASS } from "@/lib/mobileLayout";
@@ -50,20 +51,32 @@ export default function SearchExploreGrid({ onPostsChange }: SearchExploreGridPr
   const [error, setError] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(true);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
+  /** DB pagination offset — always pageIndex * EXPLORE_PAGE_SIZE, never filtered visible count. */
+  const fetchOffsetRef = useRef(0);
+  const initialLoadStartedRef = useRef(false);
 
   const viewerItems = useMemo(() => feedRowsToViewerItems(posts), [posts]);
   const columns = useMemo(() => distributeToColumns(posts), [posts]);
 
   const loadInitial = useCallback(async () => {
+    if (initialLoadStartedRef.current) {
+      return;
+    }
+
+    initialLoadStartedRef.current = true;
     setLoading(true);
     setError(null);
+    fetchOffsetRef.current = 0;
 
     const result = await loadExploreSpotPostsPage(0, EXPLORE_PAGE_SIZE);
 
-    setPosts(result.posts);
+    setPosts((current) => mergeFeedSpotPosts(current, result.posts));
+    fetchOffsetRef.current = result.fetchedCount;
     setHasMore(result.hasMore);
     setError(result.error);
     setLoading(false);
+
+    console.log("[Search Grid] visible spots count", result.posts.length);
   }, []);
 
   const loadMore = useCallback(async () => {
@@ -73,7 +86,8 @@ export default function SearchExploreGrid({ onPostsChange }: SearchExploreGridPr
 
     setLoadingMore(true);
 
-    const result = await loadExploreSpotPostsPage(posts.length, EXPLORE_PAGE_SIZE);
+    const offset = fetchOffsetRef.current;
+    const result = await loadExploreSpotPostsPage(offset, EXPLORE_PAGE_SIZE);
 
     if (result.error) {
       setError(result.error);
@@ -82,13 +96,15 @@ export default function SearchExploreGrid({ onPostsChange }: SearchExploreGridPr
     }
 
     setPosts((current) => {
-      const seen = new Set(current.map((post) => post.id));
-      const next = result.posts.filter((post) => !seen.has(post.id));
-      return [...current, ...next];
+      const merged = mergeFeedSpotPosts(current, result.posts);
+      console.log("[Search Grid] visible spots count", merged.length);
+      return merged;
     });
+
+    fetchOffsetRef.current = offset + result.fetchedCount;
     setHasMore(result.hasMore);
     setLoadingMore(false);
-  }, [hasMore, loading, loadingMore, posts.length]);
+  }, [hasMore, loading, loadingMore]);
 
   useEffect(() => {
     void loadInitial();
@@ -201,37 +217,39 @@ export default function SearchExploreGrid({ onPostsChange }: SearchExploreGridPr
     const postIndex = posts.findIndex((item) => item.id === post.id);
     const clickedSpot = postIndex >= 0 ? viewerItems[postIndex] : undefined;
     const visitCount = post.visited_count ?? 0;
+    const fallbackLabel = spotTitle || post.content?.trim() || t("profile.spotFallback");
 
     return (
       <article key={post.id} className="relative overflow-hidden bg-slate-950">
-        {mediaUrl ? (
-          <PostMediaLink
-            postId={post.id}
-            className="block w-full"
-            viewerItems={viewerItems}
-            clickedSpot={clickedSpot}
-          >
-            <PostCardMedia post={post} autoplay className={`w-full ${aspectClass}`} imageClassName={`w-full ${aspectClass} object-cover`} />
-          </PostMediaLink>
-        ) : (
-          <PostMediaLink
-            postId={post.id}
-            className={`flex w-full items-center justify-center bg-slate-900 px-2 text-center text-[11px] leading-snug text-slate-300 ${aspectClass}`}
-            viewerItems={viewerItems}
-            clickedSpot={clickedSpot}
-          >
-            <span className="line-clamp-4">{spotTitle || post.content?.trim() || t("profile.spotFallback")}</span>
-          </PostMediaLink>
-        )}
+        <PostMediaLink
+          postId={post.id}
+          className="block w-full"
+          viewerItems={viewerItems}
+          clickedSpot={clickedSpot}
+        >
+          {mediaUrl ? (
+            <PostCardMedia
+              post={post}
+              autoplay
+              className={`w-full ${aspectClass}`}
+              imageClassName={`w-full ${aspectClass} object-cover`}
+              fallbackLabel={fallbackLabel}
+            />
+          ) : (
+            <div
+              className={`flex w-full items-center justify-center bg-slate-900 px-2 text-center text-[11px] leading-snug text-slate-300 ${aspectClass}`}
+            >
+              <span className="line-clamp-4">{fallbackLabel}</span>
+            </div>
+          )}
+        </PostMediaLink>
 
-        {visitCount > 0 ? (
-          <div className="pointer-events-none absolute bottom-1.5 left-1.5 flex items-center gap-0.5 rounded-full bg-black/55 px-1.5 py-0.5 backdrop-blur-sm">
-            <Footprints className="h-2.5 w-2.5 shrink-0 text-white/80" strokeWidth={2} aria-hidden />
-            <span className="text-[9px] font-semibold leading-none text-white/90">
-              {formatVisitCount(visitCount)}
-            </span>
-          </div>
-        ) : null}
+        <div className="pointer-events-none absolute bottom-1.5 left-1.5 flex items-center gap-0.5 rounded-full bg-black/55 px-1.5 py-0.5 backdrop-blur-sm">
+          <Footprints className="h-2.5 w-2.5 shrink-0 text-white/80" strokeWidth={2} aria-hidden />
+          <span className="text-[9px] font-semibold leading-none text-white/90">
+            {formatVisitCount(visitCount)}
+          </span>
+        </div>
       </article>
     );
   };

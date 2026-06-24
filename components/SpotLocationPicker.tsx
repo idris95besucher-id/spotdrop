@@ -2,8 +2,9 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Loader2, MapPin, Search } from "lucide-react";
+import { useI18n } from "@/components/I18nProvider";
+import { formatSpotLocationLabelLocalized } from "@/lib/spotLocationDisplay";
 import {
-  formatSpotLocationLabel,
   searchPlaces,
   type PlaceSearchResult,
   type SpotGeoLocation,
@@ -36,6 +37,7 @@ export default function SpotLocationPicker({
   onUseCurrentLocation,
   onSelectPlace,
 }: SpotLocationPickerProps) {
+  const { locale } = useI18n();
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<PlaceSearchResult[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
@@ -128,7 +130,7 @@ export default function SpotLocationPicker({
         </div>
       ) : location ? (
         <div className="mt-2">
-          <p className="text-sm font-medium leading-snug text-white">{formatSpotLocationLabel(location)}</p>
+          <p className="text-sm font-medium leading-snug text-white">{formatSpotLocationLabelLocalized(location, locale)}</p>
           {matchedPlaceName ? (
             <p className="mt-1 text-xs text-accent/90">Near {matchedPlaceName}</p>
           ) : null}

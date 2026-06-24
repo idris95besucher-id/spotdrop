@@ -1,3 +1,4 @@
+import type { I18nLocale } from "@/lib/i18n/locales";
 import {
   formatPostDetailLocation,
   formatPostDetailSpotTitle,
@@ -49,19 +50,19 @@ export function postDetailToViewerItem(post: PostDetailRow): ViewerPostListItem 
   };
 }
 
-export function buildSpotMessagePreview(post: PostDetailRow): SpotMessagePreview {
+export function buildSpotMessagePreview(post: PostDetailRow, locale: I18nLocale = "en"): SpotMessagePreview {
   const media = getPostMedia(post);
 
   return {
     postId: normalizePostId(post.id) ?? String(post.id),
     spotName: formatPostDetailSpotTitle(post),
-    locationLabel: formatPostDetailLocation(post),
+    locationLabel: formatPostDetailLocation(post, locale),
     thumbnailUrl: getPostThumbnailUrl(post) ?? getViewerSpotMediaUrl(post),
     isVideo: media.mediaType === "video",
   };
 }
 
-export async function loadSpotMessagePreview(postId: string) {
+export async function loadSpotMessagePreview(postId: string, locale: I18nLocale = "en") {
   const normalizedId = normalizePostId(postId);
 
   if (!normalizedId) {
@@ -116,7 +117,7 @@ export async function loadSpotMessagePreview(postId: string) {
   };
 
   return {
-    preview: buildSpotMessagePreview(post),
+    preview: buildSpotMessagePreview(post, locale),
     viewerItem: postDetailToViewerItem(post),
     error: null as string | null,
   };

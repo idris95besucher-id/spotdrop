@@ -1,10 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { MapPin, UserRound, X } from "lucide-react";
+import { MapPin, X } from "lucide-react";
 import { useI18n } from "@/components/I18nProvider";
 import type { MapSpotPin } from "@/lib/spots";
-import PostCardMedia from "@/components/PostCardMedia";
+import { getMapSpotPinPreviewUrl, getMapSpotPinTitle } from "@/lib/mapSpotPin";
 import SpotLocationSummary from "@/components/SpotLocationSummary";
 
 type SpotMapPinSheetProps = {
@@ -19,85 +19,88 @@ export default function SpotMapPinSheet({ pin, onClose }: SpotMapPinSheetProps) 
     return null;
   }
 
+  const previewUrl = getMapSpotPinPreviewUrl(pin);
+  const title = getMapSpotPinTitle(pin);
+  const visitCount = pin.visited_count ?? 0;
+
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center">
-      <button type="button" className="absolute inset-0 bg-black/50" aria-label={t("map.closeSpotDetails")} onClick={onClose} />
-      <div className="relative z-10 w-full max-w-lg rounded-t-3xl border border-white/10 bg-slate-950 shadow-2xl">
-        <div className="flex justify-center pt-2">
-          <span className="h-1 w-10 rounded-full bg-white/20" />
+      <button
+        type="button"
+        className="absolute inset-0 bg-black/45 backdrop-blur-[1px]"
+        aria-label={t("map.closeSpotDetails")}
+        onClick={onClose}
+      />
+
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="spot-map-pin-title"
+        className="relative z-10 w-full max-w-lg rounded-t-3xl border border-white/10 bg-[#0a1020]/95 shadow-[0_-12px_48px_rgba(0,0,0,0.55)] backdrop-blur-xl"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="flex justify-center pt-2.5">
+          <span className="h-1 w-10 rounded-full bg-white/20" aria-hidden />
         </div>
 
-        <div className="flex items-center justify-between px-4 py-3">
-          <p className="text-sm font-semibold text-white">{pin.spot_name || pin.label}</p>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-full p-2 text-slate-400 transition hover:bg-white/10 hover:text-white"
-            aria-label={t("common.close")}
-          >
-            <X className="h-4 w-4" aria-hidden />
-          </button>
-        </div>
-
-        <div className="px-4 pb-2">
-          <div className="overflow-hidden rounded-2xl border border-white/10 bg-black">
-            {pin.media_url || pin.video_cover_url || pin.thumbnail_url ? (
-              <PostCardMedia
-                post={{
-                  media_url: pin.media_url,
-                  media_type: pin.media_type,
-                  image_url: pin.video_cover_url ?? pin.thumbnail_url,
-                  video_cover_url: pin.video_cover_url ?? pin.thumbnail_url,
-                  thumbnail_url: pin.thumbnail_url,
-                  video_url: pin.media_type === "video" ? pin.media_url : null,
-                }}
-                className="aspect-[4/5] max-h-[42vh] w-full"
-                imageClassName="aspect-[4/5] max-h-[42vh] w-full object-cover"
-              />
+        <div className="flex items-start gap-3 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3">
+          <div className="relative h-[72px] w-[72px] shrink-0 overflow-hidden rounded-full border-[2.5px] border-cyan-400/90 bg-[#0b1026] shadow-[0_0_0_2px_rgba(34,211,238,0.18),0_8px_24px_rgba(0,0,0,0.45),0_0_18px_rgba(34,211,238,0.22)]">
+            {previewUrl ? (
+              <img src={previewUrl} alt="" className="h-full w-full object-cover" />
             ) : (
-              <div className="flex aspect-[4/5] max-h-[42vh] w-full items-center justify-center bg-slate-900 text-sm text-slate-500">
-                {t("map.noPreview")}
+              <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-[#164e63] to-[#312e81] text-xl">
+                📍
               </div>
             )}
           </div>
+
+          <div className="min-w-0 flex-1 pt-0.5">
+            <div className="mb-1 flex items-start justify-between gap-2">
+              <h2 id="spot-map-pin-title" className="truncate text-base font-semibold text-white">
+                {title}
+              </h2>
+              <button
+                type="button"
+                onClick={onClose}
+                className="-mr-1 shrink-0 rounded-full p-1.5 text-slate-400 transition hover:bg-white/10 hover:text-white"
+                aria-label={t("common.close")}
+              >
+                <X className="h-4 w-4" aria-hidden />
+              </button>
+            </div>
+
+            {pin.location_line ? (
+              <SpotLocationSummary
+                location={{
+                  id: pin.id,
+                  user_id: pin.user_id,
+                  content_kind: "spot",
+                  spot_name: pin.spot_name,
+                  spot_address: pin.spot_address,
+                  spot_city: pin.spot_city,
+                  spot_country: pin.spot_country,
+                  spot_latitude: pin.latitude,
+                  spot_longitude: pin.longitude,
+                }}
+                className="text-xs text-slate-300"
+              />
+            ) : (
+              <p className="flex items-start gap-1.5 text-xs text-slate-400">
+                <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0 text-cyan-300/80" aria-hidden />
+                <span>{t("map.locationAvailable")}</span>
+              </p>
+            )}
+
+            <p className="mt-2 text-xs font-medium text-slate-300" aria-label={t("spotStats.visited")}>
+              <span aria-hidden>👣</span> {visitCount.toLocaleString()}
+            </p>
+          </div>
         </div>
 
-        <div className="space-y-3 px-4 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-2">
-          {pin.location_line ? (
-            <SpotLocationSummary
-              location={{
-                id: pin.id,
-                user_id: pin.user_id,
-                content_kind: "spot",
-                spot_name: pin.spot_name,
-                spot_address: pin.spot_address,
-                spot_city: pin.spot_city,
-                spot_country: pin.spot_country,
-                spot_latitude: pin.latitude,
-                spot_longitude: pin.longitude,
-              }}
-              className="text-xs"
-            />
-          ) : (
-            <p className="flex items-start gap-1.5 text-xs text-slate-400">
-              <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />
-              <span>{t("map.locationAvailable")}</span>
-            </p>
-          )}
-
+        <div className="border-t border-white/8 px-4 py-3 pb-[max(1rem,env(safe-area-inset-bottom))]">
           <Link
-            href={`/user?id=${pin.user_id}`}
-            className="inline-flex items-center gap-2 text-sm font-medium text-slate-200 transition hover:text-white"
-          >
-            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-slate-800">
-              <UserRound className="h-3.5 w-3.5 text-slate-400" aria-hidden />
-            </span>
-            {pin.username}
-          </Link>
-
-          <Link
-            href={`/posts?id=${pin.id}`}
-            className="flex w-full items-center justify-center rounded-full bg-cyan-500 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400"
+            href={`/posts?id=${encodeURIComponent(pin.id)}`}
+            className="flex w-full items-center justify-center rounded-full bg-cyan-500 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400 active:scale-[0.99]"
           >
             {t("map.openSpot")}
           </Link>

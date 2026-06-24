@@ -15,7 +15,7 @@ import ProfileCollectionsTab from "@/components/ProfileCollectionsTab";
 import ProfileContentTabs, { type ProfileContentTab } from "@/components/ProfileContentTabs";
 import { loadPublicProfileContent, type ProfileContentPost } from "@/lib/profileContent";
 import {
-  formatProfileLocationLine,
+  formatProfileLocationLineLocalized,
   resolveProfileLocation,
   type ResolvedProfileLocation,
 } from "@/lib/profileLocation";
@@ -63,7 +63,7 @@ async function loadPublicProfile(profileParam: string) {
 }
 
 export default function UserPage({ userIdOverride }: { userIdOverride?: string }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const params = useParams<{ userId: string }>();
   const profileParam = userIdOverride?.trim() || decodeURIComponent(String(params.userId ?? "")).trim();
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -287,7 +287,7 @@ export default function UserPage({ userIdOverride }: { userIdOverride?: string }
     setLoadingFollowAction(false);
   };
 
-  const locationLine = formatProfileLocationLine(location);
+  const locationLine = formatProfileLocationLineLocalized(location, locale);
 
   return (
     <Shell flushTop>

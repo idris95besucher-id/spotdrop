@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useI18n } from "@/components/I18nProvider";
 import { getSafeAuthSession } from "@/lib/authSession";
 import { getCountryFlag } from "@/lib/countryFlags";
+import { localizeCountryName } from "@/lib/i18n/localizeGeo";
 import { localizeUserMessage } from "@/lib/i18n/localizeUserMessage";
 import { MOBILE_PANEL_SCROLL_CLASS } from "@/lib/mobileLayout";
 import { supabase } from "@/lib/supabaseClient";
@@ -17,7 +18,7 @@ type Country = {
 };
 
 export default function VisitExplorePanel() {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const [countries, setCountries] = useState<Country[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -40,7 +41,7 @@ export default function VisitExplorePanel() {
 
       if (countriesError) {
         console.error("Failed to load visit countries:", JSON.stringify(countriesError, null, 2));
-        setError(countriesError.message || "Unable to load countries.");
+        setError(countriesError.message || t("rooms.error.loadCountries"));
         setCountries([]);
       } else {
         setCountries(data ?? []);
@@ -88,7 +89,9 @@ export default function VisitExplorePanel() {
                 className="rounded-3xl border border-white/10 bg-white/5 p-5 transition hover:border-cyan-300/40 hover:bg-white/10 sm:p-6"
               >
                 <div className="text-4xl sm:text-5xl">{getCountryFlag(country.slug, country.emoji)}</div>
-                <div className="mt-3 text-xl font-semibold text-white sm:text-2xl">{country.name}</div>
+                <div className="mt-3 text-xl font-semibold text-white sm:text-2xl">
+                  {localizeCountryName(locale, { slug: country.slug, name: country.name })}
+                </div>
               </Link>
             ))}
           </div>

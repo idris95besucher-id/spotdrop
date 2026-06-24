@@ -22,7 +22,8 @@ import {
   type NotificationRow,
   type NotificationType,
 } from "@/lib/notifications";
-import { enableWebPush, isPushSupported, showLocalPushNotification } from "@/lib/pushNotifications";
+import { isCapacitorNative } from "@/lib/capacitorUtils";
+import { enablePush, isBrowserNotificationAvailable, isPushSupported, showLocalPushNotification } from "@/lib/pushNotifications";
 import { loadUserSettingsPreferences, type NotificationPreferences } from "@/lib/settingsPreferences";
 import { supabase } from "@/lib/supabaseClient";
 
@@ -49,6 +50,8 @@ function shouldDeliverNotification(type: NotificationType, prefs: NotificationPr
     case "direct_message":
       return prefs.messages;
     case "room_message":
+      return prefs.messages;
+    case "room_mention":
       return prefs.messages;
     case "new_follower":
       return prefs.newFollowers;
@@ -82,7 +85,7 @@ export default function NotificationsProvider({ children }: { children: ReactNod
       return "not_authenticated";
     }
 
-    const result = await enableWebPush(userId);
+    const result = await enablePush(userId);
 
     if (result.error === "unsupported") {
       return "unsupported";
@@ -140,13 +143,18 @@ export default function NotificationsProvider({ children }: { children: ReactNod
       return;
     }
 
+    // Native push is registered by PushNotificationsBootstrap — skip browser Notification API.
+    if (isCapacitorNative() || !isBrowserNotificationAvailable()) {
+      return;
+    }
+
     const prefs = loadUserSettingsPreferences();
 
     if (!prefs.notifications.messages) {
       return;
     }
 
-    if (Notification.permission !== "default") {
+    if (window.Notification.permission !== "default") {
       return;
     }
 

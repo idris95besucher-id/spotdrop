@@ -1,3 +1,13 @@
+import type { I18nLocale } from "@/lib/i18n/locales";
+import { canonicalizeSpotLocationFields } from "@/lib/i18n/canonicalGeo";
+import {
+  localizeCityByEnglishName,
+  localizeCountryByEnglishName,
+  localizeRegionByEnglishName,
+} from "@/lib/i18n/localizeGeo";
+import { auditLocationLocaleOutput } from "@/lib/i18n/localizeGeoAudit";
+import type { SpotGeoLocation } from "@/lib/spotLocation";
+
 export type SpotLocationDisplayFields = {
   id?: string | null;
   user_id?: string | null;
@@ -31,38 +41,127 @@ function uniqueLocationParts(parts: Array<string | null | undefined>) {
   return result;
 }
 
-export function formatSpotLocationDisplay(post: SpotLocationDisplayFields) {
+function localizeSpotCityField(
+  locale: I18nLocale,
+  city: string | null | undefined,
+  country: string | null | undefined,
+  address?: string | null
+) {
+  const { countryNameEn, cityNameEn } = canonicalizeSpotLocationFields({
+    spot_country: country,
+    spot_city: city,
+  });
+
+  const fallbackCity =
+    cityNameEn ??
+    inferSpotRegionFromAddress({ address, city: countryNameEn ?? city, country: countryNameEn ?? country }) ??
+    address?.split(",")[0]?.trim() ??
+    null;
+
+  if (!fallbackCity) {
+    return null;
+  }
+
+  return (
+    localizeCityByEnglishName(locale, fallbackCity, countryNameEn ?? country) ??
+    localizeRegionByEnglishName(locale, fallbackCity, countryNameEn ?? country) ??
+    fallbackCity
+  );
+}
+
+function localizeSpotCountryField(locale: I18nLocale, country: string | null | undefined) {
+  const { countryNameEn } = canonicalizeSpotLocationFields({ spot_country: country });
+
+  if (!countryNameEn) {
+    return null;
+  }
+
+  return localizeCountryByEnglishName(locale, countryNameEn) ?? countryNameEn;
+}
+
+export function formatSpotLocationDisplay(
+  post: SpotLocationDisplayFields,
+  locale: I18nLocale = "en"
+) {
+  const localizedCity = localizeSpotCityField(
+    locale,
+    post.spot_city,
+    post.spot_country,
+    post.spot_address
+  );
+  const localizedCountry = localizeSpotCountryField(locale, post.spot_country);
+
   const parts = uniqueLocationParts([
     post.spot_name,
     post.placeName,
     post.spot_address,
-    post.spot_city,
-    post.spot_country,
+    localizedCity,
+    localizedCountry,
   ]);
 
   if (parts.length > 0) {
-    return parts.join(", ");
+    const line = parts.join(", ");
+    auditLocationLocaleOutput(locale, line, {
+      kind: "location-line",
+      source: "formatSpotLocationDisplay",
+      city: post.spot_city ?? null,
+      country: post.spot_country ?? null,
+    });
+    return line;
   }
 
   return null;
 }
 
-/** Instagram-style short location label for spots: "Country, City". */
-export function formatSpotLocationShort(post: SpotLocationDisplayFields) {
-  const fallbackCity =
-    post.spot_city ??
-    inferSpotRegionFromAddress({
-      address: post.spot_address,
-      city: post.spot_city,
-      country: post.spot_country,
-    }) ??
-    post.spot_address?.split(",")[0]?.trim() ??
-    null;
+export function formatSpotLocationShortLocalized(
+  post: SpotLocationDisplayFields,
+  locale: I18nLocale
+) {
+  return formatSpotLocationShort(post, locale);
+}
 
-  const parts = uniqueLocationParts([post.spot_country, fallbackCity]);
+export function formatSpotLocationLabelLocalized(location: SpotGeoLocation, locale: I18nLocale) {
+  const city = localizeSpotCityField(locale, location.city, location.country, location.address);
+  const country = localizeSpotCountryField(locale, location.country);
+  const parts = [location.address, city, country].filter(Boolean);
 
   if (parts.length > 0) {
-    return parts.join(", ");
+    const line = parts.join(", ");
+    auditLocationLocaleOutput(locale, line, {
+      kind: "location-line",
+      source: "formatSpotLocationLabelLocalized",
+      city: location.city ?? null,
+      country: location.country ?? null,
+    });
+    return line;
+  }
+
+  return `${location.latitude.toFixed(5)}, ${location.longitude.toFixed(5)}`;
+}
+
+/** Instagram-style short location label for spots: "Country, City". */
+export function formatSpotLocationShort(
+  post: SpotLocationDisplayFields,
+  locale: I18nLocale = "en"
+) {
+  const localizedCity = localizeSpotCityField(
+    locale,
+    post.spot_city,
+    post.spot_country,
+    post.spot_address
+  );
+  const localizedCountry = localizeSpotCountryField(locale, post.spot_country);
+  const parts = uniqueLocationParts([localizedCountry, localizedCity]);
+
+  if (parts.length > 0) {
+    const line = parts.join(", ");
+    auditLocationLocaleOutput(locale, line, {
+      kind: "location-line",
+      source: "formatSpotLocationShort",
+      city: post.spot_city ?? null,
+      country: post.spot_country ?? null,
+    });
+    return line;
   }
 
   return null;

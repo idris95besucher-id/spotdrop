@@ -15,7 +15,7 @@ import { ensureProfileRow } from "@/lib/profile";
 import { uploadAvatarImage } from "@/lib/profileMedia";
 import { supabase } from "@/lib/supabaseClient";
 import {
-  formatProfileLocationLine,
+  formatProfileLocationLineLocalized,
   resolveProfileLocation,
   type ResolvedProfileLocation,
 } from "@/lib/profileLocation";
@@ -53,7 +53,7 @@ function withTimeout<T>(promise: Promise<T>, message: string, timeoutMs = 6000):
 }
 
 export default function ProfilePage() {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const router = useRouter();
   const { drafts } = useSpotDrafts();
   const [profile, setProfile] = useState<ProfileData | null>(null);
@@ -255,7 +255,7 @@ export default function ProfilePage() {
   const followersCount = followers.length;
   const friendsCount = friends.length;
   const activeConnections = activeProfileSection === "friends" ? friends : followers;
-  const locationLine = formatProfileLocationLine(location);
+  const locationLine = formatProfileLocationLineLocalized(location, locale);
 
   const handlePostDeleted = useCallback((postId: string) => {
     const removePost = (items: ProfileContentPost[]) =>

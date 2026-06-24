@@ -1,12 +1,19 @@
 import webpush from "web-push";
 import { NextResponse } from "next/server";
-import { buildNotificationPushPayload, type NotificationRow } from "@/lib/notifications";
+import { getFirebaseAdminMessaging, isFcmConfigured } from "@/lib/firebaseAdmin";
+import {
+  buildNotificationPushPayload,
+  countUnreadNotifications,
+  type NotificationRow,
+} from "@/lib/notifications";
 import { createSupabaseAdminClient } from "@/lib/supabaseAdmin";
 
 type PushSendBody = {
   notificationId?: string;
   userId?: string;
 };
+
+const PUSH_SOUND = "default";
 
 function configureWebPush() {
   const publicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ?? "";
@@ -34,16 +41,13 @@ function isAuthorized(request: Request) {
   return Boolean(serviceRole && authHeader === `Bearer ${serviceRole}`);
 }
 
+function shouldSendPushForType(type: NotificationRow["type"]) {
+  return type === "direct_message" || type === "room_mention" || type === "new_follower";
+}
+
 export async function POST(request: Request) {
   if (!isAuthorized(request)) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
-  }
-
-  if (!configureWebPush()) {
-    return NextResponse.json(
-      { error: "Web Push is not configured. Set NEXT_PUBLIC_VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY." },
-      { status: 503 }
-    );
   }
 
   const admin = createSupabaseAdminClient();
@@ -95,66 +99,189 @@ export async function POST(request: Request) {
       read_at: (data.read_at as string | null) ?? null,
       created_at: String(data.created_at),
     };
+
+    if (!shouldSendPushForType(notification.type)) {
+      return NextResponse.json({ sent: 0, skipped: "type_not_push_enabled" });
+    }
   }
 
   const targetUserId = notification?.user_id ?? userId;
 
-  const { data: subscriptions, error: subscriptionsError } = await admin
-    .from("push_subscriptions")
-    .select("endpoint, p256dh, auth")
-    .eq("user_id", targetUserId);
-
-  if (subscriptionsError) {
-    return NextResponse.json({ error: subscriptionsError.message }, { status: 500 });
-  }
-
-  if (!subscriptions?.length) {
-    return NextResponse.json({ sent: 0, skipped: "no_subscriptions" });
-  }
+  const { count: badgeCount } = await countUnreadNotificationsAdmin(admin, targetUserId);
 
   const payload = notification
     ? buildNotificationPushPayload(notification)
     : { title: "SpotDrop", body: "You have a new notification" };
 
-  const pushBody = JSON.stringify({
-    title: payload.title,
-    body: payload.body,
-    href: notification?.href ?? "/notifications",
-  });
+  const href = notification?.href ?? "/notifications";
+  const type = notification?.type ?? "direct_message";
 
-  let sent = 0;
+  const webConfigured = configureWebPush();
+  let webSent = 0;
   const staleEndpoints: string[] = [];
 
-  await Promise.all(
-    subscriptions.map(async (subscription) => {
-      try {
-        await webpush.sendNotification(
-          {
-            endpoint: subscription.endpoint,
-            keys: {
-              p256dh: subscription.p256dh,
-              auth: subscription.auth,
+  if (webConfigured) {
+    const { data: subscriptions, error: subscriptionsError } = await admin
+      .from("push_subscriptions")
+      .select("endpoint, p256dh, auth")
+      .eq("user_id", targetUserId);
+
+    if (subscriptionsError) {
+      return NextResponse.json({ error: subscriptionsError.message }, { status: 500 });
+    }
+
+    const pushBody = JSON.stringify({
+      title: payload.title,
+      body: payload.body,
+      href,
+      type,
+      badge: badgeCount,
+    });
+
+    await Promise.all(
+      (subscriptions ?? []).map(async (subscription) => {
+        try {
+          await webpush.sendNotification(
+            {
+              endpoint: subscription.endpoint,
+              keys: {
+                p256dh: subscription.p256dh,
+                auth: subscription.auth,
+              },
             },
-          },
-          pushBody
-        );
-        sent += 1;
-      } catch (error) {
-        const statusCode =
-          error && typeof error === "object" && "statusCode" in error
-            ? Number((error as { statusCode?: number }).statusCode)
-            : null;
+            pushBody
+          );
+          webSent += 1;
+        } catch (error) {
+          const statusCode =
+            error && typeof error === "object" && "statusCode" in error
+              ? Number((error as { statusCode?: number }).statusCode)
+              : null;
 
-        if (statusCode === 404 || statusCode === 410) {
-          staleEndpoints.push(subscription.endpoint);
+          if (statusCode === 404 || statusCode === 410) {
+            staleEndpoints.push(subscription.endpoint);
+          }
         }
-      }
-    })
-  );
+      })
+    );
 
-  if (staleEndpoints.length) {
-    await admin.from("push_subscriptions").delete().in("endpoint", staleEndpoints);
+    if (staleEndpoints.length) {
+      await admin.from("push_subscriptions").delete().in("endpoint", staleEndpoints);
+    }
   }
 
-  return NextResponse.json({ sent, stale: staleEndpoints.length });
+  let fcmSent = 0;
+  const staleFcmTokens: string[] = [];
+
+  const messaging = getFirebaseAdminMessaging();
+
+  if (messaging && isFcmConfigured()) {
+    const { data: fcmTokens, error: fcmError } = await admin
+      .from("fcm_device_tokens")
+      .select("fcm_token")
+      .eq("user_id", targetUserId);
+
+    if (fcmError && !isMissingFcmTable(fcmError)) {
+      return NextResponse.json({ error: fcmError.message }, { status: 500 });
+    }
+
+    await Promise.all(
+      (fcmTokens ?? []).map(async (row) => {
+        const token = String(row.fcm_token);
+
+        try {
+          await messaging.send({
+            token,
+            notification: {
+              title: payload.title,
+              body: payload.body,
+            },
+            data: {
+              href,
+              type,
+              notificationId: notification?.id ?? "",
+            },
+            apns: {
+              payload: {
+                aps: {
+                  sound: PUSH_SOUND,
+                  badge: badgeCount,
+                  "mutable-content": 1,
+                },
+              },
+            },
+            android: {
+              notification: {
+                sound: PUSH_SOUND,
+                notificationCount: badgeCount,
+              },
+            },
+          });
+
+          fcmSent += 1;
+        } catch (error) {
+          const code =
+            error && typeof error === "object" && "code" in error
+              ? String((error as { code?: string }).code)
+              : "";
+
+          if (
+            code.includes("registration-token-not-registered") ||
+            code.includes("invalid-registration-token")
+          ) {
+            staleFcmTokens.push(token);
+          }
+        }
+      })
+    );
+
+    if (staleFcmTokens.length) {
+      await admin.from("fcm_device_tokens").delete().in("fcm_token", staleFcmTokens);
+    }
+  }
+
+  const sent = webSent + fcmSent;
+
+  if (sent === 0 && !webConfigured && !isFcmConfigured()) {
+    return NextResponse.json(
+      { error: "Push is not configured. Set VAPID keys and/or FIREBASE_SERVICE_ACCOUNT_JSON." },
+      { status: 503 }
+    );
+  }
+
+  return NextResponse.json({
+    sent,
+    webSent,
+    fcmSent,
+    badge: badgeCount,
+    staleWeb: staleEndpoints.length,
+    staleFcm: staleFcmTokens.length,
+  });
+}
+
+function isMissingFcmTable(error: { code?: string; message?: string }) {
+  const message = error.message?.toLowerCase() ?? "";
+
+  return (
+    error.code === "42P01" ||
+    error.code === "PGRST205" ||
+    (message.includes("fcm_device_tokens") && message.includes("does not exist"))
+  );
+}
+
+async function countUnreadNotificationsAdmin(
+  admin: NonNullable<ReturnType<typeof createSupabaseAdminClient>>,
+  userId: string
+) {
+  const { count, error } = await admin
+    .from("notifications")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", userId)
+    .is("read_at", null);
+
+  if (error) {
+    return { count: 0, error: error.message };
+  }
+
+  return { count: count ?? 0, error: null as string | null };
 }

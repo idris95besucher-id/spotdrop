@@ -10,6 +10,7 @@ import {
   type ChangeEvent,
 } from "react";
 import { ArrowLeft, Image as ImageIcon, Loader2, RotateCcw, X, Zap, ZapOff } from "lucide-react";
+import { useI18n } from "@/components/I18nProvider";
 import { GALLERY_MEDIA_ACCEPT, isIOSDevice } from "@/lib/pickMediaFromGallery";
 import {
   CAMERA_MAX_VIDEO_SECONDS,
@@ -56,6 +57,7 @@ export default function StoryCameraFlow({
   onCreated,
   overlayClassName = "z-[130]",
 }: StoryCameraFlowProps) {
+  const { t } = useI18n();
   const [phase, setPhase] = useState<Phase>("camera");
   const [facingMode, setFacingMode] = useState<CameraFacingMode>("environment");
   const [cameraError, setCameraError] = useState<string | null>(null);
@@ -684,7 +686,7 @@ export default function StoryCameraFlow({
               onClick={handleRetake}
               disabled={publishing}
               className="rounded-full p-2.5 text-white hover:bg-white/10 disabled:opacity-50"
-              aria-label="Retake"
+              aria-label={t("spotEditor.retake")}
             >
               <ArrowLeft className="h-6 w-6" strokeWidth={1.75} aria-hidden />
             </button>

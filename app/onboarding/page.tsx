@@ -11,6 +11,7 @@ import { supabase } from "@/lib/supabaseClient";
 import Shell from "@/components/Shell";
 import { useI18n } from "@/components/I18nProvider";
 import { localizeUserMessage } from "@/lib/i18n/localizeUserMessage";
+import { localizeCountryName, localizeCityName } from "@/lib/i18n/localizeGeo";
 
 type CountryOption = {
   id: string;
@@ -23,12 +24,13 @@ type CountryOption = {
 type CityOption = {
   id: string;
   name: string;
+  slug: string;
   country_id: string;
 };
 
 export default function OnboardingPage() {
   const router = useRouter();
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const [username, setUsername] = useState("");
   const [avatarUrl, setAvatarUrl] = useState("");
   const [bio, setBio] = useState("");
@@ -53,7 +55,7 @@ export default function OnboardingPage() {
 
       const [{ data: countriesData, error: countriesError }, { data: citiesData, error: citiesError }] = await Promise.all([
         supabase.from("countries").select("id, name, slug, code, emoji").order("name", { ascending: true }),
-        supabase.from("cities").select("id, name, country_id").order("name", { ascending: true }),
+        supabase.from("cities").select("id, name, slug, country_id").order("name", { ascending: true }),
       ]);
 
       if (countriesError) {
@@ -272,7 +274,8 @@ export default function OnboardingPage() {
                   <option value="">{t("onboarding.optionalCountry")}</option>
                   {countryOptions.map((country) => (
                     <option key={country.id} value={country.id}>
-                      {getCountryFlag(country.slug, country.emoji, country.code)} {country.name}
+                      {getCountryFlag(country.slug, country.emoji, country.code)}{" "}
+                      {localizeCountryName(locale, { slug: country.slug, name: country.name, countryCode: country.code })}
                     </option>
                   ))}
                 </select>
@@ -288,7 +291,11 @@ export default function OnboardingPage() {
                   <option value="">{t("onboarding.optionalCity")}</option>
                   {selectedCities.map((city) => (
                     <option key={city.id} value={city.id}>
-                      {city.name}
+                      {localizeCityName(locale, {
+                        slug: city.slug,
+                        name: city.name,
+                        countrySlug: countryOptions.find((c) => c.id === selectedCountryId)?.slug ?? null,
+                      })}
                     </option>
                   ))}
                 </select>

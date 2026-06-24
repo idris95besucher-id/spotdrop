@@ -1,4 +1,7 @@
+"use client";
+
 import { MapPin } from "lucide-react";
+import { useI18n } from "@/components/I18nProvider";
 import {
   buildSpotMapsUrl,
   formatSpotLocationDisplay,
@@ -12,11 +15,13 @@ type SpotLocationLinkProps = {
 };
 
 export default function SpotLocationLink({ location, className = "" }: SpotLocationLinkProps) {
+  const { locale } = useI18n();
+
   if (!hasSpotLocationData(location)) {
     return null;
   }
 
-  const label = formatSpotLocationDisplay(location);
+  const label = formatSpotLocationDisplay(location, locale);
   const mapsUrl = buildSpotMapsUrl(location);
 
   if (!label && !mapsUrl) {

@@ -87,6 +87,13 @@ function recordFromPayload(payload: SpotDraftUpsertPayload, existing: SpotDraftR
       trimConfirmed: payload.media.trimConfirmed,
       coverFileName: payload.media.coverFile?.name ?? existing?.media.coverFileName ?? null,
       coverMimeType: payload.media.coverFile?.type ?? existing?.media.coverMimeType ?? null,
+      musicTrackId: payload.media.musicTrackId ?? existing?.media.musicTrackId ?? null,
+      musicTrackTitle: payload.media.musicTrackTitle ?? existing?.media.musicTrackTitle ?? null,
+      musicTrackArtist: payload.media.musicTrackArtist ?? existing?.media.musicTrackArtist ?? null,
+      musicTrackCoverUrl: payload.media.musicTrackCoverUrl ?? existing?.media.musicTrackCoverUrl ?? null,
+      musicTrackAudioUrl: payload.media.musicTrackAudioUrl ?? existing?.media.musicTrackAudioUrl ?? null,
+      musicTrackDurationSeconds:
+        payload.media.musicTrackDurationSeconds ?? existing?.media.musicTrackDurationSeconds ?? null,
     },
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,

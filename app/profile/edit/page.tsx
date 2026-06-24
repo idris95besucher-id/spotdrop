@@ -13,6 +13,7 @@ import SignOutButton from "@/components/SignOutButton";
 import Shell from "@/components/Shell";
 import { useI18n } from "@/components/I18nProvider";
 import { localizeUserMessage } from "@/lib/i18n/localizeUserMessage";
+import { localizeCountryName, localizeCityName } from "@/lib/i18n/localizeGeo";
 import type { TranslationKey } from "@/lib/i18n/messages";
 
 type CountryOption = {
@@ -113,7 +114,7 @@ function splitDateOfBirth(dateOfBirth: string | null | undefined) {
 
 export default function EditProfilePage() {
   const router = useRouter();
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
   const [savingProfile, setSavingProfile] = useState(false);
@@ -495,7 +496,8 @@ export default function EditProfilePage() {
                     <option value="">{t("profileEdit.selectCountry")}</option>
                     {countryOptions.map((country) => (
                       <option key={country.id} value={country.slug}>
-                        {getCountryFlag(country.slug, country.emoji)} {country.name}
+                        {getCountryFlag(country.slug, country.emoji)}{" "}
+                        {localizeCountryName(locale, { slug: country.slug, name: country.name })}
                       </option>
                     ))}
                   </select>
@@ -523,7 +525,11 @@ export default function EditProfilePage() {
                     </option>
                     {cityOptions.map((city) => (
                       <option key={city.id} value={city.slug}>
-                        {city.name}
+                        {localizeCityName(locale, {
+                          slug: city.slug,
+                          name: city.name,
+                          countrySlug: selectedCountrySlug,
+                        })}
                       </option>
                     ))}
                   </select>

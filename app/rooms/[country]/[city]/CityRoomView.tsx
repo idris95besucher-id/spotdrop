@@ -28,6 +28,7 @@ import {
   shouldShowCityRoomSenderName,
 } from "@/lib/cityRoomChatGrouping";
 import { localizeUserMessage } from "@/lib/i18n/localizeUserMessage";
+import { localizeCountryName, localizeCityName } from "@/lib/i18n/localizeGeo";
 import { CHATS_INBOX_REFRESH_EVENT } from "@/lib/chatsInbox";
 import {
   markRoomAsRead,
@@ -39,7 +40,8 @@ import {
   resolveRoomBackHref,
   upsertRoomMembershipOnMessage,
 } from "@/lib/roomMemberships";
-import { useChatScroll, useChatScrollEffect, CHAT_MESSAGES_BOTTOM_PADDING } from "@/lib/useChatScroll";
+import { useChatScroll, useChatScrollEffect } from "@/lib/useChatScroll";
+import { CHAT_MESSAGES_FLEX_PADDING } from "@/lib/useKeyboardInsets";
 
 type Country = {
   id: string;
@@ -141,7 +143,7 @@ function countPresencePeers(channel: RealtimeChannel) {
 }
 
 export default function RoomChatPage() {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const pathname = usePathname();
   const params = useParams<{ country: string; city: string }>();
   const searchParams = useSearchParams();
@@ -622,7 +624,14 @@ export default function RoomChatPage() {
     const verb = presenceVerbs[seed % presenceVerbs.length];
 
     const showJoinNotice = async () => {
-      setJoinMessage(t(`rooms.presence.${verb}`, { name: joinName, city: city.name }));
+      const cityLabel = city
+        ? localizeCityName(locale, {
+            slug: city.slug,
+            name: city.name,
+            countrySlug: country?.slug ?? countrySlug,
+          })
+        : t("rooms.cityRoom");
+      setJoinMessage(t(`rooms.presence.${verb}`, { name: joinName, city: cityLabel }));
       setShowJoinMessage(true);
       setJoinMessageRoomId(city.id);
     };
@@ -636,7 +645,7 @@ export default function RoomChatPage() {
     return () => {
       window.clearTimeout(timer);
     };
-  }, [city, currentUsername, session?.user?.id, session?.user?.user_metadata?.username, joinMessageRoomId, t]);
+  }, [city, country?.slug, countrySlug, currentUsername, joinMessageRoomId, locale, session?.user?.id, session?.user?.user_metadata?.username, t]);
 
   const chatLoading = loadingRoom || loadingMessages;
 
@@ -905,9 +914,29 @@ export default function RoomChatPage() {
     ]
   );
 
+  const localizedCountryName = useMemo(
+    () =>
+      country
+        ? localizeCountryName(locale, { slug: country.slug, name: country.name, countryCode: country.code })
+        : localizeCountryName(locale, { name: countrySlug, slug: countrySlug }),
+    [country, countrySlug, locale]
+  );
+
+  const localizedCityName = useMemo(
+    () =>
+      city
+        ? localizeCityName(locale, {
+            slug: city.slug,
+            name: city.name,
+            countrySlug: country?.slug ?? countrySlug,
+          })
+        : null,
+    [city, country?.slug, countrySlug, locale]
+  );
+
   const roomHeaderTitle = openedFromMessages
     ? t("chats.title")
-    : (country?.name ?? countrySlug);
+    : localizedCountryName;
 
   useEffect(() => {
     console.log("[Room back debug]", {
@@ -955,7 +984,9 @@ export default function RoomChatPage() {
             <div className="text-2xl leading-none">{countryFlag}</div>
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
-                <h1 className="truncate text-base font-semibold text-white">{city?.name ?? t("rooms.cityRoom")}</h1>
+                <h1 className="truncate text-base font-semibold text-white">
+                  {localizedCityName ?? t("rooms.cityRoom")}
+                </h1>
                 <div
                   className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-slate-950/70 px-2 py-0.5 text-[10px] font-medium text-slate-300"
                   title="Uses live room presence when enabled; otherwise profiles marked online in this city."
@@ -986,7 +1017,7 @@ export default function RoomChatPage() {
           <div
             ref={messagesContainerRef}
             onScroll={handleScroll}
-            className={`relative z-10 min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-3 py-3 ${CHAT_MESSAGES_BOTTOM_PADDING}`}
+            className={`relative z-10 min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-3 py-3 ${CHAT_MESSAGES_FLEX_PADDING}`}
           >
             {chatLoading ? (
               <div className="rounded-3xl border border-dashed border-white/10 bg-slate-950/55 p-8 text-center text-slate-300 backdrop-blur-md">
@@ -1050,16 +1081,17 @@ export default function RoomChatPage() {
             ) : null}
           </div>
 
-          {showNewMessages ? (
-            <div className="pointer-events-none absolute inset-x-0 bottom-[calc(4.75rem+env(safe-area-inset-bottom,0px))] z-30 flex justify-center px-4">
-              <ChatNewMessagesPill
-                onClick={() => scrollToBottom("smooth")}
-                className="pointer-events-auto"
-              />
-            </div>
-          ) : null}
+          <div className="relative z-20 shrink-0">
+            {showNewMessages ? (
+              <div className="pointer-events-none absolute inset-x-0 bottom-full z-30 mb-2 flex justify-center px-4">
+                <ChatNewMessagesPill
+                  onClick={() => scrollToBottom("smooth")}
+                  className="pointer-events-auto"
+                />
+              </div>
+            ) : null}
 
-          <CityRoomChatComposer
+            <CityRoomChatComposer
             value={newMessage}
             onChange={setNewMessage}
             onSubmit={handleSend}
@@ -1079,7 +1111,8 @@ export default function RoomChatPage() {
                 </p>
               ) : null
             }
-          />
+            />
+          </div>
         </section>
       </ChatThreadShell>
       <style jsx>{`

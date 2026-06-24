@@ -1,3 +1,4 @@
+import { canonicalizeGeoLocationFields } from "@/lib/i18n/canonicalGeo";
 import {
   BERN_DISCOVERY_PLACES_FALLBACK,
   BERN_DISCOVERY_REGION_SLUG,
@@ -33,10 +34,11 @@ export type MapSpotPin = {
   video_cover_url: string | null;
   thumbnail_url: string | null;
   discovery_place_id: string | null;
+  visited_count: number;
 };
 
 const MAP_SPOT_SELECT =
-  `id, user_id, media_url, media_type, image_url, video_cover_url, thumbnail_url, spot_name, spot_latitude, spot_longitude, spot_address, spot_city, spot_country, discovery_place_id, discovery_places(name), ${POST_AUTHOR_PROFILES_INNER}(username, is_private, is_demo)`;
+  `id, user_id, media_url, media_type, image_url, video_cover_url, thumbnail_url, spot_name, spot_latitude, spot_longitude, spot_address, spot_city, spot_country, discovery_place_id, visited_count, discovery_places(name), ${POST_AUTHOR_PROFILES_INNER}(username, is_private, is_demo)`;
 
 const MAP_SPOT_SELECT_LEGACY =
   `id, user_id, media_url, media_type, image_url, thumbnail_url, spot_name, spot_latitude, spot_longitude, spot_address, spot_city, spot_country, discovery_place_id, ${POST_AUTHOR_PROFILES_INNER}(username, is_private, is_demo)`;
@@ -277,6 +279,8 @@ export async function createGeoSpot(input: CreateSpotInput) {
     }
   }
 
+  const canonicalLocation = canonicalizeGeoLocationFields(input.location);
+
   const row = {
     user_id: input.userId,
     content: "",
@@ -294,8 +298,8 @@ export async function createGeoSpot(input: CreateSpotInput) {
     spot_latitude: input.location.latitude,
     spot_longitude: input.location.longitude,
     spot_address: input.location.address,
-    spot_city: input.location.city,
-    spot_country: input.location.country,
+    spot_city: canonicalLocation.city,
+    spot_country: canonicalLocation.country,
   };
 
   console.log("POST INSERT payload", {
@@ -461,6 +465,7 @@ function mapRowToMapSpotPin(row: Record<string, unknown>): MapSpotPin | null {
       (row.image_url as string | null) ??
       null,
     discovery_place_id: (row.discovery_place_id as string | null) ?? null,
+    visited_count: Math.max(0, Number(row.visited_count ?? 0) || 0),
   };
 }
 

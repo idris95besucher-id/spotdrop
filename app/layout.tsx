@@ -4,6 +4,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import AppProviders from "@/components/AppProviders";
 import { THEME_BOOTSTRAP_SCRIPT } from "@/lib/themeAccent";
 import { PASSWORD_RECOVERY_BOOTSTRAP_SCRIPT } from "@/lib/passwordRecoveryBootstrap";
+import { CAPACITOR_LAUNCH_BOOTSTRAP_SCRIPT } from "@/lib/capacitorLaunchBootstrap";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -74,6 +75,9 @@ export default function RootLayout({
             } catch(e) {}
           })();
         `}</Script>
+        <Script id="spotdrop-capacitor-launch" strategy="beforeInteractive">
+          {CAPACITOR_LAUNCH_BOOTSTRAP_SCRIPT}
+        </Script>
         <Script id="spotdrop-password-recovery-bootstrap" strategy="beforeInteractive">
           {PASSWORD_RECOVERY_BOOTSTRAP_SCRIPT}
         </Script>

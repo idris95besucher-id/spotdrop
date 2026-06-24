@@ -6,6 +6,8 @@ import { UserRound } from "lucide-react";
 import SpotDropSpotsIcon from "@/components/icons/SpotDropSpotsIcon";
 import PostCardMedia from "@/components/PostCardMedia";
 import PostMediaLink from "@/components/PostMediaLink";
+import { useI18n } from "@/components/I18nProvider";
+import { localizeCityName } from "@/lib/i18n/localizeGeo";
 import SpotLocationSummary from "@/components/SpotLocationSummary";
 import SpotCommentsSheet from "@/components/SpotCommentsSheet";
 import SpotStatsBar from "@/components/SpotStatsBar";
@@ -28,6 +30,7 @@ type CityRoomSharedSpotsProps = {
 };
 
 export default function CityRoomSharedSpots({ room }: CityRoomSharedSpotsProps) {
+  const { t, locale } = useI18n();
   const [spots, setSpots] = useState<FeedSpotRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -113,8 +116,14 @@ export default function CityRoomSharedSpots({ room }: CityRoomSharedSpotsProps) 
     <div className="relative z-10 px-4 pt-4">
       <div className="mx-auto max-w-3xl rounded-3xl border border-white/10 bg-slate-950/55 p-5 shadow-xl shadow-black/25 backdrop-blur-md">
         <div className="flex items-center justify-between gap-3">
-          <p className="text-sm font-semibold text-white">Shared Spots</p>
-          <p className="text-xs text-slate-400">{room.cityName}</p>
+          <p className="text-sm font-semibold text-white">{t("rooms.sharedSpots")}</p>
+          <p className="text-xs text-slate-400">
+            {localizeCityName(locale, {
+              slug: room.citySlug,
+              name: room.cityName,
+              countrySlug: room.countrySlug,
+            })}
+          </p>
         </div>
 
         {loading ? (
@@ -138,7 +147,7 @@ export default function CityRoomSharedSpots({ room }: CityRoomSharedSpotsProps) 
             {spots.map((spot, index) => {
               const { mediaUrl } = getPostMedia(spot);
               const username = publicProfileUsername(spot.profiles?.username);
-              const placeLabel = getSharedSpotPlaceLabel(spot);
+              const placeLabel = getSharedSpotPlaceLabel(spot, locale);
               const clickedSpot = viewerItems[index];
               const showLocation = shouldShowSpotLocation({
                 content_kind: spot.content_kind,
