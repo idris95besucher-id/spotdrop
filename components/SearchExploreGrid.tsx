@@ -244,7 +244,7 @@ export default function SearchExploreGrid({ onPostsChange }: SearchExploreGridPr
           )}
         </PostMediaLink>
 
-        <div className="pointer-events-none absolute bottom-1.5 left-1.5 flex items-center gap-0.5 rounded-full bg-black/55 px-1.5 py-0.5 backdrop-blur-sm">
+        <div className="pointer-events-none absolute bottom-1.5 left-1.5 z-10 flex items-center gap-0.5 rounded-full bg-black/55 px-1.5 py-0.5 backdrop-blur-sm">
           <Footprints className="h-2.5 w-2.5 shrink-0 text-white/80" strokeWidth={2} aria-hidden />
           <span className="text-[9px] font-semibold leading-none text-white/90">
             {formatVisitCount(visitCount)}
