@@ -93,15 +93,19 @@ begin
   set is_hidden = false, updated_at = now()
   from public.cities c
   join public.countries co on co.id = c.country_id
-  join public.profiles p on p.id = rm.user_id
   where c.id = new.city_id
     and rm.country_slug = co.slug
     and rm.city_slug = c.slug
     and rm.is_hidden = true
-    and p.username is not null
-    and position(
-      lower('@' || p.username) in lower(new.content)
-    ) > 0;
+    and exists (
+      select 1
+      from public.profiles p
+      where p.id = rm.user_id
+        and p.username is not null
+        and position(
+          lower('@' || p.username) in lower(new.content)
+        ) > 0
+    );
 
   return new;
 end;

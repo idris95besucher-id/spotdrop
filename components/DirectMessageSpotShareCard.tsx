@@ -191,7 +191,6 @@ export default function DirectMessageSpotShareCard({
           message={{
             sender_id: senderId,
             created_at: createdAt,
-            delivered_at: deliveredAt,
             read_at: readAt,
           }}
           currentUserId={currentUserId}
@@ -279,7 +278,6 @@ export default function DirectMessageSpotShareCard({
         message={{
           sender_id: senderId,
           created_at: createdAt,
-          delivered_at: deliveredAt,
           read_at: readAt,
         }}
         currentUserId={currentUserId}

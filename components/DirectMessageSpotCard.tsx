@@ -192,7 +192,6 @@ export default function DirectMessageSpotCard({
           message={{
             sender_id: senderId,
             created_at: createdAt,
-            delivered_at: deliveredAt,
             read_at: readAt,
           }}
           currentUserId={currentUserId}

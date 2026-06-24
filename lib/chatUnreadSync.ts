@@ -13,6 +13,7 @@ import { markRoomAsRead } from "@/lib/roomMemberships";
 
 export const CHATS_INBOX_OPTIMISTIC_READ_EVENT = "spotdrop:chats-inbox-optimistic-read";
 export const CHATS_INBOX_DM_INCOMING_EVENT = "spotdrop:chats-inbox-dm-incoming";
+export const CHATS_INBOX_ROOM_INCOMING_EVENT = "spotdrop:chats-inbox-room-incoming";
 export const DM_THREAD_READ_EVENT = "spotdrop:dm-thread-read";
 
 export type OptimisticInboxReadDetail =
@@ -30,6 +31,16 @@ export type DmIncomingMessagePreview = {
 export type DmIncomingDetail = {
   partnerId: string;
   message: DmIncomingMessagePreview;
+};
+
+export type RoomIncomingDetail = {
+  countrySlug: string;
+  citySlug: string;
+  message: {
+    content: string | null;
+    created_at: string;
+  };
+  incrementUnread: boolean;
 };
 
 export type DmThreadReadDetail = {
@@ -95,6 +106,14 @@ export function dispatchDmIncomingMessage(partnerId: string, message: DmIncoming
       detail: { partnerId, message } satisfies DmIncomingDetail,
     })
   );
+}
+
+export function dispatchRoomIncomingMessage(detail: RoomIncomingDetail) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.dispatchEvent(new CustomEvent(CHATS_INBOX_ROOM_INCOMING_EVENT, { detail }));
 }
 
 export function dispatchDmThreadRead(detail: DmThreadReadDetail) {
@@ -191,6 +210,43 @@ export function patchInboxItemsForIncomingDm(
   }
 
   return { items: sortInboxItemsByLastAt(patched), partnerFound: true };
+}
+
+export function patchInboxItemsForIncomingRoom(
+  items: InboxItem[],
+  detail: RoomIncomingDetail
+): { items: InboxItem[]; roomFound: boolean } {
+  let roomFound = false;
+
+  const patched = items.map((item) => {
+    if (
+      item.kind !== "room" ||
+      item.room.countrySlug !== detail.countrySlug ||
+      item.room.citySlug !== detail.citySlug
+    ) {
+      return item;
+    }
+
+    roomFound = true;
+    const unreadCount = detail.incrementUnread ? item.room.unreadCount + 1 : item.room.unreadCount;
+
+    return {
+      ...item,
+      room: {
+        ...item.room,
+        lastMessageContent: detail.message.content,
+        lastAt: detail.message.created_at,
+        unreadCount,
+        unreadBadge: formatUnreadBadge(unreadCount),
+      },
+    };
+  });
+
+  if (!roomFound) {
+    return { items, roomFound: false };
+  }
+
+  return { items: sortInboxItemsByLastAt(patched), roomFound: true };
 }
 
 export async function markDmThreadOpened(

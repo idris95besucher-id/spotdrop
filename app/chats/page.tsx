@@ -29,12 +29,15 @@ import {
 import {
   CHATS_INBOX_DM_INCOMING_EVENT,
   CHATS_INBOX_OPTIMISTIC_READ_EVENT,
+  CHATS_INBOX_ROOM_INCOMING_EVENT,
   DM_THREAD_READ_EVENT,
   patchInboxItemsForIncomingDm,
+  patchInboxItemsForIncomingRoom,
   patchInboxItemsOptimistically,
   type DmIncomingDetail,
   type DmThreadReadDetail,
   type OptimisticInboxReadDetail,
+  type RoomIncomingDetail,
 } from "@/lib/chatUnreadSync";
 import { hideRoomFromMessages, setRoomMuted, type RoomInboxRow } from "@/lib/roomMemberships";
 import { supabase } from "@/lib/supabaseClient";
@@ -162,6 +165,34 @@ export default function ChatsPage() {
 
     return () => {
       window.removeEventListener(CHATS_INBOX_DM_INCOMING_EVENT, onDmIncoming);
+    };
+  }, []);
+
+  useEffect(() => {
+    const onRoomIncoming = (event: Event) => {
+      const detail = (event as CustomEvent<RoomIncomingDetail>).detail;
+
+      if (!detail?.countrySlug || !detail?.citySlug || !detail.message) {
+        return;
+      }
+
+      setItems((current) => {
+        const result = patchInboxItemsForIncomingRoom(current, detail);
+
+        if (!result.roomFound) {
+          silentReloadRef.current = true;
+          setReloadKey((key) => key + 1);
+          return current;
+        }
+
+        return result.items;
+      });
+    };
+
+    window.addEventListener(CHATS_INBOX_ROOM_INCOMING_EVENT, onRoomIncoming);
+
+    return () => {
+      window.removeEventListener(CHATS_INBOX_ROOM_INCOMING_EVENT, onRoomIncoming);
     };
   }, []);
 

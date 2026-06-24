@@ -4,15 +4,14 @@ import type { TranslationKey } from "@/lib/i18n/messages";
 export type DmReceiptFields = {
   sender_id: string;
   created_at: string;
-  delivered_at?: string | null;
   read_at?: string | null;
 };
 
-export type OutgoingDmStatus = "sent" | "delivered" | "read";
+export type OutgoingDmStatus = "sent" | "read";
 
 type TranslateFn = (key: TranslationKey, values?: Record<string, string | number>) => string;
 
-/** Outgoing message receipt state for the current user (sender). */
+/** Outgoing message receipt state for the current user (sender). WhatsApp-style: only read_at matters. */
 export function getOutgoingMessageStatus(
   message: DmReceiptFields,
   currentUserId: string
@@ -23,10 +22,6 @@ export function getOutgoingMessageStatus(
 
   if (message.read_at) {
     return "read";
-  }
-
-  if (message.delivered_at) {
-    return "delivered";
   }
 
   return "sent";
@@ -51,10 +46,6 @@ export function formatOutgoingMessageMeta(
       statusLabel: t("dm.status.read"),
       readTime,
     };
-  }
-
-  if (status === "delivered") {
-    return { sentTime, statusLabel: t("dm.status.delivered"), readTime: null };
   }
 
   return { sentTime, statusLabel: t("dm.status.sent"), readTime: null };

@@ -4,7 +4,6 @@ import { Check, CheckCheck } from "lucide-react";
 import { useI18n } from "@/components/I18nProvider";
 import {
   formatOutgoingMessageMeta,
-  getOutgoingMessageStatus,
   type DmReceiptFields,
 } from "@/lib/chatMessageStatus";
 
@@ -31,36 +30,31 @@ export default function DmMessageStatus({
     );
   }
 
-  const status = getOutgoingMessageStatus(message, currentUserId);
   const meta = formatOutgoingMessageMeta(message, currentUserId, t);
+  const isRead = Boolean(message.read_at);
 
-  if (!status) {
-    return null;
-  }
-
-  const checksClass =
-    status === "read" ? "text-primary" : status === "delivered" ? "text-slate-300" : "text-slate-400";
+  const checksClass = isRead ? "text-primary" : "text-slate-400";
 
   return (
     <p
       className={`mt-1 flex items-center justify-end gap-1 text-[10px] text-primary/70 ${className}`}
       aria-label={
-        status === "read" && meta.readTime
+        isRead && meta.readTime
           ? `${meta.sentTime}, ${meta.statusLabel} ${meta.readTime}`
           : `${meta.sentTime}, ${meta.statusLabel}`
       }
     >
       <span>{meta.sentTime}</span>
-      {status === "read" && meta.readTime ? (
+      {isRead && meta.readTime ? (
         <span className="text-primary/80">
           · {meta.statusLabel} {meta.readTime}
         </span>
       ) : null}
       <span className={`inline-flex shrink-0 ${checksClass}`} aria-hidden>
-        {status === "sent" ? (
-          <Check className="h-3 w-3" strokeWidth={2.5} />
-        ) : (
+        {isRead ? (
           <CheckCheck className="h-3 w-3" strokeWidth={2.5} />
+        ) : (
+          <Check className="h-3 w-3" strokeWidth={2.5} />
         )}
       </span>
     </p>

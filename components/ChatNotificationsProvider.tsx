@@ -25,6 +25,7 @@ import {
 } from "@/lib/chatNotifications";
 import {
   dispatchDmIncomingMessage,
+  dispatchRoomIncomingMessage,
   DM_THREAD_READ_EVENT,
   getOptimisticReadExcludes,
   markDmThreadOpened,
@@ -374,8 +375,12 @@ export default function ChatNotificationsProvider({ children }: { children: Reac
       return;
     }
 
+    console.log("[Room global] subscribe start", { userId });
+
+    const messagesEnabled = () => loadUserSettingsPreferences().notifications.messages;
+
     const channel = supabase
-      .channel(`room_notifications_${userId}`)
+      .channel(`room_global_${userId}`)
       .on(
         "postgres_changes",
         {
@@ -385,15 +390,22 @@ export default function ChatNotificationsProvider({ children }: { children: Reac
         },
         (payload) => {
           const row = payload.new as {
+            id: string;
             city_id: string;
             user_id: string;
             content?: string | null;
+            created_at: string;
           };
 
           if (row.user_id === userId) {
             skipMessageNotificationSound("own_message");
             return;
           }
+
+          console.log("[Room global] incoming message", {
+            id: row.id,
+            cityId: row.city_id,
+          });
 
           void (async () => {
             const membership = await fetchRoomMembershipForCity(userId, row.city_id);
@@ -411,20 +423,48 @@ export default function ChatNotificationsProvider({ children }: { children: Reac
               return;
             }
 
+            const viewingRoom = isViewingCityRoomThread(pathnameRef.current, roomPath);
+
+            if (viewingRoom) {
+              console.log("[Room global] skipped current room", {
+                countrySlug: membership.countrySlug,
+                citySlug: membership.citySlug,
+              });
+              skipMessageNotificationSound("viewing_thread");
+              return;
+            }
+
+            const incrementUnread = !membership.isMuted || isMention;
+
+            dispatchRoomIncomingMessage({
+              countrySlug: membership.countrySlug,
+              citySlug: membership.citySlug,
+              message: {
+                content: row.content ?? null,
+                created_at: row.created_at,
+              },
+              incrementUnread,
+            });
+
+            console.log("[Room global] inbox updated", {
+              countrySlug: membership.countrySlug,
+              citySlug: membership.citySlug,
+            });
+
+            if (incrementUnread) {
+              adjustDmUnreadTotalRef.current(1);
+              console.log("[Room global] unread count updated");
+            }
+
+            window.dispatchEvent(new Event(CHATS_INBOX_SILENT_REFRESH_EVENT));
+            console.log("[Room global] silent refresh");
+
             if (membership.isMuted && !isMention) {
               skipMessageNotificationSound("muted");
               return;
             }
 
-            if (isViewingCityRoomThread(pathnameRef.current, roomPath)) {
-              skipMessageNotificationSound("viewing_thread");
-              return;
-            }
-
-            void refreshUnreadCountRef.current();
-            window.dispatchEvent(new Event(CHATS_INBOX_REFRESH_EVENT));
-
-            if (!loadUserSettingsPreferences().notifications.messages) {
+            if (!messagesEnabled()) {
               skipMessageNotificationSound("messages_disabled");
               return;
             }
@@ -454,7 +494,17 @@ export default function ChatNotificationsProvider({ children }: { children: Reac
           })();
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        if (status === "SUBSCRIBED") {
+          console.log("[Room global] subscribed", { userId });
+        } else if (status === "CHANNEL_ERROR") {
+          console.error("[Room global] status CHANNEL_ERROR", { userId });
+        } else if (status === "TIMED_OUT") {
+          console.error("[Room global] status TIMED_OUT", { userId });
+        } else if (status === "CLOSED") {
+          console.log("[Room global] status CLOSED", { userId });
+        }
+      });
 
     return () => {
       void supabase.removeChannel(channel);
