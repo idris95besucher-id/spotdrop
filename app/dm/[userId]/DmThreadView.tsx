@@ -2,12 +2,11 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { Fragment, useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { ChevronLeft, UserRound } from "lucide-react";
 import ChatDateSeparator from "@/components/ChatDateSeparator";
-import ChatNewMessagesPill from "@/components/ChatNewMessagesPill";
 import ChatThreadShell from "@/components/ChatThreadShell";
 import DirectMessageSpotShareCard from "@/components/DirectMessageSpotShareCard";
 import DirectMessageSpotCard from "@/components/DirectMessageSpotCard";
@@ -41,7 +40,7 @@ import { CHATS_INBOX_REFRESH_EVENT } from "@/lib/chatsInbox";
 import { startDmThreadLiveSync, type DmAppendSource } from "@/lib/dmThreadSync";
 import { checkCanMessageUser, type MessagePrivacyBlockReasonKey } from "@/lib/messagePrivacy";
 import { loadPrivateSpotSharesByIds, type PrivateSpotShare } from "@/lib/privateSpotShares";
-import { useChatScroll, useChatScrollEffect } from "@/lib/useChatScroll";
+import { useDmThreadScroll } from "@/lib/useDmThreadScroll";
 import { isGuideAccountUsername, publicProfileUsername } from "@/lib/publicProfile";
 import { supabase } from "@/lib/supabaseClient";
 
@@ -85,17 +84,17 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
   const [sendError, setSendError] = useState<string | null>(null);
   const [messagePrivacyBlockKey, setMessagePrivacyBlockKey] = useState<MessagePrivacyBlockReasonKey | null>(null);
   const [shareById, setShareById] = useState<Map<string, PrivateSpotShare>>(new Map());
+  const [initialBottomReady, setInitialBottomReady] = useState(false);
 
   const {
     messagesContainerRef,
-    showNewMessages,
-    scrollToBottom,
-    handleScroll,
-    syncMessagesScroll,
-    markForceScroll,
-    resetChatScroll,
-    scrollRequestId,
-  } = useChatScroll();
+    messagesEndRef,
+    runDmOpenBottomSequence,
+    scrollOnMessageAppended,
+    scrollOnSend,
+    scrollOnKeyboard,
+  } = useDmThreadScroll();
+  const composerTextareaRef = useRef<HTMLTextAreaElement>(null);
   const { refreshUnreadCount } = useChatNotifications();
   const markedReadForPartnerRef = useRef<string | null>(null);
   const seenMessageIdsRef = useRef(new Set<string>());
@@ -108,12 +107,79 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
   );
   const sendPermission = canSendDirectMessage(conversation, currentUserId ?? "");
   const canSendMessages = sendPermission.allowed && !messagePrivacyBlockKey;
+  const openBottomSequenceStartedRef = useRef<string | null>(null);
 
-  useChatScrollEffect(syncMessagesScroll, messages.length, loading, scrollRequestId);
+  useLayoutEffect(() => {
+    setInitialBottomReady(false);
+    setMessages([]);
+    setLoading(true);
+    openBottomSequenceStartedRef.current = null;
+
+    const container = messagesContainerRef.current;
+
+    if (container) {
+      container.scrollTop = container.scrollHeight;
+    }
+  }, [partnerId, messagesContainerRef]);
+
+  useLayoutEffect(() => {
+    if (loading) {
+      return;
+    }
+
+    const skipOpenBottom =
+      messages.length === 0 ||
+      Boolean(error) ||
+      isSelfConversation ||
+      !currentUserId;
+
+    if (skipOpenBottom) {
+      setInitialBottomReady(true);
+      return;
+    }
+
+    const sequenceKey = `${partnerId}:${messages.length}`;
+
+    if (openBottomSequenceStartedRef.current === sequenceKey) {
+      return;
+    }
+
+    openBottomSequenceStartedRef.current = sequenceKey;
+
+    const stopSequence = runDmOpenBottomSequence(() => {
+      setInitialBottomReady(true);
+    });
+
+    return stopSequence;
+  }, [
+    currentUserId,
+    error,
+    isSelfConversation,
+    loading,
+    messages.length,
+    partnerId,
+    runDmOpenBottomSequence,
+  ]);
 
   useEffect(() => {
-    resetChatScroll();
-  }, [partnerId, resetChatScroll]);
+    if (typeof window === "undefined" || !window.visualViewport) {
+      return;
+    }
+
+    const onViewportChange = () => {
+      if (document.activeElement === composerTextareaRef.current) {
+        scrollOnKeyboard();
+      }
+    };
+
+    window.visualViewport.addEventListener("resize", onViewportChange);
+    window.visualViewport.addEventListener("scroll", onViewportChange);
+
+    return () => {
+      window.visualViewport?.removeEventListener("resize", onViewportChange);
+      window.visualViewport?.removeEventListener("scroll", onViewportChange);
+    };
+  }, [scrollOnKeyboard]);
 
   useEffect(() => {
     if (!currentUserId || !partnerId || isSelfConversation) {
@@ -270,8 +336,8 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
   const refreshUnreadCountRef = useRef(refreshUnreadCount);
   refreshUnreadCountRef.current = refreshUnreadCount;
 
-  const markForceScrollRef = useRef(markForceScroll);
-  markForceScrollRef.current = markForceScroll;
+  const scrollOnMessageAppendedRef = useRef(scrollOnMessageAppended);
+  scrollOnMessageAppendedRef.current = scrollOnMessageAppended;
 
   const reloadConversationRef = useRef(reloadConversation);
   reloadConversationRef.current = reloadConversation;
@@ -294,7 +360,7 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
         );
       });
 
-      markForceScrollRef.current();
+      scrollOnMessageAppendedRef.current();
 
       if (normalized.recipient_id === currentUserId && normalized.sender_id === partnerId) {
         void markDirectMessagesReadInThread(currentUserId, partnerId).then(() => {
@@ -510,7 +576,7 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
     setDraft("");
     void touchConversationUpdatedAt(currentUserId, partnerId);
     window.dispatchEvent(new Event(CHATS_INBOX_REFRESH_EVENT));
-    markForceScroll();
+    scrollOnSend();
   };
 
   const reloadSharesForMessages = useCallback(async (messageList: DirectMessage[]) => {
@@ -535,8 +601,8 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
     await reloadSharesForMessages(loadedMessages);
     await markDirectMessagesReadInThread(currentUserId, partnerId);
     void refreshUnreadCount();
-    markForceScroll();
-  }, [currentUserId, partnerId, refreshUnreadCount, reloadSharesForMessages, markForceScroll]);
+    scrollOnSend();
+  }, [currentUserId, partnerId, refreshUnreadCount, reloadSharesForMessages, scrollOnSend]);
 
   const isSendDisabled =
     sending || !draft.trim() || !currentUserId || isSelfConversation || !canSendMessages;
@@ -624,10 +690,23 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
         ) : null}
 
         <section className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-[#050816]/60">
+          {!initialBottomReady && (loading || messages.length > 0) ? (
+            <div
+              className="absolute inset-0 z-20 flex items-center justify-center bg-[#050816]/95"
+              aria-busy="true"
+              aria-live="polite"
+            >
+              <p className="text-sm text-slate-300">{t("dm.loadingMessages")}</p>
+            </div>
+          ) : null}
+
           <div
             ref={messagesContainerRef}
-            onScroll={handleScroll}
-            className="flex-1 space-y-3 overflow-y-auto p-4"
+            className={`relative z-10 min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-y-contain [overflow-anchor:none] p-4 ${
+              !initialBottomReady && messages.length > 0
+                ? "pointer-events-none invisible"
+                : ""
+            }`}
           >
             {!currentUserId && !loading ? (
               <div className="rounded-2xl border border-dashed border-white/10 bg-[#050816]/80 p-6 text-center text-sm text-slate-300">
@@ -640,11 +719,7 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
               <div className="rounded-2xl border border-dashed border-white/10 bg-[#050816]/80 p-6 text-center text-sm text-slate-300">
                 {t("dm.cannotMessageSelf")}
               </div>
-            ) : loading ? (
-              <div className="rounded-2xl border border-dashed border-white/10 bg-[#050816]/80 p-6 text-center text-sm text-slate-300">
-                {t("dm.loadingMessages")}
-              </div>
-            ) : error ? (
+            ) : loading ? null : error ? (
               <div className="rounded-2xl border border-red-500/20 bg-red-500/5 p-4 text-sm text-red-200">
                 {localizeUserMessage(t, error) ?? error}
               </div>
@@ -727,15 +802,10 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
                 );
               })
             )}
+            <div ref={messagesEndRef} aria-hidden className="h-px w-full shrink-0" />
           </div>
 
           <div className="relative shrink-0">
-            {showNewMessages ? (
-              <div className="absolute inset-x-0 bottom-full z-30 mb-2 flex justify-center px-4">
-                <ChatNewMessagesPill onClick={() => scrollToBottom("smooth")} />
-              </div>
-            ) : null}
-
             <form
               onSubmit={(event) => void handleSend(event)}
               className="border-t border-white/10 bg-[#0B1026]/95 p-3 backdrop-blur-xl"
@@ -752,10 +822,12 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
                 />
               ) : null}
               <textarea
+                ref={composerTextareaRef}
                 name="spotdrop-dm-message"
                 autoComplete="off"
                 value={draft}
                 onChange={(event) => setDraft(event.target.value)}
+                onFocus={() => scrollOnKeyboard()}
                 disabled={!currentUserId || isSelfConversation || !canSendMessages}
                 placeholder={composerPlaceholder}
                 rows={1}
