@@ -111,7 +111,7 @@ export default function FeedPage() {
 
   return (
     <Shell showHeader={false} flushTop>
-      <div className={`${MOBILE_PAGE_INNER_CLASS} space-y-5 pb-4`}>
+      <div className={`${MOBILE_PAGE_INNER_CLASS} space-y-5 pb-4 select-none touch-manipulation`}>
         <header className={`${MOBILE_SAFE_AREA_TOP} pb-1`}>
           <p className="text-xs font-semibold uppercase tracking-[0.28em] text-primary">{t("feed.explore")}</p>
           <h1 className="mt-2 flex items-center gap-2.5 text-2xl font-semibold text-white">
@@ -188,7 +188,7 @@ export default function FeedPage() {
               return (
                 <article
                   key={post.id}
-                  className="overflow-hidden rounded-2xl border border-white/[0.08] bg-card"
+                  className="select-none touch-manipulation overflow-hidden rounded-2xl border border-white/[0.08] bg-card"
                 >
                   <header className="flex items-center gap-3 px-4 py-3">
                     <Link

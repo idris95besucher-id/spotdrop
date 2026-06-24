@@ -184,6 +184,9 @@ export const EXTENSION_DE: Record<ExtensionKey, string> = {
   "dm.error.acceptBeforeReply": "Nimm diese Nachrichtenanfrage an, bevor du antworten kannst.",
   "dm.error.declinedConversation": "Diese Nachrichtenanfrage wurde abgelehnt.",
   "dm.error.cannotSend": "Du kannst in dieser Unterhaltung keine Nachrichten senden.",
+  "dm.status.sent": "Gesendet",
+  "dm.status.delivered": "Zugestellt",
+  "dm.status.read": "Gelesen",
 
   "checkspot.locationRequired": "Standortzugriff ist für CheckSpot erforderlich.",
   "checkspot.sendTitle": "CheckSpot an diesen Benutzer senden?",
@@ -667,6 +670,7 @@ export const EXTENSION_DE: Record<ExtensionKey, string> = {
   "spotCamera.recordVideo": "Video aufnehmen",
   "spotCamera.enableCamera": "Kamera aktivieren",
   "spotCamera.preparing": "Kamera wird vorbereitet…",
+  "spotCamera.processingSpot": "Spot wird verarbeitet…",
   "spotCamera.flashOn": "Blitz an",
   "spotCamera.flashOff": "Blitz aus",
   "spotCamera.switchCamera": "Kamera wechseln",

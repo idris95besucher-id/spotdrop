@@ -220,7 +220,7 @@ export default function SearchExploreGrid({ onPostsChange }: SearchExploreGridPr
     const fallbackLabel = spotTitle || post.content?.trim() || t("profile.spotFallback");
 
     return (
-      <article key={post.id} className="relative overflow-hidden bg-slate-950">
+      <article key={post.id} className="relative select-none touch-manipulation overflow-hidden bg-slate-950">
         <PostMediaLink
           postId={post.id}
           className="block w-full"
@@ -257,7 +257,7 @@ export default function SearchExploreGrid({ onPostsChange }: SearchExploreGridPr
   let globalIndex = 0;
 
   return (
-    <div className={`space-y-3 ${MOBILE_WIDTH_SAFE_CLASS}`}>
+    <div className={`space-y-3 select-none touch-manipulation ${MOBILE_WIDTH_SAFE_CLASS}`}>
       <div className="grid w-full min-w-0 max-w-full grid-cols-3 gap-0.5">
         {columns.map((column, columnIndex) => (
           <div key={`search-explore-column-${columnIndex}`} className="flex flex-col gap-0.5">

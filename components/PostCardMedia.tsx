@@ -86,7 +86,7 @@ export default function PostCardMedia({
 
   const fallback = (
     <div
-      className={`flex items-center justify-center bg-slate-900 px-2 text-center text-[11px] leading-snug text-slate-400 ${className}`}
+      className={`flex select-none touch-manipulation items-center justify-center bg-slate-900 px-2 text-center text-[11px] leading-snug text-slate-400 ${className}`}
     >
       <span className="line-clamp-4">{fallbackLabel ?? "Spot"}</span>
     </div>
@@ -103,7 +103,7 @@ export default function PostCardMedia({
     // Autoplay inline preview (search grid, profile grid, etc.)
     if (autoplay && videoSrc) {
       return (
-        <div className={`relative ${className}`}>
+        <div className={`relative select-none touch-manipulation ${className}`}>
           <VideoGridPreview
             src={videoSrc}
             poster={poster}
@@ -116,7 +116,7 @@ export default function PostCardMedia({
     // Static thumbnail + VIDEO badge (default — feed cards, DM cards, etc.)
     if (poster) {
       return (
-        <div className={`relative ${className}`}>
+        <div className={`relative select-none touch-manipulation ${className}`}>
           <img src={poster} alt="" className={imageClassName} />
           <span className="absolute bottom-2 right-2 rounded-md bg-black/65 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">
             Video
@@ -138,7 +138,8 @@ export default function PostCardMedia({
     <img
       src={imageSrc}
       alt=""
-      className={imageClassName}
+      draggable={false}
+      className={`select-none touch-manipulation ${imageClassName}`}
       onError={() => setMediaFailed(true)}
     />
   );

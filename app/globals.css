@@ -97,6 +97,37 @@ body {
   font-family: var(--font-geist-sans), system-ui, -apple-system, sans-serif;
 }
 
+/* Prevent iOS text selection / copy callout on app chrome (inputs stay selectable below). */
+html,
+body,
+#__next,
+.sd-app-root,
+main,
+button,
+a,
+nav,
+header,
+section,
+div,
+span,
+p,
+h1,
+h2,
+h3 {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+input,
+textarea,
+[contenteditable="true"] {
+  -webkit-user-select: text;
+  user-select: text;
+  -webkit-touch-callout: default;
+}
+
 .sd-app-root {
   width: 100%;
   max-width: 100%;

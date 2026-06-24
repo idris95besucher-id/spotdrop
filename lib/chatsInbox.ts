@@ -18,7 +18,8 @@ export type ChatPreviewMessage = Pick<
   "body" | "message_type" | "spot_share_id" | "post_id"
 >;
 import { loadDmInboxPreferences } from "@/lib/chatInboxPreferences";
-import { formatUnreadBadge } from "@/lib/chatNotifications";
+import { formatUnreadBadge, markAllPendingDirectMessagesDelivered } from "@/lib/chatNotifications";
+import { getOptimisticReadExcludes, roomUnreadKey } from "@/lib/chatUnreadSync";
 import type { MessageRequestItemData } from "@/components/MessageRequestItem";
 import { isGuideAccountUsername, publicProfileUsername } from "@/lib/publicProfile";
 import { loadRoomInbox, type RoomInboxRow } from "@/lib/roomMemberships";
@@ -72,7 +73,7 @@ async function loadProfilesByIds(partnerIds: string[]): Promise<{
   return { profiles, error: null };
 }
 
-async function countUnreadByPartner(userId: string) {
+async function countUnreadByPartner(userId: string, excludedPartners?: ReadonlySet<string>) {
   const { data, error } = await supabase
     .from("direct_messages")
     .select("sender_id")
@@ -88,6 +89,11 @@ async function countUnreadByPartner(userId: string) {
 
   for (const row of data ?? []) {
     const senderId = String(row.sender_id);
+
+    if (excludedPartners?.has(senderId)) {
+      continue;
+    }
+
     counts.set(senderId, (counts.get(senderId) ?? 0) + 1);
   }
 
@@ -148,7 +154,9 @@ export async function loadChatsInbox(userId: string) {
 
   const latestByPartner = buildLatestMessageByPartner(messages, userId);
   const firstByPartner = buildFirstMessageByPartner(messages, userId);
-  const unreadByPartner = await countUnreadByPartner(userId);
+  await markAllPendingDirectMessagesDelivered(userId);
+  const { dmPartners, roomKeys } = getOptimisticReadExcludes();
+  const unreadByPartner = await countUnreadByPartner(userId, dmPartners);
 
   const { preferences: dmPreferences, error: preferencesError } = await loadDmInboxPreferences(userId);
 
@@ -200,7 +208,7 @@ export async function loadChatsInbox(userId: string) {
 
     const latest = latestByPartner.get(partnerId);
     const isMuted = preference?.muted ?? false;
-    const unreadCount = isMuted ? 0 : (unreadByPartner.get(partnerId) ?? 0);
+    const unreadCount = dmPartners.has(partnerId) ? 0 : (unreadByPartner.get(partnerId) ?? 0);
 
     chats.push({
       partnerId,
@@ -239,7 +247,7 @@ export async function loadChatsInbox(userId: string) {
     }
 
     const isMuted = preference?.muted ?? false;
-    const unreadCount = isMuted ? 0 : (unreadByPartner.get(partnerId) ?? 0);
+    const unreadCount = dmPartners.has(partnerId) ? 0 : (unreadByPartner.get(partnerId) ?? 0);
 
     chats.push({
       partnerId,
@@ -263,9 +271,21 @@ export async function loadChatsInbox(userId: string) {
     console.error("[chats-inbox] room inbox unavailable:", roomsError);
   }
 
+  const patchedRooms = (rooms ?? []).map((room) => {
+    if (roomKeys.has(roomUnreadKey(room.countrySlug, room.citySlug))) {
+      return {
+        ...room,
+        unreadCount: 0,
+        unreadBadge: null,
+      };
+    }
+
+    return room;
+  });
+
   const items: InboxItem[] = [
     ...chats.map((chat) => ({ kind: "dm" as const, chat })),
-    ...rooms.map((room) => ({ kind: "room" as const, room })),
+    ...patchedRooms.map((room) => ({ kind: "room" as const, room })),
   ];
 
   items.sort((left, right) => {

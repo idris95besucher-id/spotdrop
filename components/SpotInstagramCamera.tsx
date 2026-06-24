@@ -11,6 +11,7 @@ import {
   MIC_PERMISSION_MESSAGE,
   RECORDING_BROWSER_UNSAVED_MESSAGE,
   capturePhotoFromVideo,
+  captureVideoFrameDataUrl,
   recordVideoFromStream,
   cameraSupportsTorch,
   setTorchEnabled,
@@ -166,12 +167,15 @@ export default function SpotInstagramCamera({
   const [facingMode, setFacingMode] = useState<CameraFacingMode>("environment");
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [cameraStarting, setCameraStarting] = useState(true);
+  const [cameraReady, setCameraReady] = useState(false);
   const [torchOn, setTorchOn] = useState(false);
   const [torchSupported, setTorchSupported] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingElapsedMs, setRecordingElapsedMs] = useState(0);
   const [recordingCssZoom, setRecordingCssZoom] = useState(1);
   const [captureBusy, setCaptureBusy] = useState(false);
+  const [isProcessingVideo, setIsProcessingVideo] = useState(false);
+  const [processingFrameUrl, setProcessingFrameUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [nativeFallback, setNativeFallback] = useState(false);
   const [micWarning, setMicWarning] = useState<string | null>(null);
@@ -346,6 +350,9 @@ export default function SpotInstagramCamera({
     async (nextFacing: CameraFacingMode = facingMode) => {
       setCameraStarting(true);
       setCameraError(null);
+      setCameraReady(false);
+      setIsProcessingVideo(false);
+      setProcessingFrameUrl(null);
 
       stopCameraStream(streamRef.current);
       stopCameraStream(audioStreamRef.current);
@@ -363,6 +370,7 @@ export default function SpotInstagramCamera({
         syncZoomFromTrack(stream);
         setTorchSupported(cameraSupportsTorch(stream));
         setTorchOn(false);
+        setCameraReady(true);
 
         if (streamHasAudio(stream)) {
           setMicWarning(null);
@@ -393,6 +401,7 @@ export default function SpotInstagramCamera({
         }
 
         setCameraError(mapCameraPermissionError(caught));
+        setCameraReady(false);
       } finally {
         setCameraStarting(false);
       }
@@ -403,6 +412,8 @@ export default function SpotInstagramCamera({
   useEffect(() => {
     document.body.style.overflow = "hidden";
     document.documentElement.style.overflow = "hidden";
+    setIsProcessingVideo(false);
+    setProcessingFrameUrl(null);
 
     return () => {
       document.body.style.overflow = "";
@@ -430,6 +441,49 @@ export default function SpotInstagramCamera({
     void startCamera("environment");
   }, [startCamera]);
 
+  // Video must stay mounted while loading — re-bind when stream becomes ready.
+  useEffect(() => {
+    if (isProcessingVideo || !cameraReady) {
+      return;
+    }
+
+    const stream = streamRef.current;
+
+    if (!stream) {
+      return;
+    }
+
+    void attachStreamToVideo(stream);
+  }, [attachStreamToVideo, cameraReady, isProcessingVideo]);
+
+  const clearProcessingPreview = useCallback(() => {
+    setIsProcessingVideo(false);
+    setProcessingFrameUrl(null);
+  }, []);
+
+  const resumeLivePreview = useCallback(() => {
+    const video = videoRef.current;
+
+    if (video && streamRef.current) {
+      void video.play().catch(() => {
+        // Autoplay may require a gesture on some browsers.
+      });
+    }
+  }, []);
+
+  const enterVideoProcessingState = useCallback(() => {
+    const video = videoRef.current;
+
+    if (video) {
+      video.pause();
+      const frameUrl = captureVideoFrameDataUrl(video);
+      setProcessingFrameUrl(frameUrl);
+    }
+
+    setIsProcessingVideo(true);
+    setCaptureBusy(true);
+  }, []);
+
   const resetRecordingUi = useCallback(() => {
     clearRecordingTick();
     recordingStartedRef.current = false;
@@ -439,8 +493,9 @@ export default function SpotInstagramCamera({
     recorderRef.current = null;
     setIsRecording(false);
     setRecordingElapsedMs(0);
+    clearProcessingPreview();
     void resetRecordingZoom();
-  }, [clearRecordingTick, resetRecordingZoom]);
+  }, [clearProcessingPreview, clearRecordingTick, resetRecordingZoom]);
 
   const endRecording = useCallback(async () => {
     if (!recorderRef.current) {
@@ -461,10 +516,10 @@ export default function SpotInstagramCamera({
     recorderRef.current = null;
     clearRecordingTick();
     setIsRecording(false);
-    setCaptureBusy(true);
     holdRecordingStartedRef.current = false;
 
     void resetRecordingZoom();
+    enterVideoProcessingState();
 
     try {
       const file = await recorder.stop();
@@ -480,16 +535,22 @@ export default function SpotInstagramCamera({
 
       if (file.size === 0) {
         resetRecordingUi();
+        resumeLivePreview();
         setError(RECORDING_BROWSER_UNSAVED_MESSAGE);
         return;
       }
 
+      clearProcessingPreview();
       stopCameraStream(streamRef.current);
       streamRef.current = null;
+      stopCameraStream(audioStreamRef.current);
+      audioStreamRef.current = null;
+      setCameraReady(false);
       onCapture(file, "video");
     } catch (caught) {
       console.error("[SpotDrop camera] endRecording failed", caught);
       resetRecordingUi();
+      resumeLivePreview();
       setError(
         caught instanceof Error && caught.message
           ? caught.message
@@ -498,7 +559,15 @@ export default function SpotInstagramCamera({
     } finally {
       setCaptureBusy(false);
     }
-  }, [clearRecordingTick, onCapture, resetRecordingUi, resetRecordingZoom]);
+  }, [
+    clearProcessingPreview,
+    clearRecordingTick,
+    enterVideoProcessingState,
+    onCapture,
+    resetRecordingUi,
+    resetRecordingZoom,
+    resumeLivePreview,
+  ]);
 
   const beginRecording = useCallback(() => {
     const videoStream = streamRef.current;
@@ -633,7 +702,8 @@ export default function SpotInstagramCamera({
     }
   }, [isRecording, onCapture]);
 
-  const isShutterDisabled = cameraStarting || captureBusy || !streamRef.current;
+  const isShutterDisabled =
+    cameraStarting || !cameraReady || captureBusy || isProcessingVideo;
 
   const finishShutterPress = useCallback(() => {
     if (!shutterPressActiveRef.current) {
@@ -791,6 +861,10 @@ export default function SpotInstagramCamera({
   };
 
   const handleClose = () => {
+    if (isProcessingVideo) {
+      return;
+    }
+
     console.log("BUTTON_CLICKED: close");
     clearHoldToRecordTimer();
 
@@ -824,7 +898,7 @@ export default function SpotInstagramCamera({
       <div aria-hidden className="shrink-0 bg-black" style={{ height: "env(safe-area-inset-top)" }} />
 
       <div className="relative min-h-0 flex-1 overflow-hidden bg-black">
-        {cameraError && !streamRef.current ? (
+        {cameraError && !cameraReady ? (
           <div className="flex h-full flex-col items-center justify-center gap-4 px-6 text-center">
             <p className="text-sm text-white/80">{localizedCameraError ?? t("spotCamera.error.cameraRequired")}</p>
             <button
@@ -840,24 +914,42 @@ export default function SpotInstagramCamera({
           </div>
         ) : (
           <>
-            <div className="pointer-events-none absolute inset-0 overflow-hidden bg-black">
-              <div
-                ref={videoTransformLayerRef}
-                className="absolute inset-0 h-full w-full will-change-transform [transform-origin:center_center]"
-              >
-                <video
-                  ref={videoRef}
-                  autoPlay
-                  playsInline
-                  muted
-                  disablePictureInPicture
-                  preload="auto"
-                  className={`pointer-events-none absolute inset-0 h-full w-full object-cover object-center ${
-                    facingMode === "user" ? "scale-x-[-1]" : ""
-                  }`}
-                />
+            {!isProcessingVideo ? (
+              <div className="pointer-events-none absolute inset-0 overflow-hidden bg-black">
+                <div
+                  ref={videoTransformLayerRef}
+                  className="absolute inset-0 h-full w-full will-change-transform [transform-origin:center_center]"
+                >
+                  <video
+                    ref={videoRef}
+                    autoPlay
+                    playsInline
+                    muted
+                    disablePictureInPicture
+                    preload="auto"
+                    className={`pointer-events-none absolute inset-0 h-full w-full object-cover object-center ${
+                      facingMode === "user" ? "scale-x-[-1]" : ""
+                    }`}
+                  />
+                </div>
               </div>
-            </div>
+            ) : null}
+            {processingFrameUrl ? (
+              <img
+                src={processingFrameUrl}
+                alt=""
+                aria-hidden
+                className={`pointer-events-none absolute inset-0 h-full w-full object-cover object-center ${
+                  facingMode === "user" ? "scale-x-[-1]" : ""
+                }`}
+              />
+            ) : null}
+            {isProcessingVideo ? (
+              <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/55 backdrop-blur-[2px]">
+                <Loader2 className="h-10 w-10 animate-spin text-white" aria-hidden />
+                <p className="text-sm font-semibold text-white">{t("spotCamera.processingSpot")}</p>
+              </div>
+            ) : null}
             {cameraStarting ? (
               <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/60">
                 <Loader2 className="h-9 w-9 animate-spin text-white" aria-hidden />
@@ -955,12 +1047,14 @@ export default function SpotInstagramCamera({
         </div>
 
         <p className="mt-4 text-center text-xs text-white/55">
-          {isRecording
-            ? t("spotCamera.hintRecording")
-            : t("spotCamera.hintIdle", {
-                holdSeconds: HOLD_THRESHOLD_MS / 1000,
-                maxSeconds: CAMERA_MAX_VIDEO_SECONDS,
-              })}
+          {isProcessingVideo
+            ? t("spotCamera.processingSpot")
+            : isRecording
+              ? t("spotCamera.hintRecording")
+              : t("spotCamera.hintIdle", {
+                  holdSeconds: HOLD_THRESHOLD_MS / 1000,
+                  maxSeconds: CAMERA_MAX_VIDEO_SECONDS,
+                })}
         </p>
       </div>
     </div>

@@ -60,10 +60,10 @@ export default function Shell({
   }
 
   return (
-    <div className={MOBILE_FRAME_CLASS}>
-      <div className={`${MOBILE_FRAME_BODY_CLASS} ${contentMaxWidth} ${shellPadding}`}>
+    <div className={`${MOBILE_FRAME_CLASS} select-none touch-manipulation`}>
+      <div className={`${MOBILE_FRAME_BODY_CLASS} ${contentMaxWidth} ${shellPadding} select-none touch-manipulation`}>
         {showDesktopHeader ? (
-          <header className="mb-4 hidden shrink-0 items-center justify-end gap-4 md:mb-6 md:flex">
+          <header className="mb-4 hidden shrink-0 select-none touch-manipulation items-center justify-end gap-4 md:mb-6 md:flex">
             <AuthStatus />
           </header>
         ) : null}
@@ -74,14 +74,14 @@ export default function Shell({
           <div className="flex min-h-0 flex-1 flex-col overflow-hidden">{children}</div>
         ) : fixedLayout ? (
           <main
-            className={`flex min-h-0 flex-1 flex-col overflow-hidden ${scrollPadding} ${MOBILE_WIDTH_SAFE_CLASS}`}
+            className={`flex min-h-0 flex-1 select-none touch-manipulation flex-col overflow-hidden ${scrollPadding} ${MOBILE_WIDTH_SAFE_CLASS}`}
           >
             {children}
           </main>
         ) : (
           <main
             data-mobile-main-scroll=""
-            className={`${MOBILE_MAIN_SCROLL_CLASS} ${scrollPadding} ${MOBILE_WIDTH_SAFE_CLASS}`}
+            className={`${MOBILE_MAIN_SCROLL_CLASS} ${scrollPadding} ${MOBILE_WIDTH_SAFE_CLASS} select-none touch-manipulation`}
           >
             {children}
           </main>

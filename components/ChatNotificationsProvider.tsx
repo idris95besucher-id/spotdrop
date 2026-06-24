@@ -21,8 +21,15 @@ import {
   buildIncomingRoomMessageToast,
   countUnreadInboxMessages,
   fetchProfileUsername,
-  markDirectMessagesReadInThread,
+  markDirectMessagesDeliveredFromSender,
 } from "@/lib/chatNotifications";
+import {
+  dispatchDmIncomingMessage,
+  DM_THREAD_READ_EVENT,
+  getOptimisticReadExcludes,
+  markDmThreadOpened,
+  type DmThreadReadDetail,
+} from "@/lib/chatUnreadSync";
 import { messageMentionsUsername } from "@/lib/chatMentions";
 import { CHATS_INBOX_REFRESH_EVENT } from "@/lib/chatsInbox";
 import { isDmMuted } from "@/lib/chatInboxPreferences";
@@ -47,11 +54,13 @@ type ChatToast = {
 type ChatNotificationsContextValue = {
   unreadCount: number;
   refreshUnreadCount: () => Promise<void>;
+  adjustDmUnreadTotal: (delta: number) => void;
 };
 
 const ChatNotificationsContext = createContext<ChatNotificationsContextValue>({
   unreadCount: 0,
   refreshUnreadCount: async () => {},
+  adjustDmUnreadTotal: () => {},
 });
 
 export function useChatNotifications() {
@@ -117,14 +126,29 @@ export default function ChatNotificationsProvider({ children }: { children: Reac
     [dismissToast]
   );
 
+  const adjustDmUnreadTotal = useCallback((delta: number) => {
+    setUnreadCount((current) => {
+      const next = Math.max(0, current + delta);
+      console.log("[DM unread] total updated", next);
+      return next;
+    });
+  }, []);
+
   const refreshUnreadCount = useCallback(async () => {
     if (!userId) {
       setUnreadCount(0);
       return;
     }
 
-    const { count } = await countUnreadInboxMessages(userId);
+    const { count, error } = await countUnreadInboxMessages(userId, getOptimisticReadExcludes());
+
+    if (error) {
+      console.error("[DM unread] total refresh failed", error);
+      return;
+    }
+
     setUnreadCount(count);
+    console.log("[DM read] total unread after clear=", count);
   }, [userId]);
 
   useEffect(() => {
@@ -144,8 +168,32 @@ export default function ChatNotificationsProvider({ children }: { children: Reac
   }, []);
 
   useEffect(() => {
+    if (!userId) {
+      setUnreadCount(0);
+    }
+  }, [userId]);
+
+  useEffect(() => {
     void refreshUnreadCount();
   }, [refreshUnreadCount]);
+
+  useEffect(() => {
+    const onThreadRead = (event: Event) => {
+      const detail = (event as CustomEvent<DmThreadReadDetail>).detail;
+
+      if (!detail?.partnerId || detail.clearedCount <= 0) {
+        return;
+      }
+
+      adjustDmUnreadTotal(-detail.clearedCount);
+    };
+
+    window.addEventListener(DM_THREAD_READ_EVENT, onThreadRead);
+
+    return () => {
+      window.removeEventListener(DM_THREAD_READ_EVENT, onThreadRead);
+    };
+  }, [adjustDmUnreadTotal]);
 
   useEffect(() => {
     const handleInboxRefresh = () => {
@@ -216,13 +264,16 @@ export default function ChatNotificationsProvider({ children }: { children: Reac
 
           if (isViewingDirectMessageThread(pathname, row.sender_id)) {
             skipMessageNotificationSound("viewing_thread");
-            void markDirectMessagesReadInThread(userId, row.sender_id).then(() => {
-              void refreshUnreadCount();
-            });
+            void markDmThreadOpened(userId, row.sender_id, refreshUnreadCount);
             return;
           }
 
+          console.log("[DM unread] incoming message", { partnerId: row.sender_id });
+          adjustDmUnreadTotal(1);
+          dispatchDmIncomingMessage(row.sender_id);
+
           void (async () => {
+            await markDirectMessagesDeliveredFromSender(userId, row.sender_id);
             void refreshUnreadCount();
             window.dispatchEvent(new Event(CHATS_INBOX_REFRESH_EVENT));
 
@@ -339,7 +390,16 @@ export default function ChatNotificationsProvider({ children }: { children: Reac
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, [currentUsername, pathname, refreshUnreadCount, showToast, t, locale, userId]);
+  }, [
+    adjustDmUnreadTotal,
+    currentUsername,
+    pathname,
+    refreshUnreadCount,
+    showToast,
+    t,
+    locale,
+    userId,
+  ]);
 
   useEffect(() => {
     return () => {
@@ -353,8 +413,9 @@ export default function ChatNotificationsProvider({ children }: { children: Reac
     () => ({
       unreadCount,
       refreshUnreadCount,
+      adjustDmUnreadTotal,
     }),
-    [refreshUnreadCount, unreadCount]
+    [adjustDmUnreadTotal, refreshUnreadCount, unreadCount]
   );
 
   return (

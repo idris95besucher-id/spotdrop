@@ -184,6 +184,9 @@ export const EXTENSION_EN = {
   "dm.error.acceptBeforeReply": "Accept this message request before you can reply.",
   "dm.error.declinedConversation": "This message request was declined.",
   "dm.error.cannotSend": "You cannot send messages in this conversation.",
+  "dm.status.sent": "Sent",
+  "dm.status.delivered": "Delivered",
+  "dm.status.read": "Read",
 
   "checkspot.locationRequired": "Location access is required for CheckSpot.",
   "checkspot.sendTitle": "Send CheckSpot to this user?",
@@ -666,6 +669,7 @@ export const EXTENSION_EN = {
   "spotCamera.recordVideo": "Record Video",
   "spotCamera.enableCamera": "Enable camera",
   "spotCamera.preparing": "Preparing camera…",
+  "spotCamera.processingSpot": "Processing Spot…",
   "spotCamera.flashOn": "Flash on",
   "spotCamera.flashOff": "Flash off",
   "spotCamera.switchCamera": "Switch camera",

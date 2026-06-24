@@ -184,6 +184,9 @@ export const EXTENSION_RU: Record<ExtensionKey, string> = {
   "dm.error.acceptBeforeReply": "Примите запрос на сообщение, чтобы ответить.",
   "dm.error.declinedConversation": "Запрос на сообщение отклонён.",
   "dm.error.cannotSend": "В этом чате нельзя отправлять сообщения.",
+  "dm.status.sent": "Отправлено",
+  "dm.status.delivered": "Доставлено",
+  "dm.status.read": "Прочитано",
 
   "checkspot.locationRequired": "Для CheckSpot нужен доступ к геолокации.",
   "checkspot.sendTitle": "Отправить CheckSpot этому пользователю?",
@@ -667,6 +670,7 @@ export const EXTENSION_RU: Record<ExtensionKey, string> = {
   "spotCamera.recordVideo": "Записать видео",
   "spotCamera.enableCamera": "Включить камеру",
   "spotCamera.preparing": "Подготовка камеры…",
+  "spotCamera.processingSpot": "Обработка Spot…",
   "spotCamera.flashOn": "Вспышка вкл.",
   "spotCamera.flashOff": "Вспышка выкл.",
   "spotCamera.switchCamera": "Переключить камеру",

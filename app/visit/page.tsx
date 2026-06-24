@@ -40,7 +40,7 @@ function VisitPageContent() {
 
   return (
     <Shell showHeader={false} immersive>
-      <div className="flex h-full min-h-0 flex-col">
+      <div className="flex h-full min-h-0 select-none touch-manipulation flex-col">
         <VisitTabs activeTab={activeTab} onTabChange={handleTabChange} />
 
         <div className="min-h-0 flex-1 overflow-hidden">

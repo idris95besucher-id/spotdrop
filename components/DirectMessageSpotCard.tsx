@@ -3,9 +3,9 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { Loader2, MapPin, Play } from "lucide-react";
+import DmMessageStatus from "@/components/DmMessageStatus";
 import { useI18n } from "@/components/I18nProvider";
 import { usePostViewerOptional } from "@/components/PostViewerProvider";
-import { formatChatMessageTime } from "@/lib/chatDates";
 import { localizeUserMessage } from "@/lib/i18n/localizeUserMessage";
 import { publicProfileUsername } from "@/lib/publicProfile";
 import { loadSpotMessagePreview, type SpotMessagePreview } from "@/lib/spotMessagePreview";
@@ -16,6 +16,10 @@ type DirectMessageSpotCardProps = {
   isOwnMessage: boolean;
   senderUsername: string;
   createdAt: string;
+  currentUserId: string;
+  senderId: string;
+  deliveredAt?: string | null;
+  readAt?: string | null;
 };
 
 export default function DirectMessageSpotCard({
@@ -23,6 +27,10 @@ export default function DirectMessageSpotCard({
   isOwnMessage,
   senderUsername,
   createdAt,
+  currentUserId,
+  senderId,
+  deliveredAt = null,
+  readAt = null,
 }: DirectMessageSpotCardProps) {
   const router = useRouter();
   const { t, locale } = useI18n();
@@ -180,9 +188,17 @@ export default function DirectMessageSpotCard({
           <p className="mt-2 text-xs text-red-300">{localizeUserMessage(t, error) ?? error}</p>
         ) : null}
 
-        <p className={`pt-2 text-[10px] ${isOwnMessage ? "text-primary/70" : "text-muted"}`}>
-          {formatChatMessageTime(createdAt)}
-        </p>
+        <DmMessageStatus
+          message={{
+            sender_id: senderId,
+            created_at: createdAt,
+            delivered_at: deliveredAt,
+            read_at: readAt,
+          }}
+          currentUserId={currentUserId}
+          isOwnMessage={isOwnMessage}
+          className="pt-2"
+        />
       </div>
     </div>
   );

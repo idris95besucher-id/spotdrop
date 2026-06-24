@@ -16,6 +16,7 @@ import { useI18n } from "@/components/I18nProvider";
 import ChatDateSeparator from "@/components/ChatDateSeparator";
 import ChatNewMessagesPill from "@/components/ChatNewMessagesPill";
 import ChatThreadShell from "@/components/ChatThreadShell";
+import { useChatNotifications } from "@/components/ChatNotificationsProvider";
 import MobileSecondaryHeader from "@/components/MobileSecondaryHeader";
 import RoomWallpaper from "@/components/RoomWallpaper";
 import Shell from "@/components/Shell";
@@ -30,6 +31,7 @@ import {
 import { localizeUserMessage } from "@/lib/i18n/localizeUserMessage";
 import { localizeCountryName, localizeCityName } from "@/lib/i18n/localizeGeo";
 import { CHATS_INBOX_REFRESH_EVENT } from "@/lib/chatsInbox";
+import { markRoomThreadOpened } from "@/lib/chatUnreadSync";
 import {
   markRoomAsRead,
   clearRoomReturnNavigation,
@@ -193,6 +195,7 @@ export default function RoomChatPage() {
     resetChatScroll,
     scrollRequestId,
   } = useChatScroll();
+  const { refreshUnreadCount } = useChatNotifications();
   const [inRoomCount, setInRoomCount] = useState<number | null>(null);
   const [presenceUsable, setPresenceUsable] = useState(false);
   const [cityOnlineCount, setCityOnlineCount] = useState<number | null>(null);
@@ -354,10 +357,8 @@ export default function RoomChatPage() {
       return;
     }
 
-    void markRoomAsRead(session.user.id, countrySlug, citySlug).then(() => {
-      window.dispatchEvent(new Event(CHATS_INBOX_REFRESH_EVENT));
-    });
-  }, [session?.user?.id, countrySlug, citySlug, cityId]);
+    void markRoomThreadOpened(session.user.id, countrySlug, citySlug, refreshUnreadCount);
+  }, [session?.user?.id, countrySlug, citySlug, refreshUnreadCount]);
 
   useEffect(() => {
     if (cityId) {

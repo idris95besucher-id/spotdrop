@@ -62,7 +62,7 @@ export default function VisitExplorePanel() {
   const localizedError = localizeUserMessage(t, error);
 
   return (
-    <div data-mobile-panel-scroll="" className={MOBILE_PANEL_SCROLL_CLASS}>
+    <div data-mobile-panel-scroll="" className={`${MOBILE_PANEL_SCROLL_CLASS} select-none touch-manipulation`}>
       <div className="space-y-3 px-4 py-3 sm:px-5">
         <section className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-4 py-2 text-center">
           <h1 className="text-base font-semibold tracking-[-0.01em] text-white sm:text-[17px]">

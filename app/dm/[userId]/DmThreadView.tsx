@@ -11,14 +11,16 @@ import ChatNewMessagesPill from "@/components/ChatNewMessagesPill";
 import ChatThreadShell from "@/components/ChatThreadShell";
 import DirectMessageSpotShareCard from "@/components/DirectMessageSpotShareCard";
 import DirectMessageSpotCard from "@/components/DirectMessageSpotCard";
+import DmMessageStatus from "@/components/DmMessageStatus";
 import { useChatNotifications } from "@/components/ChatNotificationsProvider";
 import ShareSpotToUserButton from "@/components/ShareSpotToUserButton";
 import Shell from "@/components/Shell";
 import { useI18n } from "@/components/I18nProvider";
 import { localizeUserMessage } from "@/lib/i18n/localizeUserMessage";
 import { markDirectMessagesReadInThread } from "@/lib/chatNotifications";
+import { markDmThreadOpened } from "@/lib/chatUnreadSync";
 import { getSafeAuthSession } from "@/lib/authSession";
-import { formatChatMessageTime, shouldShowChatDateSeparator } from "@/lib/chatDates";
+import { shouldShowChatDateSeparator } from "@/lib/chatDates";
 import {
   acceptConversationRequest,
   canSendDirectMessage,
@@ -57,6 +59,8 @@ type DirectMessage = {
   spot_share_id: string | null;
   post_id: string | null;
   created_at: string;
+  delivered_at: string | null;
+  read_at: string | null;
 };
 
 type DmThreadViewProps = {
@@ -92,6 +96,7 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
     scrollRequestId,
   } = useChatScroll();
   const { refreshUnreadCount } = useChatNotifications();
+  const markedReadForPartnerRef = useRef<string | null>(null);
   const currentUserId = session?.user?.id ?? null;
   const isSelfConversation = Boolean(currentUserId && partnerId && currentUserId === partnerId);
   const showIncomingRequestBanner = Boolean(
@@ -105,6 +110,24 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
   useEffect(() => {
     resetChatScroll();
   }, [partnerId, resetChatScroll]);
+
+  useEffect(() => {
+    if (!currentUserId || !partnerId || isSelfConversation) {
+      return;
+    }
+
+    if (markedReadForPartnerRef.current === partnerId) {
+      return;
+    }
+
+    markedReadForPartnerRef.current = partnerId;
+
+    void markDmThreadOpened(currentUserId, partnerId, refreshUnreadCount);
+  }, [currentUserId, isSelfConversation, partnerId, refreshUnreadCount]);
+
+  useEffect(() => {
+    markedReadForPartnerRef.current = null;
+  }, [partnerId]);
 
   const reloadConversation = useCallback(async () => {
     if (!currentUserId || !partnerId) {
@@ -230,10 +253,6 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
 
         const sharesResult = await loadPrivateSpotSharesByIds(shareIds);
         setShareById(sharesResult.shares);
-
-        await markDirectMessagesReadInThread(currentUserId, partnerId);
-        void refreshUnreadCount();
-        window.dispatchEvent(new Event(CHATS_INBOX_REFRESH_EVENT));
       }
 
       setLoading(false);
@@ -295,6 +314,36 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
               }
             });
           }
+        }
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "direct_messages",
+        },
+        (payload) => {
+          const updated = normalizeDirectMessageRow(payload.new as DirectMessage) as DirectMessage;
+          const isThreadMessage =
+            (updated.sender_id === currentUserId && updated.recipient_id === partnerId) ||
+            (updated.sender_id === partnerId && updated.recipient_id === currentUserId);
+
+          if (!isThreadMessage) {
+            return;
+          }
+
+          setMessages((current) =>
+            current.map((message) =>
+              message.id === updated.id
+                ? {
+                    ...message,
+                    delivered_at: updated.delivered_at,
+                    read_at: updated.read_at,
+                  }
+                : message
+            )
+          );
         }
       )
       .on(
@@ -425,7 +474,7 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
         body: trimmed,
         created_at: createdAt,
       })
-      .select("id, sender_id, recipient_id, body, message_type, spot_share_id, post_id, created_at")
+      .select("id, sender_id, recipient_id, body, message_type, spot_share_id, post_id, created_at, delivered_at, read_at")
       .single();
 
     setSending(false);
@@ -617,6 +666,10 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
                               : partner?.username ?? t("common.user")
                           }
                           createdAt={message.created_at}
+                          currentUserId={currentUserId!}
+                          deliveredAt={message.delivered_at}
+                          readAt={message.read_at}
+                          senderId={message.sender_id}
                         />
                       ) : isSpotShareMessage && message.spot_share_id ? (
                         <DirectMessageSpotShareCard
@@ -631,6 +684,9 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
                               : partner?.username ?? t("common.user")
                           }
                           createdAt={message.created_at}
+                          deliveredAt={message.delivered_at}
+                          readAt={message.read_at}
+                          senderId={message.sender_id}
                           initialShare={shareById.get(message.spot_share_id) ?? null}
                           onShareUpdated={() => void handleSpotShareSent()}
                         />
@@ -645,11 +701,13 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
                           <p className="whitespace-pre-wrap break-words text-[15px] leading-6">
                             {message.body}
                           </p>
-                          <p
-                            className={`mt-1 text-[10px] ${isOwnMessage ? "text-primary/70" : "text-muted"}`}
-                          >
-                            {formatChatMessageTime(message.created_at)}
-                          </p>
+                          {currentUserId ? (
+                            <DmMessageStatus
+                              message={message}
+                              currentUserId={currentUserId}
+                              isOwnMessage={isOwnMessage}
+                            />
+                          ) : null}
                         </div>
                       )}
                     </div>

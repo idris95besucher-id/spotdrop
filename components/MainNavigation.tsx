@@ -25,7 +25,7 @@ const desktopIconClass =
   "h-[18px] w-[18px] shrink-0 text-muted transition-colors group-hover:text-white";
 
 const desktopLinkClass =
-  "group inline-flex items-center gap-1.5 rounded-lg px-2 py-2 text-sm font-medium text-slate-300 transition-colors hover:bg-card/80 hover:text-white focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/35 focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:px-2.5";
+  "group inline-flex select-none touch-manipulation items-center gap-1.5 rounded-lg px-2 py-2 text-sm font-medium text-slate-300 transition-colors hover:bg-card/80 hover:text-white focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/35 focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:px-2.5";
 
 const signInClass =
   "inline-flex items-center rounded-full bg-primary px-4 py-2.5 text-sm font-semibold text-background transition hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background";
@@ -119,7 +119,7 @@ function DesktopCreateButton() {
     <button
       type="button"
       onClick={openCreateMenu}
-      className="group inline-flex items-center gap-1.5 rounded-lg px-2 py-2 text-sm font-medium text-slate-300 transition-colors hover:bg-card/80 hover:text-white focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/35 focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:px-2.5"
+      className="group inline-flex select-none touch-manipulation items-center gap-1.5 rounded-lg px-2 py-2 text-sm font-medium text-slate-300 transition-colors hover:bg-card/80 hover:text-white focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-primary/35 focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:px-2.5"
     >
       <Plus className={desktopIconClass} strokeWidth={1.75} aria-hidden />
       <span>Create</span>
@@ -186,7 +186,7 @@ export function DesktopMainNav() {
   );
 
   return (
-    <nav className="flex flex-wrap items-center justify-end gap-2 sm:gap-3" aria-label="Main">
+    <nav className="flex select-none touch-manipulation flex-wrap items-center justify-end gap-2 sm:gap-3" aria-label="Main">
       {MAIN_NAV_LEFT.map(renderNavLink)}
       {session?.user ? <DesktopCreateButton /> : null}
       {MAIN_NAV_RIGHT.map(renderNavLink)}

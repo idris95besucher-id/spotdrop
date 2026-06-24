@@ -25,6 +25,16 @@ import {
   type InboxChatRow,
   type InboxItem,
 } from "@/lib/chatsInbox";
+import {
+  CHATS_INBOX_DM_INCOMING_EVENT,
+  CHATS_INBOX_OPTIMISTIC_READ_EVENT,
+  DM_THREAD_READ_EVENT,
+  patchInboxItemsForIncomingDm,
+  patchInboxItemsOptimistically,
+  type DmIncomingDetail,
+  type DmThreadReadDetail,
+  type OptimisticInboxReadDetail,
+} from "@/lib/chatUnreadSync";
 import { hideRoomFromMessages, setRoomMuted, type RoomInboxRow } from "@/lib/roomMemberships";
 import { supabase } from "@/lib/supabaseClient";
 
@@ -79,6 +89,62 @@ export default function ChatsPage() {
       window.removeEventListener(CHATS_INBOX_REFRESH_EVENT, onInboxRefresh);
     };
   }, [refresh]);
+
+  useEffect(() => {
+    const onOptimisticRead = (event: Event) => {
+      const detail = (event as CustomEvent<OptimisticInboxReadDetail>).detail;
+
+      if (!detail) {
+        return;
+      }
+
+      setItems((current) => patchInboxItemsOptimistically(current, detail));
+    };
+
+    window.addEventListener(CHATS_INBOX_OPTIMISTIC_READ_EVENT, onOptimisticRead);
+
+    return () => {
+      window.removeEventListener(CHATS_INBOX_OPTIMISTIC_READ_EVENT, onOptimisticRead);
+    };
+  }, []);
+
+  useEffect(() => {
+    const onThreadRead = (event: Event) => {
+      const detail = (event as CustomEvent<DmThreadReadDetail>).detail;
+
+      if (!detail?.partnerId) {
+        return;
+      }
+
+      setItems((current) =>
+        patchInboxItemsOptimistically(current, { kind: "dm", partnerId: detail.partnerId })
+      );
+    };
+
+    window.addEventListener(DM_THREAD_READ_EVENT, onThreadRead);
+
+    return () => {
+      window.removeEventListener(DM_THREAD_READ_EVENT, onThreadRead);
+    };
+  }, []);
+
+  useEffect(() => {
+    const onDmIncoming = (event: Event) => {
+      const detail = (event as CustomEvent<DmIncomingDetail>).detail;
+
+      if (!detail?.partnerId) {
+        return;
+      }
+
+      setItems((current) => patchInboxItemsForIncomingDm(current, detail.partnerId));
+    };
+
+    window.addEventListener(CHATS_INBOX_DM_INCOMING_EVENT, onDmIncoming);
+
+    return () => {
+      window.removeEventListener(CHATS_INBOX_DM_INCOMING_EVENT, onDmIncoming);
+    };
+  }, []);
 
   useEffect(() => {
     const loadInbox = async () => {

@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { MapPin } from "lucide-react";
+import DmMessageStatus from "@/components/DmMessageStatus";
 import { useI18n } from "@/components/I18nProvider";
-import { formatChatMessageTime } from "@/lib/chatDates";
 import { localizeUserMessage } from "@/lib/i18n/localizeUserMessage";
 import { approximateDistanceBetween } from "@/lib/privateSpotDistance";
 import {
@@ -24,6 +24,9 @@ type DirectMessageSpotShareCardProps = {
   partnerUsername: string;
   senderUsername: string;
   createdAt: string;
+  senderId: string;
+  deliveredAt?: string | null;
+  readAt?: string | null;
   initialShare?: PrivateSpotShare | null;
   onShareUpdated?: () => void;
 };
@@ -36,6 +39,9 @@ export default function DirectMessageSpotShareCard({
   partnerUsername,
   senderUsername,
   createdAt,
+  senderId,
+  deliveredAt = null,
+  readAt = null,
   initialShare = null,
   onShareUpdated,
 }: DirectMessageSpotShareCardProps) {
@@ -181,9 +187,17 @@ export default function DirectMessageSpotShareCard({
             {loadingDistance ? t("checkspot.gettingDistance") : t("checkspot.showDistance")}
           </button>
         ) : null}
-        <p className={`mt-1.5 text-[10px] ${isOwnMessage ? "text-primary/70" : "text-muted"}`}>
-          {formatChatMessageTime(createdAt)}
-        </p>
+        <DmMessageStatus
+          message={{
+            sender_id: senderId,
+            created_at: createdAt,
+            delivered_at: deliveredAt,
+            read_at: readAt,
+          }}
+          currentUserId={currentUserId}
+          isOwnMessage={isOwnMessage}
+          className="mt-1.5"
+        />
       </div>
     );
   }
@@ -261,9 +275,17 @@ export default function DirectMessageSpotShareCard({
         <p className="mt-2 text-xs text-red-300">{localizeUserMessage(t, error) ?? error}</p>
       ) : null}
 
-      <p className={`mt-1.5 text-[10px] ${isOwnMessage ? "text-primary/70" : "text-muted"}`}>
-        {formatChatMessageTime(createdAt)}
-      </p>
+      <DmMessageStatus
+        message={{
+          sender_id: senderId,
+          created_at: createdAt,
+          delivered_at: deliveredAt,
+          read_at: readAt,
+        }}
+        currentUserId={currentUserId}
+        isOwnMessage={isOwnMessage}
+        className="mt-1.5"
+      />
     </div>
   );
 }

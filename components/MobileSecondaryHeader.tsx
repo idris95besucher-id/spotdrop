@@ -21,7 +21,7 @@ export default function MobileSecondaryHeader({
 
   return (
     <header
-      className={`flex shrink-0 items-center gap-2 border-b border-white/[0.08] bg-[#050816] px-3 pb-3 ${MOBILE_SAFE_AREA_INSET_TOP} md:px-5 ${MOBILE_WIDTH_SAFE_CLASS} ${className}`}
+      className={`flex shrink-0 select-none touch-manipulation items-center gap-2 border-b border-white/[0.08] bg-[#050816] px-3 pb-3 ${MOBILE_SAFE_AREA_INSET_TOP} md:px-5 ${MOBILE_WIDTH_SAFE_CLASS} ${className}`}
     >
       <button
         type="button"

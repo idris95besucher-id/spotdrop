@@ -1,4 +1,5 @@
 import { formatUnreadBadge } from "@/lib/chatNotifications";
+import type { OptimisticReadExcludes } from "@/lib/chatUnreadSync";
 import { supabase } from "@/lib/supabaseClient";
 
 export type RoomInboxRow = {
@@ -281,7 +282,7 @@ export async function markRoomAsRead(userId: string, countrySlug: string, citySl
       return { error: null as string | null };
     }
 
-    console.error("Failed to mark room as read:", error);
+    console.error("[Unread] mark room read failed", error);
     return { error: error.message };
   }
 
@@ -565,14 +566,24 @@ export async function loadRoomInbox(userId: string) {
   return loadRoomInboxViaQueries(userId);
 }
 
-export async function countUnreadRoomMessages(userId: string) {
+export async function countUnreadRoomMessages(userId: string, excludes?: OptimisticReadExcludes) {
   const { rooms, error } = await loadRoomInbox(userId);
 
   if (error) {
     return { count: 0, error };
   }
 
-  const count = rooms.reduce((total, room) => total + room.unreadCount, 0);
+  const excludedRooms = excludes?.roomKeys;
+  const count = rooms.reduce((total, room) => {
+    const key = `${room.countrySlug}/${room.citySlug}`;
+
+    if (excludedRooms?.has(key)) {
+      return total;
+    }
+
+    return total + room.unreadCount;
+  }, 0);
+
   return { count, error: null as string | null };
 }
 

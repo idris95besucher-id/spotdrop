@@ -760,6 +760,33 @@ export async function setTorchEnabled(stream: MediaStream | null, enabled: boole
   }
 }
 
+/** Synchronous last-frame grab for instant post-record UI (no await / toBlob). */
+export function captureVideoFrameDataUrl(video: HTMLVideoElement): string | null {
+  try {
+    const width = video.videoWidth;
+    const height = video.videoHeight;
+
+    if (!width || !height) {
+      return null;
+    }
+
+    const canvas = document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+
+    const context = canvas.getContext("2d");
+
+    if (!context) {
+      return null;
+    }
+
+    context.drawImage(video, 0, 0, width, height);
+    return canvas.toDataURL("image/jpeg", 0.85);
+  } catch {
+    return null;
+  }
+}
+
 export async function capturePhotoFromVideo(video: HTMLVideoElement) {
   await waitForVideoDimensions(video);
 

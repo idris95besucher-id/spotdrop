@@ -34,6 +34,8 @@ export type DirectMessageRow = {
   spot_share_id: string | null;
   post_id: string | null;
   created_at: string;
+  delivered_at: string | null;
+  read_at: string | null;
 };
 
 type DirectMessageRowInput = {
@@ -45,10 +47,12 @@ type DirectMessageRowInput = {
   spot_share_id?: string | null;
   post_id?: string | null;
   created_at: string;
+  delivered_at?: string | null;
+  read_at?: string | null;
 };
 
 const DIRECT_MESSAGE_SELECT =
-  "id, sender_id, recipient_id, body, message_type, spot_share_id, post_id, created_at";
+  "id, sender_id, recipient_id, body, message_type, spot_share_id, post_id, created_at, delivered_at, read_at";
 
 /** Normalize DB rows (handles missing message_type when spot_share_id is set). */
 export function normalizeDirectMessageRow(row: DirectMessageRowInput): DirectMessageRow {
@@ -77,6 +81,8 @@ export function normalizeDirectMessageRow(row: DirectMessageRowInput): DirectMes
     spot_share_id: spotShareId,
     post_id: row.post_id ? String(row.post_id) : null,
     created_at: String(row.created_at),
+    delivered_at: row.delivered_at ? String(row.delivered_at) : null,
+    read_at: row.read_at ? String(row.read_at) : null,
   };
 }
 

@@ -35,7 +35,7 @@ function formatChatTime(createdAt: string) {
 
 export default function DmInboxListItem({ chat, onLongPress }: DmInboxListItemProps) {
   const { t } = useI18n();
-  const hasUnread = !chat.isMuted && chat.unreadCount > 0;
+  const hasUnread = chat.unreadCount > 0;
   const preview = chat.lastMessage
     ? formatChatPreview(chat.lastMessage, t)
     : t("chats.preview.noMessages");
@@ -77,18 +77,21 @@ export default function DmInboxListItem({ chat, onLongPress }: DmInboxListItemPr
             </time>
           </div>
           <div className="mt-0.5 flex items-center justify-between gap-2">
-            <p className={`truncate text-sm ${hasUnread ? "font-medium text-slate-200" : "text-muted"}`}>
+            <p className={`min-w-0 truncate text-sm ${hasUnread ? "font-medium text-slate-200" : "text-muted"}`}>
               {preview}
             </p>
-            {hasUnread && chat.unreadBadge ? (
-              <span className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-primary px-1.5 text-[11px] font-bold text-[#050816]">
-                {chat.unreadBadge}
-              </span>
-            ) : chat.isMuted ? (
-              <span className="shrink-0 text-[10px] font-medium uppercase tracking-wide text-slate-500">
-                {t("chats.roomMuted")}
-              </span>
-            ) : null}
+            <div className="flex shrink-0 items-center gap-1.5">
+              {hasUnread && chat.unreadBadge ? (
+                <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-primary px-1.5 text-[11px] font-bold text-[#050816]">
+                  {chat.unreadBadge}
+                </span>
+              ) : null}
+              {chat.isMuted ? (
+                <span className="text-[10px] font-medium uppercase tracking-wide text-slate-500">
+                  {t("chats.roomMuted")}
+                </span>
+              ) : null}
+            </div>
           </div>
         </div>
       </Link>

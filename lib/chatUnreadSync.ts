@@ -1,0 +1,235 @@
+import {
+  CHATS_INBOX_REFRESH_EVENT,
+  type InboxItem,
+} from "@/lib/chatsInbox";
+import {
+  countUnreadDirectMessagesForPartner,
+  formatUnreadBadge,
+  markDirectMessagesDeliveredFromSender,
+  markDirectMessagesReadInThread,
+} from "@/lib/chatNotifications";
+import { markRoomAsRead } from "@/lib/roomMemberships";
+
+export const CHATS_INBOX_OPTIMISTIC_READ_EVENT = "spotdrop:chats-inbox-optimistic-read";
+export const CHATS_INBOX_DM_INCOMING_EVENT = "spotdrop:chats-inbox-dm-incoming";
+export const DM_THREAD_READ_EVENT = "spotdrop:dm-thread-read";
+
+export type OptimisticInboxReadDetail =
+  | { kind: "dm"; partnerId: string }
+  | { kind: "room"; countrySlug: string; citySlug: string };
+
+export type DmIncomingDetail = { partnerId: string };
+
+export type DmThreadReadDetail = {
+  partnerId: string;
+  clearedCount: number;
+};
+
+const optimisticDmPartners = new Set<string>();
+const optimisticRoomKeys = new Set<string>();
+
+export function roomUnreadKey(countrySlug: string, citySlug: string) {
+  return `${countrySlug}/${citySlug}`;
+}
+
+export function getOptimisticReadExcludes() {
+  return {
+    dmPartners: optimisticDmPartners,
+    roomKeys: optimisticRoomKeys,
+  };
+}
+
+export type OptimisticReadExcludes = ReturnType<typeof getOptimisticReadExcludes>;
+
+export function registerOptimisticDmRead(partnerId: string) {
+  if (!partnerId) {
+    return;
+  }
+
+  optimisticDmPartners.add(partnerId);
+}
+
+export function releaseOptimisticDmRead(partnerId: string) {
+  optimisticDmPartners.delete(partnerId);
+}
+
+export function registerOptimisticRoomRead(countrySlug: string, citySlug: string) {
+  if (!countrySlug || !citySlug) {
+    return;
+  }
+
+  optimisticRoomKeys.add(roomUnreadKey(countrySlug, citySlug));
+}
+
+export function releaseOptimisticRoomRead(countrySlug: string, citySlug: string) {
+  optimisticRoomKeys.delete(roomUnreadKey(countrySlug, citySlug));
+}
+
+export function dispatchOptimisticInboxRead(detail: OptimisticInboxReadDetail) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.dispatchEvent(new CustomEvent(CHATS_INBOX_OPTIMISTIC_READ_EVENT, { detail }));
+}
+
+export function dispatchDmIncomingMessage(partnerId: string) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.dispatchEvent(
+    new CustomEvent(CHATS_INBOX_DM_INCOMING_EVENT, { detail: { partnerId } satisfies DmIncomingDetail })
+  );
+}
+
+export function dispatchDmThreadRead(detail: DmThreadReadDetail) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.dispatchEvent(new CustomEvent(DM_THREAD_READ_EVENT, { detail }));
+}
+
+export function patchInboxItemsOptimistically(
+  items: InboxItem[],
+  detail: OptimisticInboxReadDetail
+): InboxItem[] {
+  if (detail.kind === "dm") {
+    return items.map((item) => {
+      if (item.kind !== "dm" || item.chat.partnerId !== detail.partnerId) {
+        return item;
+      }
+
+      return {
+        ...item,
+        chat: {
+          ...item.chat,
+          unreadCount: 0,
+          unreadBadge: null,
+        },
+      };
+    });
+  }
+
+  return items.map((item) => {
+    if (
+      item.kind !== "room" ||
+      item.room.countrySlug !== detail.countrySlug ||
+      item.room.citySlug !== detail.citySlug
+    ) {
+      return item;
+    }
+
+    return {
+      ...item,
+      room: {
+        ...item.room,
+        unreadCount: 0,
+        unreadBadge: null,
+      },
+    };
+  });
+}
+
+export function patchInboxItemsForIncomingDm(items: InboxItem[], partnerId: string): InboxItem[] {
+  return items.map((item) => {
+    if (item.kind !== "dm" || item.chat.partnerId !== partnerId) {
+      return item;
+    }
+
+    const unreadCount = item.chat.unreadCount + 1;
+
+    return {
+      ...item,
+      chat: {
+        ...item.chat,
+        unreadCount,
+        unreadBadge: formatUnreadBadge(unreadCount),
+      },
+    };
+  });
+}
+
+export async function markDmThreadOpened(
+  recipientId: string,
+  partnerId: string,
+  refreshUnreadCount: () => Promise<void>
+) {
+  if (!recipientId || !partnerId || recipientId === partnerId) {
+    return { error: null as string | null, clearedCount: 0 };
+  }
+
+  console.log("[DM read] thread opened userId=", partnerId);
+
+  const { count: unreadBefore, error: countError } = await countUnreadDirectMessagesForPartner(
+    recipientId,
+    partnerId
+  );
+
+  console.log("[DM read] unread before clear=", unreadBefore);
+
+  if (countError) {
+    console.error("[DM read] unread count failed", countError);
+  }
+
+  registerOptimisticDmRead(partnerId);
+  dispatchOptimisticInboxRead({ kind: "dm", partnerId });
+
+  await markDirectMessagesDeliveredFromSender(recipientId, partnerId);
+
+  const readResult = await markDirectMessagesReadInThread(recipientId, partnerId);
+
+  const clearedCount =
+    readResult.updatedCount > 0 ? readResult.updatedCount : unreadBefore;
+
+  console.log("[DM read] clearedCount=", clearedCount);
+
+  if (readResult.error) {
+    console.error("[DM read] mark read failed", readResult.error);
+    releaseOptimisticDmRead(partnerId);
+    await refreshUnreadCount();
+    window.dispatchEvent(new Event(CHATS_INBOX_REFRESH_EVENT));
+    return { error: readResult.error, clearedCount: 0 };
+  }
+
+  if (clearedCount > 0) {
+    dispatchDmThreadRead({ partnerId, clearedCount });
+    console.log("[DM read] row badge cleared=", partnerId);
+  }
+
+  await refreshUnreadCount();
+  releaseOptimisticDmRead(partnerId);
+  window.dispatchEvent(new Event(CHATS_INBOX_REFRESH_EVENT));
+
+  return { error: null as string | null, clearedCount };
+}
+
+export async function markRoomThreadOpened(
+  userId: string,
+  countrySlug: string,
+  citySlug: string,
+  refreshUnreadCount: () => Promise<void>
+) {
+  if (!userId || !countrySlug || !citySlug) {
+    return { error: null as string | null };
+  }
+
+  registerOptimisticRoomRead(countrySlug, citySlug);
+  dispatchOptimisticInboxRead({ kind: "room", countrySlug, citySlug });
+  await refreshUnreadCount();
+
+  const readResult = await markRoomAsRead(userId, countrySlug, citySlug);
+
+  if (readResult.error) {
+    releaseOptimisticRoomRead(countrySlug, citySlug);
+    await refreshUnreadCount();
+    window.dispatchEvent(new Event(CHATS_INBOX_REFRESH_EVENT));
+    return readResult;
+  }
+
+  releaseOptimisticRoomRead(countrySlug, citySlug);
+  await refreshUnreadCount();
+  window.dispatchEvent(new Event(CHATS_INBOX_REFRESH_EVENT));
+  return readResult;
+}

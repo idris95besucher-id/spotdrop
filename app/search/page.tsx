@@ -17,7 +17,7 @@ export default function SearchPage() {
         <div className={MOBILE_TAB_TOP_BAR_CLASS}>
           <Link
             href="/search/people"
-            className="flex w-full min-w-0 max-w-full items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 transition hover:border-cyan-400/25 hover:bg-white/[0.06]"
+            className="flex w-full min-w-0 max-w-full select-none touch-manipulation items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 transition hover:border-cyan-400/25 hover:bg-white/[0.06]"
           >
             <SearchIcon className="h-5 w-5 shrink-0 text-slate-500" strokeWidth={1.75} aria-hidden />
             <span className="truncate text-sm text-slate-500">{t("search.peopleBarPlaceholder")}</span>
@@ -25,7 +25,7 @@ export default function SearchPage() {
         </div>
       }
     >
-      <div className={`pt-3 ${MOBILE_WIDTH_SAFE_CLASS}`}>
+      <div className={`pt-3 select-none touch-manipulation ${MOBILE_WIDTH_SAFE_CLASS}`}>
         <SearchExploreGrid />
       </div>
     </Shell>

@@ -115,8 +115,8 @@ export default function SpotVideoEditorScreen({
   const coverInitializedRef = useRef(false);
   const previewReadyLoggedRef = useRef(false);
   const durationSyncedRef = useRef(false);
-  // Use a ref for muted so stale closures in callbacks always read the latest value.
-  const previewMutedRef = useRef(true);
+  // User preference: sound ON by default. Ref keeps callbacks in sync with toggle state.
+  const previewMutedRef = useRef(false);
 
   const [loadingDuration, setLoadingDuration] = useState(item.sourceDuration <= 0);
   const [filmstrip, setFilmstrip] = useState<FilmstripFrame[]>([]);
@@ -125,7 +125,7 @@ export default function SpotVideoEditorScreen({
   const [isReady, setIsReady] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [coverTime, setCoverTime] = useState(0);
-  const [previewMuted, setPreviewMuted] = useState(true);
+  const [previewMuted, setPreviewMuted] = useState(false);
   const [showTrim, setShowTrim] = useState(false);
   const [showLocationPicker, setShowLocationPicker] = useState(false);
   const [isDraggingTrim, setIsDraggingTrim] = useState(false);
@@ -208,6 +208,8 @@ export default function SpotVideoEditorScreen({
     coverInitializedRef.current = false;
     previewReadyLoggedRef.current = false;
     durationSyncedRef.current = false;
+    previewMutedRef.current = false;
+    setPreviewMuted(false);
   }, [item.previewUrl]);
 
   const syncSourceDurationFromVideo = useCallback(
@@ -248,9 +250,8 @@ export default function SpotVideoEditorScreen({
 
   const markPreviewReady = useCallback(
     (video: HTMLVideoElement) => {
+      // iOS autoplay requires a muted element; user preference stays unmuted (previewMuted=false).
       video.muted = true;
-      previewMutedRef.current = true;
-      setPreviewMuted(true);
       setIsReady(true);
 
       if (!previewReadyLoggedRef.current) {
@@ -421,7 +422,7 @@ export default function SpotVideoEditorScreen({
     const video = videoRef.current;
     if (!video || !isReady) return;
 
-    // Restore the user-chosen mute state on each play action.
+    // User tapped play — apply sound preference (default: unmuted / original audio).
     video.muted = previewMutedRef.current;
 
     if (video.paused) {
@@ -620,7 +621,6 @@ export default function SpotVideoEditorScreen({
           poster={item.coverPreviewUrl ?? undefined}
           className="h-full w-full object-cover"
           playsInline
-          muted
           preload="auto"
           disablePictureInPicture
           onClick={() => void togglePlayback()}

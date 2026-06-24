@@ -2,7 +2,7 @@ import type { DirectMessageType } from "@/lib/directConversations";
 import type { TranslationKey } from "@/lib/i18n/messages";
 import { publicProfileUsername } from "@/lib/publicProfile";
 import { countUnreadRoomMessages } from "@/lib/roomMemberships";
-import { loadMutedDmPartnerIds } from "@/lib/chatInboxPreferences";
+import type { OptimisticReadExcludes } from "@/lib/chatUnreadSync";
 import { supabase } from "@/lib/supabaseClient";
 
 type TranslateFn = (key: TranslationKey, values?: Record<string, string | number>) => string;
@@ -19,26 +19,80 @@ export function formatUnreadBadge(count: number) {
   return String(count);
 }
 
-/** Unread incoming DMs (includes spot_share_request). Respects muted chats. */
-export async function countUnreadDirectMessages(userId: string) {
-  const [{ data, error }, mutedResult] = await Promise.all([
-    supabase
-      .from("direct_messages")
-      .select("sender_id")
-      .eq("recipient_id", userId)
-      .is("read_at", null)
-      .neq("sender_id", userId),
-    loadMutedDmPartnerIds(userId),
-  ]);
+/** Unread incoming DMs (includes spot_share_request). Includes muted chats in total. */
+export async function countUnreadDirectMessages(
+  userId: string,
+  excludes?: OptimisticReadExcludes
+) {
+  const { data, error } = await supabase
+    .from("direct_messages")
+    .select("sender_id")
+    .eq("recipient_id", userId)
+    .is("read_at", null)
+    .neq("sender_id", userId);
 
   if (error) {
     return { count: 0, error: error.message };
   }
 
-  const mutedPartners = mutedResult.partnerIds;
-  const count = (data ?? []).filter((row) => !mutedPartners.has(String(row.sender_id))).length;
+  const excludedPartners = excludes?.dmPartners;
+  const count = (data ?? []).filter((row) => {
+    const senderId = String(row.sender_id);
+    return !excludedPartners?.has(senderId);
+  }).length;
 
   return { count, error: null as string | null };
+}
+
+export async function countUnreadDirectMessagesForPartner(recipientId: string, partnerId: string) {
+  const { count, error } = await supabase
+    .from("direct_messages")
+    .select("id", { count: "exact", head: true })
+    .eq("recipient_id", recipientId)
+    .eq("sender_id", partnerId)
+    .is("read_at", null);
+
+  if (error) {
+    return { count: 0, error: error.message };
+  }
+
+  return { count: count ?? 0, error: null as string | null };
+}
+
+/** Mark incoming messages from a sender as delivered (recipient client ack). */
+export async function markDirectMessagesDeliveredFromSender(recipientId: string, senderId: string) {
+  const deliveredAt = new Date().toISOString();
+
+  const { error } = await supabase
+    .from("direct_messages")
+    .update({ delivered_at: deliveredAt })
+    .eq("recipient_id", recipientId)
+    .eq("sender_id", senderId)
+    .is("delivered_at", null);
+
+  if (error) {
+    return { error: error.message };
+  }
+
+  return { error: null as string | null };
+}
+
+/** Mark all pending incoming messages as delivered when inbox syncs. */
+export async function markAllPendingDirectMessagesDelivered(recipientId: string) {
+  const deliveredAt = new Date().toISOString();
+
+  const { error } = await supabase
+    .from("direct_messages")
+    .update({ delivered_at: deliveredAt })
+    .eq("recipient_id", recipientId)
+    .is("delivered_at", null)
+    .neq("sender_id", recipientId);
+
+  if (error) {
+    return { error: error.message };
+  }
+
+  return { error: null as string | null };
 }
 
 export async function countUnreadSpotShareRequests(userId: string) {
@@ -60,18 +114,49 @@ export async function countUnreadSpotShareRequests(userId: string) {
 export async function markDirectMessagesReadInThread(recipientId: string, partnerId: string) {
   const readAt = new Date().toISOString();
 
-  const { error } = await supabase
+  const { data, error: readError } = await supabase
     .from("direct_messages")
     .update({ read_at: readAt })
     .eq("recipient_id", recipientId)
     .eq("sender_id", partnerId)
-    .is("read_at", null);
+    .is("read_at", null)
+    .select("id");
 
-  if (error) {
-    return { error: error.message };
+  if (readError) {
+    console.log("[DM read] supabase update result=", { error: readError.message, updatedCount: 0 });
+    return { error: readError.message, updatedCount: 0 };
   }
 
-  return { error: null as string | null };
+  let updatedCount = data?.length ?? 0;
+
+  if (updatedCount === 0) {
+    const { data: rpcCount, error: rpcError } = await supabase.rpc("mark_dm_thread_read", {
+      p_sender_id: partnerId,
+    });
+
+    if (rpcError) {
+      console.log("[DM read] supabase update result=", { error: rpcError.message, updatedCount: 0 });
+      return { error: rpcError.message, updatedCount: 0 };
+    }
+
+    updatedCount = typeof rpcCount === "number" ? rpcCount : 0;
+    console.log("[DM read] supabase update result=", { rpcFallback: true, updatedCount });
+  } else {
+    console.log("[DM read] supabase update result=", { updatedCount });
+  }
+
+  const { error: deliveredError } = await supabase
+    .from("direct_messages")
+    .update({ delivered_at: readAt })
+    .eq("recipient_id", recipientId)
+    .eq("sender_id", partnerId)
+    .is("delivered_at", null);
+
+  if (deliveredError) {
+    console.warn("[DM read] delivered_at backfill failed", deliveredError.message);
+  }
+
+  return { error: null as string | null, updatedCount };
 }
 
 export function buildIncomingMessageToast(
@@ -107,10 +192,13 @@ export function buildIncomingRoomMessageToast(
   });
 }
 
-export async function countUnreadInboxMessages(userId: string) {
+export async function countUnreadInboxMessages(
+  userId: string,
+  excludes?: OptimisticReadExcludes
+) {
   const [directResult, roomResult] = await Promise.all([
-    countUnreadDirectMessages(userId),
-    countUnreadRoomMessages(userId),
+    countUnreadDirectMessages(userId, excludes),
+    countUnreadRoomMessages(userId, excludes),
   ]);
 
   return {
