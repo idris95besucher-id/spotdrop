@@ -1,3 +1,46 @@
+const DM_ROUTE_PLACEHOLDER = "_";
+
+/** Partner id from DM route — query param, path segment, or static-export placeholder fallback. */
+export function resolveDmRoutePartnerId(options: {
+  partnerIdOverride?: string;
+  paramsUserId?: string;
+}) {
+  const fromOverride = options.partnerIdOverride?.trim() ?? "";
+
+  if (fromOverride && fromOverride !== DM_ROUTE_PLACEHOLDER) {
+    return fromOverride;
+  }
+
+  const fromParams = options.paramsUserId?.trim() ?? "";
+
+  if (fromParams && fromParams !== DM_ROUTE_PLACEHOLDER) {
+    return fromParams;
+  }
+
+  if (typeof window === "undefined") {
+    return fromOverride || fromParams;
+  }
+
+  const searchId = new URLSearchParams(window.location.search).get("id")?.trim() ?? "";
+
+  if (searchId && searchId !== DM_ROUTE_PLACEHOLDER) {
+    return searchId;
+  }
+
+  const segments = window.location.pathname.split("/").filter(Boolean);
+  const pathId = segments[0] === "dm" ? (segments[1] ?? "").trim() : "";
+
+  if (pathId && pathId !== DM_ROUTE_PLACEHOLDER) {
+    return pathId;
+  }
+
+  return fromOverride || fromParams;
+}
+
+export function dmThreadHref(partnerId: string) {
+  return `/dm?id=${encodeURIComponent(partnerId)}`;
+}
+
 export function isDirectMessageThread(pathname: string | null) {
   if (!pathname) return false;
   // Matches both /dm?id=… (new query-param style) and /dm/<userId> (old path style)

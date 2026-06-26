@@ -75,6 +75,12 @@ export default function RootLayout({
             } catch(e) {}
           })();
         `}</Script>
+        <Script id="spotdrop-online-presence-marker" strategy="beforeInteractive">{`
+          console.log("[Online] HTML layout loaded", {
+            path: window.location.pathname,
+            build: "presence-v2",
+          });
+        `}</Script>
         <Script id="spotdrop-capacitor-launch" strategy="beforeInteractive">
           {CAPACITOR_LAUNCH_BOOTSTRAP_SCRIPT}
         </Script>

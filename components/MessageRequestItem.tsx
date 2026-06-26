@@ -11,6 +11,7 @@ import {
 import { CHATS_INBOX_REFRESH_EVENT, type ChatPreviewMessage } from "@/lib/chatsInbox";
 import { formatChatPreview } from "@/lib/i18n/chatPreview";
 import { localizeUserMessage } from "@/lib/i18n/localizeUserMessage";
+import { dmThreadHref } from "@/lib/chatThreadRoutes";
 import { publicProfileUsername } from "@/lib/publicProfile";
 
 export type MessageRequestItemData = {
@@ -92,7 +93,7 @@ export default function MessageRequestItem({ request, viewerUserId, onResolved }
     <li className="rounded-2xl border border-white/[0.08] bg-[#0B1026] p-4">
       <div className="flex items-start gap-3">
         <Link
-          href={`/dm?id=${request.partnerId}`}
+          href={dmThreadHref(request.partnerId)}
           className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full bg-white/[0.06]"
         >
           {request.avatarUrl ? (
@@ -104,7 +105,7 @@ export default function MessageRequestItem({ request, viewerUserId, onResolved }
 
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-2">
-            <Link href={`/dm?id=${request.partnerId}`} className="min-w-0">
+            <Link href={dmThreadHref(request.partnerId)} className="min-w-0">
               <p className="truncate font-semibold text-white">
                 {publicProfileUsername(request.username)}
               </p>

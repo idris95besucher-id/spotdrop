@@ -6,9 +6,12 @@ import { getSafeAuthSession } from "@/lib/authSession";
 import {
   enableNativePush,
   isNativePushSupported,
+  nativePlatform,
   parseNativePushData,
+  resolveNativeDeviceIdForPush,
   unregisterNativePushToken,
 } from "@/lib/nativePush";
+import { saveUserPushToken } from "@/lib/userPushTokens";
 import { countUnreadNotifications } from "@/lib/notifications";
 
 type PushNotificationsBootstrapProps = {
@@ -22,7 +25,20 @@ export default function PushNotificationsBootstrap({ userId }: PushNotifications
   const listenersAttachedRef = useRef(false);
 
   useEffect(() => {
-    if (!userId || !isNativePushSupported()) {
+    console.info("[Push] bootstrap mounted", {
+      userId,
+      native: isNativePushSupported(),
+      platform: isNativePushSupported() ? nativePlatform() : "web",
+    });
+  }, [userId]);
+
+  useEffect(() => {
+    if (!userId) {
+      return;
+    }
+
+    if (!isNativePushSupported()) {
+      console.warn("[Push] bootstrap skipped — not a native Capacitor platform");
       return;
     }
 
@@ -45,16 +61,18 @@ export default function PushNotificationsBootstrap({ userId }: PushNotifications
 
         await FirebaseMessaging.addListener("tokenReceived", async (event) => {
           if (!event.token || !userId) {
+            console.warn("[Push] tokenReceived ignored — missing token or userId");
             return;
           }
 
+          console.info("[Push] token", `${event.token.slice(0, 12)}…`);
           fcmTokenRef.current = event.token;
-          const { saveFcmDeviceToken } = await import("@/lib/fcmDeviceTokens");
-          const { nativePlatform } = await import("@/lib/nativePush");
-          await saveFcmDeviceToken({
+
+          await saveUserPushToken({
             userId,
-            fcmToken: event.token,
+            token: event.token,
             platform: nativePlatform(),
+            deviceId: await resolveNativeDeviceIdForPush(),
           });
         });
 
@@ -84,6 +102,11 @@ export default function PushNotificationsBootstrap({ userId }: PushNotifications
         return;
       }
 
+      if (result.error) {
+        console.error("[Push] registration failed", result.error);
+        return;
+      }
+
       if (result.token) {
         fcmTokenRef.current = result.token;
       }
@@ -102,8 +125,6 @@ export default function PushNotificationsBootstrap({ userId }: PushNotifications
 
     return () => {
       cancelled = true;
-      void unregisterNativePushToken(fcmTokenRef.current);
-      fcmTokenRef.current = null;
 
       void (async () => {
         try {

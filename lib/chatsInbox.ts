@@ -5,6 +5,7 @@ import {
   buildFirstMessageByPartner,
   buildLatestMessageByPartner,
   getConversationPartnerId,
+  getDirectMessagePartnerId,
   isIncomingRequest,
   loadDistinctMessagePartnerIds,
   loadMessagesForPartners,
@@ -31,6 +32,7 @@ export type InboxChatRow = {
   conversationId: string | null;
   username: string;
   avatarUrl: string | null;
+  lastSeenAt: string | null;
   lastMessage: ChatPreviewMessage | null;
   lastAt: string;
   unreadCount: number;
@@ -46,6 +48,7 @@ type PartnerProfile = {
   id: string;
   username: string;
   avatar_url?: string | null;
+  last_seen_at?: string | null;
 };
 
 async function loadProfilesByIds(partnerIds: string[]): Promise<{
@@ -58,7 +61,7 @@ async function loadProfilesByIds(partnerIds: string[]): Promise<{
 
   const { data, error } = await supabase
     .from("profiles")
-    .select("id, username, avatar_url")
+    .select("id, username, avatar_url, last_seen_at")
     .in("id", partnerIds);
 
   if (error) {
@@ -72,6 +75,20 @@ async function loadProfilesByIds(partnerIds: string[]): Promise<{
   }
 
   return { profiles, error: null };
+}
+
+function resolveInboxPartnerId(
+  userId: string,
+  conversation: DirectConversation,
+  latestMessage: DirectMessageRow | null | undefined
+) {
+  const messagePartnerId = latestMessage ? getDirectMessagePartnerId(latestMessage, userId) : null;
+
+  if (messagePartnerId) {
+    return messagePartnerId;
+  }
+
+  return getConversationPartnerId(conversation, userId);
 }
 
 async function countUnreadByPartner(userId: string, excludedPartners?: ReadonlySet<string>) {
@@ -105,7 +122,11 @@ function conversationByPartnerId(conversations: DirectConversation[], userId: st
   const map = new Map<string, DirectConversation>();
 
   for (const row of conversations) {
-    map.set(getConversationPartnerId(row, userId), row);
+    const partnerId = getConversationPartnerId(row, userId);
+
+    if (partnerId) {
+      map.set(partnerId, row);
+    }
   }
 
   return map;
@@ -144,7 +165,12 @@ export async function loadChatsInbox(userId: string) {
 
   const conversationMap = conversationByPartnerId(conversations, userId);
   const allPartnerIds = [
-    ...new Set([...messagePartnerIds, ...conversations.map((row) => getConversationPartnerId(row, userId))]),
+    ...new Set([
+      ...messagePartnerIds,
+      ...conversations
+        .map((row) => getConversationPartnerId(row, userId))
+        .filter((partnerId): partnerId is string => Boolean(partnerId)),
+    ]),
   ];
 
   const { messages, error: messagesError } = await loadMessagesForPartners(userId, allPartnerIds);
@@ -175,7 +201,14 @@ export async function loadChatsInbox(userId: string) {
   const requests: MessageRequestItemData[] = [];
 
   for (const row of conversations) {
-    const partnerId = getConversationPartnerId(row, userId);
+    const conversationPartnerId = getConversationPartnerId(row, userId);
+    const threadLatest = conversationPartnerId ? latestByPartner.get(conversationPartnerId) : undefined;
+    const partnerId = resolveInboxPartnerId(userId, row, threadLatest);
+
+    if (!partnerId) {
+      continue;
+    }
+
     const profile = profiles.get(partnerId);
 
     if (profile && isGuideAccountUsername(profile.username)) {
@@ -184,15 +217,15 @@ export async function loadChatsInbox(userId: string) {
 
     if (isIncomingRequest(row, userId)) {
       const firstMessage = firstByPartner.get(partnerId);
-      const latest = latestByPartner.get(partnerId);
+      const requestLatest = latestByPartner.get(partnerId);
 
       requests.push({
         conversationId: row.id,
         partnerId,
         username: publicProfileUsername(profile?.username),
         avatarUrl: profile?.avatar_url ?? null,
-        previewMessage: firstMessage ?? latest ?? null,
-        requestedAt: firstMessage?.created_at ?? latest?.created_at ?? row.created_at,
+        previewMessage: firstMessage ?? requestLatest ?? null,
+        requestedAt: firstMessage?.created_at ?? requestLatest?.created_at ?? row.created_at,
       });
       continue;
     }
@@ -207,7 +240,7 @@ export async function loadChatsInbox(userId: string) {
       continue;
     }
 
-    const latest = latestByPartner.get(partnerId);
+    const latest = latestByPartner.get(partnerId) ?? threadLatest ?? null;
     const isMuted = preference?.muted ?? false;
     const unreadCount = dmPartners.has(partnerId) ? 0 : (unreadByPartner.get(partnerId) ?? 0);
 
@@ -216,6 +249,7 @@ export async function loadChatsInbox(userId: string) {
       conversationId: row.id,
       username: publicProfileUsername(profile?.username),
       avatarUrl: profile?.avatar_url ?? null,
+      lastSeenAt: profile?.last_seen_at ?? null,
       lastMessage: latest ?? null,
       lastAt: latest?.created_at ?? row.updated_at,
       unreadCount,
@@ -224,26 +258,36 @@ export async function loadChatsInbox(userId: string) {
     });
   }
 
-  for (const partnerId of messagePartnerIds) {
-    if (conversationMap.has(partnerId)) {
+  for (const messagePartnerId of messagePartnerIds) {
+    if (!messagePartnerId || messagePartnerId === userId) {
       continue;
     }
 
-    const preference = dmPreferences.get(partnerId);
+    if (conversationMap.has(messagePartnerId)) {
+      continue;
+    }
+
+    const preference = dmPreferences.get(messagePartnerId);
 
     if (preference?.hidden) {
       continue;
     }
 
-    const profile = profiles.get(partnerId);
+    const profile = profiles.get(messagePartnerId);
 
     if (profile && isGuideAccountUsername(profile.username)) {
       continue;
     }
 
-    const latest = latestByPartner.get(partnerId);
+    const latest = latestByPartner.get(messagePartnerId);
 
     if (!latest) {
+      continue;
+    }
+
+    const partnerId = getDirectMessagePartnerId(latest, userId) ?? messagePartnerId;
+
+    if (!partnerId || partnerId === userId) {
       continue;
     }
 
@@ -255,6 +299,7 @@ export async function loadChatsInbox(userId: string) {
       conversationId: null,
       username: publicProfileUsername(profile?.username),
       avatarUrl: profile?.avatar_url ?? null,
+      lastSeenAt: profile?.last_seen_at ?? null,
       lastMessage: latest,
       lastAt: latest.created_at,
       unreadCount,

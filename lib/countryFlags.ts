@@ -59,6 +59,23 @@ export const countryFlagBySlug: Record<string, string> = {
 };
 
 export const countryFlagByCode: Record<string, string> = {
+  CH: "🇨🇭",
+  DE: "🇩🇪",
+  FR: "🇫🇷",
+  IT: "🇮🇹",
+  ES: "🇪🇸",
+  GB: "🇬🇧",
+  AT: "🇦🇹",
+  NL: "🇳🇱",
+  BE: "🇧🇪",
+  PL: "🇵🇱",
+  CZ: "🇨🇿",
+  HU: "🇭🇺",
+  GR: "🇬🇷",
+  PT: "🇵🇹",
+  IE: "🇮🇪",
+  RU: "🇷🇺",
+  UA: "🇺🇦",
   XK: KOSOVO_FLAG,
 };
 

@@ -4,6 +4,7 @@ import {
   createContext,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
@@ -39,6 +40,22 @@ export function useAuthSession() {
 type AuthSessionProviderProps = {
   children: ReactNode;
 };
+
+function sessionsEqual(previous: Session | null, next: Session | null) {
+  if (previous === next) {
+    return true;
+  }
+
+  if (!previous || !next) {
+    return !previous && !next;
+  }
+
+  return (
+    previous.access_token === next.access_token &&
+    previous.expires_at === next.expires_at &&
+    previous.user?.id === next.user?.id
+  );
+}
 
 export function AuthSessionProvider({ children }: AuthSessionProviderProps) {
   const pathname = usePathname();
@@ -94,11 +111,23 @@ export function AuthSessionProvider({ children }: AuthSessionProviderProps) {
         return;
       }
 
-      setState((prev) => ({
-        session,
-        loading: false,
-        expired: event === "SIGNED_OUT" ? prev.expired : false,
-      }));
+      setState((prev) => {
+        const nextExpired = event === "SIGNED_OUT" ? prev.expired : false;
+
+        if (
+          prev.loading === false &&
+          prev.expired === nextExpired &&
+          sessionsEqual(prev.session, session)
+        ) {
+          return prev;
+        }
+
+        return {
+          session,
+          loading: false,
+          expired: nextExpired,
+        };
+      });
 
       if (event === "SIGNED_OUT" && !session) {
         void getSafeAuthSession().then((result) => {
@@ -141,7 +170,12 @@ export function AuthSessionProvider({ children }: AuthSessionProviderProps) {
     })();
   }, [state.loading, state.expired, pathname, router]);
 
+  const contextValue = useMemo(
+    () => state,
+    [state.session, state.loading, state.expired]
+  );
+
   return (
-    <AuthSessionContext.Provider value={state}>{children}</AuthSessionContext.Provider>
+    <AuthSessionContext.Provider value={contextValue}>{children}</AuthSessionContext.Provider>
   );
 }

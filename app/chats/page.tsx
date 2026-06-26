@@ -40,6 +40,7 @@ import {
   type RoomIncomingDetail,
 } from "@/lib/chatUnreadSync";
 import { hideRoomFromMessages, setRoomMuted, type RoomInboxRow } from "@/lib/roomMemberships";
+import { PRESENCE_HEARTBEAT_MS } from "@/lib/userPresence";
 import { supabase } from "@/lib/supabaseClient";
 
 type ChatsTab = "chats" | "requests";
@@ -84,6 +85,25 @@ export default function ChatsPage() {
       subscription?.unsubscribe();
     };
   }, []);
+
+  useEffect(() => {
+    if (!session?.user) {
+      return;
+    }
+
+    const interval = setInterval(() => {
+      if (document.visibilityState !== "visible") {
+        return;
+      }
+
+      silentReloadRef.current = true;
+      setReloadKey((current) => current + 1);
+    }, PRESENCE_HEARTBEAT_MS);
+
+    return () => {
+      clearInterval(interval);
+    };
+  }, [session?.user]);
 
   useEffect(() => {
     const onInboxRefresh = () => refresh();

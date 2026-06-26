@@ -1,10 +1,16 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import { Globe2 } from "lucide-react";
 import { useI18n } from "@/components/I18nProvider";
 import { localizeCountryName, localizeCityName } from "@/lib/i18n/localizeGeo";
 import { formatRoomMessagePreview, formatRoomUnreadLabel } from "@/lib/roomMessagePreview";
+import {
+  logRoomInboxFlagDebug,
+  resolveRoomInboxCountryIsoCode,
+  roomInboxFlagImageUrl,
+} from "@/lib/roomInboxCountryFlag";
 import {
   buildRoomHref,
   ROOM_FROM_MESSAGES,
@@ -40,6 +46,7 @@ function formatRoomTime(createdAt: string) {
 
 export default function RoomInboxListItem({ room, onLongPress }: RoomInboxListItemProps) {
   const { t, locale } = useI18n();
+  const [flagImageFailed, setFlagImageFailed] = useState(false);
   const hasUnread = !room.isMuted && room.unreadCount > 0;
   const preview = formatRoomMessagePreview(room.lastMessageContent, t);
   const unreadLabel = formatRoomUnreadLabel(room.unreadCount, t);
@@ -49,6 +56,39 @@ export default function RoomInboxListItem({ room, onLongPress }: RoomInboxListIt
   });
 
   const roomHref = buildRoomHref(room.countrySlug, room.citySlug, { from: ROOM_FROM_MESSAGES });
+  const cityTitle = localizeCityName(locale, {
+    slug: room.citySlug,
+    name: room.cityName,
+    countrySlug: room.countrySlug,
+  });
+
+  const flagInput = {
+    countrySlug: room.countrySlug,
+    countryCode: room.countryCode,
+    countryName: room.countryName,
+    citySlug: room.citySlug,
+    cityName: room.cityName,
+    displayTitle: cityTitle,
+  };
+
+  const countryIsoCode = resolveRoomInboxCountryIsoCode(flagInput);
+  const showFlagImage = Boolean(countryIsoCode && !flagImageFailed);
+
+  useEffect(() => {
+    setFlagImageFailed(false);
+  }, [countryIsoCode, room.membershipId]);
+
+  useEffect(() => {
+    logRoomInboxFlagDebug(flagInput);
+  }, [
+    cityTitle,
+    room.cityName,
+    room.citySlug,
+    room.countryCode,
+    room.countryName,
+    room.countrySlug,
+    room.membershipId,
+  ]);
 
   const markReturnToMessages = () => {
     setRoomReturnToMessages();
@@ -68,7 +108,17 @@ export default function RoomInboxListItem({ room, onLongPress }: RoomInboxListIt
       >
         <div className="relative shrink-0">
           <div className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-full bg-white/[0.06] sm:h-16 sm:w-16">
-            <Globe2 className="h-6 w-6 text-primary" strokeWidth={1.5} aria-hidden />
+            {showFlagImage ? (
+              <img
+                src={roomInboxFlagImageUrl(countryIsoCode!)}
+                alt=""
+                draggable={false}
+                className="h-full w-full object-cover"
+                onError={() => setFlagImageFailed(true)}
+              />
+            ) : (
+              <Globe2 className="h-6 w-6 text-primary" strokeWidth={1.5} aria-hidden />
+            )}
           </div>
           {hasUnread ? (
             <span className="absolute -right-0.5 -top-0.5 h-3.5 w-3.5 rounded-full border-2 border-[#0B1026] bg-primary" />
@@ -78,11 +128,7 @@ export default function RoomInboxListItem({ room, onLongPress }: RoomInboxListIt
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline justify-between gap-2">
             <p className={`truncate text-[15px] sm:text-base ${hasUnread ? "font-bold text-white" : "font-semibold text-white"}`}>
-              {localizeCityName(locale, {
-                slug: room.citySlug,
-                name: room.cityName,
-                countrySlug: room.countrySlug,
-              })}
+              {cityTitle}
             </p>
             <time className={`shrink-0 text-xs ${hasUnread ? "font-semibold text-primary" : "text-muted"}`}>
               {formatRoomTime(room.lastAt)}

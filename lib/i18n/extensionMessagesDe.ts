@@ -20,6 +20,15 @@ export const EXTENSION_DE: Record<ExtensionKey, string> = {
   "common.username": "Benutzername",
   "common.online": "Online",
 
+  "presence.lastSeenRecently": "Zuletzt kürzlich online",
+  "presence.lastSeenJustNow": "Zuletzt gerade online",
+  "presence.lastSeenMinutesAgo": "Zuletzt vor {count} Min. online",
+  "presence.lastSeenHoursAgo": "Zuletzt vor {count} Std. online",
+  "presence.statusUnknown": "Status nicht verfügbar",
+  "presence.lastSeen": "Zuletzt online {time}",
+  "presence.lastSeenYesterday": "Zuletzt gestern online {time}",
+  "presence.lastSeenDate": "Zuletzt online {date}",
+
   "auth.tagline": "Spots teilen. Orte entdecken.",
   "auth.logIn": "Anmelden",
   "auth.createAccount": "Konto erstellen",
@@ -177,6 +186,7 @@ export const EXTENSION_DE: Record<ExtensionKey, string> = {
   "dm.placeholder.acceptToReply": "Nimm die Anfrage an, um zu antworten…",
   "dm.placeholder.waiting": "Warten auf Annahme…",
   "dm.placeholder.message": "Nachricht…",
+  "dm.typing": "{name} tippt…",
   "dm.error.invalidConversation": "Ungültige Unterhaltung.",
   "dm.error.loadConversation": "Unterhaltung konnte nicht geladen werden.",
   "dm.error.loadMessages": "Nachrichten konnten nicht geladen werden.",

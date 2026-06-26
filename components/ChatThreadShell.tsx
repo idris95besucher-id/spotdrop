@@ -1,24 +1,15 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { useKeyboardInsets } from "@/lib/useKeyboardInsets";
 
 type ChatThreadShellProps = {
   children: ReactNode;
 };
 
+/** Shared chat shell for city rooms / channels (no DM keyboard viewport logic). */
 export default function ChatThreadShell({ children }: ChatThreadShellProps) {
-  const { isKeyboardOpen, visualViewportHeight } = useKeyboardInsets();
-
   return (
-    <div
-      className="flex min-h-0 flex-col overflow-hidden bg-[#050816] text-white"
-      style={
-        isKeyboardOpen && visualViewportHeight
-          ? { height: `${visualViewportHeight}px`, maxHeight: `${visualViewportHeight}px` }
-          : { height: "100dvh", maxHeight: "100dvh" }
-      }
-    >
+    <div className="flex h-[100dvh] max-h-[100dvh] min-h-0 flex-col overflow-hidden bg-[#050816] text-white">
       {children}
     </div>
   );

@@ -20,7 +20,9 @@ import {
   type ResolvedProfileLocation,
 } from "@/lib/profileLocation";
 import ProfileScreenLayout from "@/components/profile/ProfileScreenLayout";
+import UserPresenceLabel from "@/components/UserPresenceLabel";
 import Shell from "@/components/Shell";
+import { useUserPresence } from "@/lib/useUserPresence";
 import { supabase } from "@/lib/supabaseClient";
 
 type Profile = {
@@ -84,6 +86,9 @@ export default function UserPage({ userIdOverride }: { userIdOverride?: string }
   const [postsError, setPostsError] = useState<string | null>(null);
 
   const isOwnProfile = Boolean(viewerId && profile?.id && viewerId === profile.id);
+  const { lastSeenAt: profileLastSeenAt } = useUserPresence(
+    profile?.id && !isOwnProfile ? profile.id : null
+  );
 
   const handlePostDeleted = (postId: string) => {
     setPersonalPosts((current) => current.filter((post) => post.id !== postId));
@@ -320,6 +325,12 @@ export default function UserPage({ userIdOverride }: { userIdOverride?: string }
                     {profile.name?.trim() || profile.username}
                   </h1>
                   <p className="text-sm font-medium text-slate-500 sm:text-center">@{profile.username}</p>
+                  {!isOwnProfile ? (
+                    <UserPresenceLabel
+                      lastSeenAt={profileLastSeenAt}
+                      className="justify-center text-slate-400 sm:mx-auto"
+                    />
+                  ) : null}
                   {locationLine ? (
                     <p className="text-sm font-medium text-slate-400 sm:text-center">{locationLine}</p>
                   ) : null}

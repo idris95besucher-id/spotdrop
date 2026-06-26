@@ -1,7 +1,7 @@
 import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
-  appId: 'com.spotdrop.app',
+  appId: 'com.idrisgazimagomaev.spotdropapp',
   appName: 'SpotDrop',
   webDir: 'out',
   server: {

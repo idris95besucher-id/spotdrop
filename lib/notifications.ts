@@ -108,17 +108,22 @@ export function buildNotificationPushPayload(notification: Pick<NotificationRow,
   switch (notification.type) {
     case "direct_message": {
       const name = publicProfileUsername(metadataString(metadata, "senderUsername") || "Someone");
+      const preview = metadataString(metadata, "preview");
       const messageType = metadataString(metadata, "messageType");
 
+      if (preview) {
+        return { title: name, body: preview };
+      }
+
       if (messageType === "spot_share_request") {
-        return { title: "New message", body: `${name} sent you a CheckSpot request` };
+        return { title: name, body: "Sent you a CheckSpot request" };
       }
 
       if (messageType === "spot") {
-        return { title: "New message", body: `${name} sent you a Spot` };
+        return { title: name, body: "Sent you a Spot" };
       }
 
-      return { title: "New message", body: `${name} sent you a message` };
+      return { title: name, body: "Sent you a message" };
     }
     case "new_follower": {
       const name = publicProfileUsername(metadataString(metadata, "followerUsername") || "Someone");
@@ -133,16 +138,20 @@ export function buildNotificationPushPayload(notification: Pick<NotificationRow,
       };
     }
     case "room_message": {
-      const city = metadataString(metadata, "cityName") || "your city room";
-      return { title: "City room", body: `New messages in ${city}` };
+      const city = metadataString(metadata, "cityName") || "City room";
+      const preview = metadataString(metadata, "preview");
+      return {
+        title: city,
+        body: preview || "New room message",
+      };
     }
     case "room_mention": {
       const name = publicProfileUsername(metadataString(metadata, "senderUsername") || "Someone");
-      const city = metadataString(metadata, "cityName") || "a city room";
+      const city = metadataString(metadata, "cityName") || "City room";
       const preview = metadataString(metadata, "preview");
       return {
-        title: "You were mentioned",
-        body: preview ? `${name} mentioned you in ${city}: ${preview}` : `${name} mentioned you in ${city}`,
+        title: city,
+        body: preview ? `${name}: ${preview}` : `${name} mentioned you`,
       };
     }
     default:

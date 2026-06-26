@@ -42,7 +42,12 @@ function isAuthorized(request: Request) {
 }
 
 function shouldSendPushForType(type: NotificationRow["type"]) {
-  return type === "direct_message" || type === "room_mention" || type === "new_follower";
+  return (
+    type === "direct_message" ||
+    type === "room_message" ||
+    type === "room_mention" ||
+    type === "new_follower"
+  );
 }
 
 export async function POST(request: Request) {
@@ -176,18 +181,17 @@ export async function POST(request: Request) {
   const messaging = getFirebaseAdminMessaging();
 
   if (messaging && isFcmConfigured()) {
-    const { data: fcmTokens, error: fcmError } = await admin
-      .from("fcm_device_tokens")
-      .select("fcm_token")
-      .eq("user_id", targetUserId);
+    let pushTokens: string[] = [];
 
-    if (fcmError && !isMissingFcmTable(fcmError)) {
-      return NextResponse.json({ error: fcmError.message }, { status: 500 });
+    try {
+      pushTokens = await loadUserPushTokens(admin, targetUserId);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to load push tokens.";
+      return NextResponse.json({ error: message }, { status: 500 });
     }
 
     await Promise.all(
-      (fcmTokens ?? []).map(async (row) => {
-        const token = String(row.fcm_token);
+      pushTokens.map(async (token) => {
 
         try {
           await messaging.send({
@@ -236,6 +240,7 @@ export async function POST(request: Request) {
     );
 
     if (staleFcmTokens.length) {
+      await admin.from("user_push_tokens").delete().in("token", staleFcmTokens);
       await admin.from("fcm_device_tokens").delete().in("fcm_token", staleFcmTokens);
     }
   }
@@ -259,14 +264,50 @@ export async function POST(request: Request) {
   });
 }
 
-function isMissingFcmTable(error: { code?: string; message?: string }) {
+function isMissingPushTokensTable(error: { code?: string; message?: string }) {
   const message = error.message?.toLowerCase() ?? "";
 
   return (
     error.code === "42P01" ||
     error.code === "PGRST205" ||
+    (message.includes("user_push_tokens") && message.includes("does not exist")) ||
     (message.includes("fcm_device_tokens") && message.includes("does not exist"))
   );
+}
+
+async function loadUserPushTokens(
+  admin: NonNullable<ReturnType<typeof createSupabaseAdminClient>>,
+  userId: string
+) {
+  const tokens = new Set<string>();
+
+  const { data: primaryRows, error: primaryError } = await admin
+    .from("user_push_tokens")
+    .select("token")
+    .eq("user_id", userId);
+
+  if (primaryError && !isMissingPushTokensTable(primaryError)) {
+    throw new Error(primaryError.message);
+  }
+
+  for (const row of primaryRows ?? []) {
+    tokens.add(String(row.token));
+  }
+
+  const { data: legacyRows, error: legacyError } = await admin
+    .from("fcm_device_tokens")
+    .select("fcm_token")
+    .eq("user_id", userId);
+
+  if (legacyError && !isMissingPushTokensTable(legacyError)) {
+    throw new Error(legacyError.message);
+  }
+
+  for (const row of legacyRows ?? []) {
+    tokens.add(String(row.fcm_token));
+  }
+
+  return [...tokens];
 }
 
 async function countUnreadNotificationsAdmin(

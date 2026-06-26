@@ -20,6 +20,15 @@ export const EXTENSION_EN = {
   "common.username": "Username",
   "common.online": "Online",
 
+  "presence.lastSeenRecently": "Last seen recently",
+  "presence.lastSeenJustNow": "Last seen just now",
+  "presence.lastSeenMinutesAgo": "Last seen {count} min ago",
+  "presence.lastSeenHoursAgo": "Last seen {count} hr ago",
+  "presence.statusUnknown": "Status unavailable",
+  "presence.lastSeen": "Last seen {time}",
+  "presence.lastSeenYesterday": "Last seen yesterday {time}",
+  "presence.lastSeenDate": "Last seen {date}",
+
   "auth.tagline": "Share spots. Discover places.",
   "auth.logIn": "Log in",
   "auth.createAccount": "Create account",
@@ -177,6 +186,7 @@ export const EXTENSION_EN = {
   "dm.placeholder.acceptToReply": "Accept the request to reply…",
   "dm.placeholder.waiting": "Waiting for them to accept…",
   "dm.placeholder.message": "Message…",
+  "dm.typing": "{name} is typing…",
   "dm.error.invalidConversation": "Invalid conversation.",
   "dm.error.loadConversation": "Unable to load conversation.",
   "dm.error.loadMessages": "Unable to load messages.",

@@ -6,7 +6,9 @@ import { useI18n } from "@/components/I18nProvider";
 import { formatChatPreview } from "@/lib/i18n/chatPreview";
 import type { InboxChatRow } from "@/lib/chatsInbox";
 import { publicProfileUsername } from "@/lib/publicProfile";
+import { dmThreadHref } from "@/lib/chatThreadRoutes";
 import { useLongPress } from "@/lib/useLongPress";
+import UserOnlineDot from "@/components/UserOnlineDot";
 
 type DmInboxListItemProps = {
   chat: InboxChatRow;
@@ -47,7 +49,7 @@ export default function DmInboxListItem({ chat, onLongPress }: DmInboxListItemPr
   return (
     <li {...longPressProps} className="select-none touch-manipulation">
       <Link
-        href={`/dm?id=${chat.partnerId}`}
+        href={dmThreadHref(chat.partnerId)}
         onClickCapture={onClickCapture}
         className={`flex items-center gap-3 px-4 py-3.5 transition sm:gap-4 sm:px-5 sm:py-4 ${
           hasUnread ? "bg-primary/[0.06]" : "hover:bg-white/[0.03]"
@@ -65,6 +67,7 @@ export default function DmInboxListItem({ chat, onLongPress }: DmInboxListItemPr
           {hasUnread ? (
             <span className="absolute -right-0.5 -top-0.5 h-3.5 w-3.5 rounded-full border-2 border-[#0B1026] bg-primary" />
           ) : null}
+          <UserOnlineDot lastSeenAt={chat.lastSeenAt} />
         </div>
 
         <div className="min-w-0 flex-1">

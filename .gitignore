@@ -24,6 +24,7 @@
 # misc
 .DS_Store
 *.pem
+ios/App/App/GoogleService-Info.plist
 
 # debug
 npm-debug.log*

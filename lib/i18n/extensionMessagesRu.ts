@@ -20,6 +20,15 @@ export const EXTENSION_RU: Record<ExtensionKey, string> = {
   "common.username": "Имя пользователя",
   "common.online": "В сети",
 
+  "presence.lastSeenRecently": "Недавно в сети",
+  "presence.lastSeenJustNow": "Был(а) в сети только что",
+  "presence.lastSeenMinutesAgo": "Был(а) в сети {count} мин. назад",
+  "presence.lastSeenHoursAgo": "Был(а) в сети {count} ч. назад",
+  "presence.statusUnknown": "Статус недоступен",
+  "presence.lastSeen": "Был(а) в сети {time}",
+  "presence.lastSeenYesterday": "Был(а) в сети вчера {time}",
+  "presence.lastSeenDate": "Был(а) в сети {date}",
+
   "auth.tagline": "Делитесь местами. Открывайте новое.",
   "auth.logIn": "Войти",
   "auth.createAccount": "Создать аккаунт",
@@ -177,6 +186,7 @@ export const EXTENSION_RU: Record<ExtensionKey, string> = {
   "dm.placeholder.acceptToReply": "Примите запрос, чтобы ответить…",
   "dm.placeholder.waiting": "Ожидание принятия…",
   "dm.placeholder.message": "Сообщение…",
+  "dm.typing": "{name} печатает…",
   "dm.error.invalidConversation": "Недействительный чат.",
   "dm.error.loadConversation": "Не удалось загрузить чат.",
   "dm.error.loadMessages": "Не удалось загрузить сообщения.",

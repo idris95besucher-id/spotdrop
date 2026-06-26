@@ -5,9 +5,10 @@ import { useParams } from "next/navigation";
 import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import type { Session } from "@supabase/supabase-js";
-import { ChevronLeft, UserRound } from "lucide-react";
 import ChatDateSeparator from "@/components/ChatDateSeparator";
-import ChatThreadShell from "@/components/ChatThreadShell";
+import DmChatThreadShell from "@/components/DmChatThreadShell";
+import DmComposerPortal from "@/components/DmComposerPortal";
+import DmThreadHeader from "@/components/DmThreadHeader";
 import DirectMessageSpotShareCard from "@/components/DirectMessageSpotShareCard";
 import DirectMessageSpotCard from "@/components/DirectMessageSpotCard";
 import DmMessageStatus from "@/components/DmMessageStatus";
@@ -31,23 +32,34 @@ import {
   isSpotShareDirectMessage,
   loadDirectMessagesForThread,
   normalizeDirectMessageRow,
+  resolveDmThreadPartnerId,
   spotShareMessageCardType,
   touchConversationUpdatedAt,
   type DirectConversation,
   type DirectMessageType,
 } from "@/lib/directConversations";
-import { CHATS_INBOX_REFRESH_EVENT } from "@/lib/chatsInbox";
 import { startDmThreadLiveSync, type DmAppendSource } from "@/lib/dmThreadSync";
+import { CHATS_INBOX_REFRESH_EVENT } from "@/lib/chatsInbox";
+import { resolveDmRoutePartnerId } from "@/lib/chatThreadRoutes";
+import { startDmTypingSync } from "@/lib/dmTypingIndicator";
+import { useDmPartnerPresence } from "@/lib/useDmPartnerPresence";
+import { fetchPartnerProfilePresenceDirect, resolveProfileIsOnline } from "@/lib/userPresence";
 import { checkCanMessageUser, type MessagePrivacyBlockReasonKey } from "@/lib/messagePrivacy";
 import { loadPrivateSpotSharesByIds, type PrivateSpotShare } from "@/lib/privateSpotShares";
 import { useDmThreadScroll } from "@/lib/useDmThreadScroll";
+import { useDmComposerPosition } from "@/lib/useDmComposerInsets";
+import { chatComposerBottomPadding } from "@/lib/useKeyboardInsets";
 import { isGuideAccountUsername, publicProfileUsername } from "@/lib/publicProfile";
 import { supabase } from "@/lib/supabaseClient";
 
 type PartnerProfile = {
   id: string;
   username: string;
+  name?: string | null;
+  profileUsername?: string;
   avatar_url?: string | null;
+  isOnline?: boolean;
+  lastSeenAt?: string | null;
 };
 
 type DirectMessage = {
@@ -67,13 +79,26 @@ type DmThreadViewProps = {
   partnerIdOverride?: string;
 };
 
+console.log("[DM SCREEN] app/dm/[userId]/DmThreadView.tsx module loaded");
+
 export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewProps = {}) {
   const { t } = useI18n();
   const params = useParams<{ userId?: string }>();
-  const partnerId = partnerIdOverride ?? params.userId ?? "";
+  const routeUserId = resolveDmRoutePartnerId({
+    partnerIdOverride,
+    paramsUserId: params.userId,
+  });
+
+  console.log("[DM SCREEN] app/dm/[userId]/DmThreadView.tsx render", {
+    routeUserId,
+    partnerIdOverride: partnerIdOverride ?? null,
+    paramsUserId: params.userId ?? null,
+  });
 
   const [session, setSession] = useState<Session | null>(null);
   const [partner, setPartner] = useState<PartnerProfile | null>(null);
+  const [partnerId, setPartnerId] = useState("");
+  const [partnerIdReady, setPartnerIdReady] = useState(false);
   const [conversation, setConversation] = useState<DirectConversation | null>(null);
   const [messages, setMessages] = useState<DirectMessage[]>([]);
   const [draft, setDraft] = useState("");
@@ -85,6 +110,8 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
   const [messagePrivacyBlockKey, setMessagePrivacyBlockKey] = useState<MessagePrivacyBlockReasonKey | null>(null);
   const [shareById, setShareById] = useState<Map<string, PrivateSpotShare>>(new Map());
   const [initialBottomReady, setInitialBottomReady] = useState(false);
+  const [currentUserUsername, setCurrentUserUsername] = useState("");
+  const [partnerTypingName, setPartnerTypingName] = useState<string | null>(null);
 
   const {
     messagesContainerRef,
@@ -95,19 +122,71 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
     scrollOnKeyboard,
   } = useDmThreadScroll();
   const composerTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const keyboardScrollTimeoutsRef = useRef<number[]>([]);
   const { refreshUnreadCount } = useChatNotifications();
   const markedReadForPartnerRef = useRef<string | null>(null);
   const seenMessageIdsRef = useRef(new Set<string>());
   const messagesRef = useRef<DirectMessage[]>([]);
   messagesRef.current = messages;
   const currentUserId = session?.user?.id ?? null;
-  const isSelfConversation = Boolean(currentUserId && partnerId && currentUserId === partnerId);
+  const threadPartnerId =
+    partnerIdReady && partnerId && currentUserId && partnerId !== currentUserId ? partnerId : null;
+  const isSelfConversation = Boolean(
+    currentUserId && partnerId && currentUserId === partnerId
+  );
+  const partnerPresence = useDmPartnerPresence(
+    threadPartnerId,
+    partner?.profileUsername ?? null
+  );
+  const headerIsOnline = partnerPresence.isOnline || partner?.isOnline === true;
+  const headerLastSeenAt = partnerPresence.lastSeenAt ?? partner?.lastSeenAt ?? null;
+
+  useEffect(() => {
+    console.log("[DM DEBUG] currentUserId", currentUserId);
+    console.log("[DM DEBUG] routeUserId", routeUserId);
+    console.log("[DM DEBUG] resolvedPartnerId", threadPartnerId);
+    console.log("[DM DEBUG] loadedPartnerProfile", {
+      id: partner?.id,
+      username: partner?.username,
+      name: partner?.name,
+      isOnline: partner?.isOnline,
+      lastSeenAt: partner?.lastSeenAt,
+    });
+  }, [currentUserId, routeUserId, threadPartnerId, partner]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    setPartnerIdReady(false);
+    setPartner(null);
+    setPartnerId("");
+
+    void (async () => {
+      const result = await resolveDmThreadPartnerId(currentUserId, routeUserId);
+
+      if (cancelled) {
+        return;
+      }
+
+      setPartnerId(result.partnerId ?? "");
+      setPartnerIdReady(true);
+
+      if (result.error) {
+        setError(result.error);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentUserId, routeUserId]);
   const showIncomingRequestBanner = Boolean(
     conversation && currentUserId && isIncomingRequest(conversation, currentUserId)
   );
   const sendPermission = canSendDirectMessage(conversation, currentUserId ?? "");
   const canSendMessages = sendPermission.allowed && !messagePrivacyBlockKey;
   const openBottomSequenceStartedRef = useRef<string | null>(null);
+  const typingSyncRef = useRef<ReturnType<typeof startDmTypingSync> | null>(null);
 
   useLayoutEffect(() => {
     setInitialBottomReady(false);
@@ -162,24 +241,103 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
   ]);
 
   useEffect(() => {
-    if (typeof window === "undefined" || !window.visualViewport) {
+    if (!currentUserId) {
+      setCurrentUserUsername("");
       return;
     }
 
-    const onViewportChange = () => {
-      if (document.activeElement === composerTextareaRef.current) {
-        scrollOnKeyboard();
-      }
-    };
+    let cancelled = false;
 
-    window.visualViewport.addEventListener("resize", onViewportChange);
-    window.visualViewport.addEventListener("scroll", onViewportChange);
+    void supabase
+      .from("profiles")
+      .select("username")
+      .eq("id", currentUserId)
+      .maybeSingle()
+      .then(({ data, error }) => {
+        if (cancelled) {
+          return;
+        }
+
+        if (error) {
+          console.warn("[Typing] username load failed", error.message);
+          setCurrentUserUsername("");
+          return;
+        }
+
+        setCurrentUserUsername(publicProfileUsername(data?.username ?? ""));
+      });
 
     return () => {
-      window.visualViewport?.removeEventListener("resize", onViewportChange);
-      window.visualViewport?.removeEventListener("scroll", onViewportChange);
+      cancelled = true;
     };
+  }, [currentUserId]);
+
+  useEffect(() => {
+    if (!currentUserId || !partnerId || isSelfConversation) {
+      setPartnerTypingName(null);
+      return;
+    }
+
+    const sync = startDmTypingSync({
+      currentUserId,
+      partnerId,
+      username: currentUserUsername || publicProfileUsername(t("common.user")),
+      onPartnerTyping: (name) => {
+        setPartnerTypingName(name);
+      },
+      onPartnerStopped: () => {
+        setPartnerTypingName(null);
+      },
+    });
+
+    typingSyncRef.current = sync;
+
+    return () => {
+      typingSyncRef.current = null;
+      sync.stop();
+      setPartnerTypingName(null);
+    };
+  }, [currentUserId, currentUserUsername, isSelfConversation, partnerId, t]);
+
+  const handleDraftChange = useCallback(
+    (value: string) => {
+      setDraft(value);
+
+      if (value.trim() && canSendMessages) {
+        typingSyncRef.current?.signalTyping();
+      }
+    },
+    [canSendMessages]
+  );
+
+  const scheduleComposerScrollBottom = useCallback(() => {
+    keyboardScrollTimeoutsRef.current.forEach((id) => window.clearTimeout(id));
+    keyboardScrollTimeoutsRef.current = [100, 300].map((delayMs) =>
+      window.setTimeout(() => {
+        scrollOnKeyboard();
+      }, delayMs)
+    );
   }, [scrollOnKeyboard]);
+
+  const { applyComposerBottom, isKeyboardOpen: isDmKeyboardOpen, messagesPaddingBottom, setComposerRef } =
+    useDmComposerPosition({
+      onViewportResize: scheduleComposerScrollBottom,
+    });
+
+  const handleComposerFocus = useCallback(() => {
+    applyComposerBottom();
+    requestAnimationFrame(() => {
+      applyComposerBottom();
+    });
+    scheduleComposerScrollBottom();
+  }, [applyComposerBottom, scheduleComposerScrollBottom]);
+
+  useEffect(() => {
+    return () => {
+      keyboardScrollTimeoutsRef.current.forEach((id) => window.clearTimeout(id));
+      keyboardScrollTimeoutsRef.current = [];
+    };
+  }, []);
 
   useEffect(() => {
     if (!currentUserId || !partnerId || isSelfConversation) {
@@ -230,6 +388,10 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
 
   useEffect(() => {
     const loadConversation = async () => {
+      if (!partnerIdReady) {
+        return;
+      }
+
       if (!partnerId) {
         setLoading(false);
         setError(t("dm.error.invalidConversation"));
@@ -242,7 +404,7 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
       setMessagePrivacyBlockKey(null);
 
       if (currentUserId && partnerId === currentUserId) {
-        setError(t("dm.cannotMessageSelf"));
+        setError(t("dm.error.invalidConversation"));
         setPartner(null);
         setMessages([]);
         setConversation(null);
@@ -252,7 +414,7 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
 
       const { data: partnerRow, error: partnerError } = await supabase
         .from("profiles")
-        .select("id, username, avatar_url")
+        .select("id, username, avatar_url, is_online, last_seen_at")
         .eq("id", partnerId)
         .maybeSingle();
 
@@ -275,10 +437,35 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
         return;
       }
 
+      if (currentUserId && partnerRow.id === currentUserId) {
+        const corrected = await resolveDmThreadPartnerId(currentUserId, routeUserId);
+
+        if (corrected.partnerId && corrected.partnerId !== currentUserId) {
+          setPartnerId(corrected.partnerId);
+          return;
+        }
+
+        setError(t("dm.error.invalidConversation"));
+        setPartner(null);
+        setMessages([]);
+        setConversation(null);
+        setLoading(false);
+        return;
+      }
+
+      const partnerLastSeenAt = (partnerRow.last_seen_at as string | null) ?? null;
+      const partnerIsOnline = resolveProfileIsOnline(partnerRow.is_online, partnerLastSeenAt);
+
       setPartner({
-        ...partnerRow,
+        id: partnerRow.id,
         username: publicProfileUsername(partnerRow.username),
+        profileUsername: partnerRow.username,
+        avatar_url: partnerRow.avatar_url,
+        isOnline: partnerIsOnline,
+        lastSeenAt: partnerLastSeenAt,
       } as PartnerProfile);
+
+      void fetchPartnerProfilePresenceDirect(partnerRow.id, partnerRow.username);
 
       if (!currentUserId) {
         setMessages([]);
@@ -331,7 +518,7 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
     };
 
     void loadConversation();
-  }, [currentUserId, partnerId, t]);
+  }, [currentUserId, partnerId, partnerIdReady, routeUserId, t]);
 
   const refreshUnreadCountRef = useRef(refreshUnreadCount);
   refreshUnreadCountRef.current = refreshUnreadCount;
@@ -574,6 +761,7 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
     }
 
     setDraft("");
+    setPartnerTypingName(null);
     void touchConversationUpdatedAt(currentUserId, partnerId);
     window.dispatchEvent(new Event(CHATS_INBOX_REFRESH_EVENT));
     scrollOnSend();
@@ -621,30 +809,13 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
 
   return (
     <Shell chatThread>
-      <ChatThreadShell>
-        <header className="shrink-0 border-b border-white/10 bg-[#0B1026]/95 px-2 py-2 backdrop-blur-xl sm:px-3">
-          <div className="flex items-center gap-1">
-            <Link
-              href="/chats"
-              className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-white transition hover:bg-white/5"
-              aria-label={t("dm.backToMessages")}
-            >
-              <ChevronLeft className="h-5 w-5" strokeWidth={2} aria-hidden />
-            </Link>
-            <div className="flex min-w-0 flex-1 items-center gap-2.5">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-white/[0.06] ring-1 ring-white/10">
-                {partner?.avatar_url ? (
-                  <img src={partner.avatar_url} alt="" className="h-full w-full object-cover" />
-                ) : (
-                  <UserRound className="h-4 w-4 text-muted" strokeWidth={1.75} aria-hidden />
-                )}
-              </div>
-              <h1 className="truncate text-[15px] font-semibold leading-tight text-white">
-                {partner ? publicProfileUsername(partner.username) : t("dm.chat")}
-              </h1>
-            </div>
-          </div>
-        </header>
+      <DmChatThreadShell>
+        <DmThreadHeader
+          partner={partner}
+          partnerLastSeenAt={headerLastSeenAt}
+          partnerIsOnline={headerIsOnline}
+          isSelfConversation={isSelfConversation}
+        />
 
         {showIncomingRequestBanner ? (
           <section className="shrink-0 border-b border-primary/20 bg-primary/10 px-4 py-3">
@@ -707,6 +878,9 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
                 ? "pointer-events-none invisible"
                 : ""
             }`}
+            style={{
+              paddingBottom: messagesPaddingBottom > 0 ? `${messagesPaddingBottom}px` : undefined,
+            }}
           >
             {!currentUserId && !loading ? (
               <div className="rounded-2xl border border-dashed border-white/10 bg-[#050816]/80 p-6 text-center text-sm text-slate-300">
@@ -805,12 +979,21 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
             <div ref={messagesEndRef} aria-hidden className="h-px w-full shrink-0" />
           </div>
 
-          <div className="relative shrink-0">
-            <form
-              onSubmit={(event) => void handleSend(event)}
-              className="border-t border-white/10 bg-[#0B1026]/95 p-3 backdrop-blur-xl"
-              style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}
-            >
+          <DmComposerPortal>
+            <div ref={setComposerRef} className="fixed left-0 right-0 z-[60] bg-[#050816]" style={{ bottom: 0 }}>
+              {partnerTypingName ? (
+                <p
+                  className="border-t border-white/5 bg-[#0B1026] px-4 py-1.5 text-xs text-slate-400"
+                  aria-live="polite"
+                >
+                  {t("dm.typing", { name: partnerTypingName })}
+                </p>
+              ) : null}
+              <form
+                onSubmit={(event) => void handleSend(event)}
+                className="border-t border-white/10 bg-[#050816] p-3"
+                style={{ paddingBottom: chatComposerBottomPadding(isDmKeyboardOpen) }}
+              >
             <div className="flex items-end gap-2">
               {currentUserId && partner && !isSelfConversation ? (
                 <ShareSpotToUserButton
@@ -826,8 +1009,8 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
                 name="spotdrop-dm-message"
                 autoComplete="off"
                 value={draft}
-                onChange={(event) => setDraft(event.target.value)}
-                onFocus={() => scrollOnKeyboard()}
+                onChange={(event) => handleDraftChange(event.target.value)}
+                onFocus={handleComposerFocus}
                 disabled={!currentUserId || isSelfConversation || !canSendMessages}
                 placeholder={composerPlaceholder}
                 rows={1}
@@ -845,9 +1028,10 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
               <p className="mt-2 text-xs text-red-300">{localizeUserMessage(t, sendError) ?? sendError}</p>
             ) : null}
             </form>
-          </div>
+            </div>
+          </DmComposerPortal>
         </section>
-      </ChatThreadShell>
+      </DmChatThreadShell>
     </Shell>
   );
 }

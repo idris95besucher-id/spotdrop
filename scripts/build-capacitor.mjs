@@ -52,6 +52,10 @@ try {
       CAPACITOR_BUILD: "1",
     },
   });
+  execSync("node scripts/verify-capacitor-presence-build.mjs", {
+    cwd: root,
+    stdio: "inherit",
+  });
 } finally {
   restoreApiRoutes();
 }

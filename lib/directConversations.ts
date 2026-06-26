@@ -3,6 +3,7 @@ import {
   checkCanMessageUser,
   type MessagePrivacyBlockReasonKey,
 } from "@/lib/messagePrivacy";
+import { isProfileUserId } from "@/lib/userPresence";
 import { supabase } from "@/lib/supabaseClient";
 
 const MESSAGE_PRIVACY_BLOCK_EN: Record<MessagePrivacyBlockReasonKey, string> = {
@@ -169,7 +170,101 @@ export function normalizeConversationPair(userIdA: string, userIdB: string) {
 }
 
 export function getConversationPartnerId(conversation: DirectConversation, userId: string) {
-  return conversation.user_one_id === userId ? conversation.user_two_id : conversation.user_one_id;
+  return getOtherParticipantId(userId, conversation.user_one_id, conversation.user_two_id);
+}
+
+export function getOtherParticipantId(
+  currentUserId: string,
+  participantA: string,
+  participantB: string
+): string | null {
+  if (participantA === currentUserId && participantB !== currentUserId) {
+    return participantB;
+  }
+
+  if (participantB === currentUserId && participantA !== currentUserId) {
+    return participantA;
+  }
+
+  return null;
+}
+
+export function getDirectMessagePartnerId(
+  message: { sender_id: string; recipient_id: string },
+  currentUserId: string
+) {
+  return getOtherParticipantId(currentUserId, message.sender_id, message.recipient_id);
+}
+
+/** Resolve DM thread partner — never treat the signed-in user as the partner. */
+export async function resolveDmThreadPartnerId(
+  currentUserId: string | null,
+  routeUserId: string
+) {
+  const route = routeUserId.trim();
+
+  if (!currentUserId) {
+    return {
+      partnerId: null as string | null,
+      partnerUsername: null as string | null,
+      error: null as string | null,
+    };
+  }
+
+  if (route && isProfileUserId(route) && route !== currentUserId) {
+    const { data } = await supabase
+      .from("profiles")
+      .select("username")
+      .eq("id", route)
+      .maybeSingle();
+
+    return {
+      partnerId: route,
+      partnerUsername: (data?.username as string | null) ?? null,
+      error: null as string | null,
+    };
+  }
+
+  const { data, error } = await supabase
+    .from("direct_messages")
+    .select("sender_id, recipient_id, created_at")
+    .or(`sender_id.eq.${currentUserId},recipient_id.eq.${currentUserId}`)
+    .order("created_at", { ascending: false })
+    .limit(25);
+
+  if (error) {
+    return {
+      partnerId: null as string | null,
+      partnerUsername: null as string | null,
+      error: error.message,
+    };
+  }
+
+  for (const row of data ?? []) {
+    const partnerId = getDirectMessagePartnerId(row, currentUserId);
+
+    if (!partnerId) {
+      continue;
+    }
+
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("username")
+      .eq("id", partnerId)
+      .maybeSingle();
+
+    return {
+      partnerId,
+      partnerUsername: (profile?.username as string | null) ?? null,
+      error: null as string | null,
+    };
+  }
+
+  return {
+    partnerId: null as string | null,
+    partnerUsername: null as string | null,
+    error: null as string | null,
+  };
 }
 
 export function isIncomingRequest(conversation: DirectConversation, userId: string) {
@@ -287,9 +382,9 @@ export async function loadDistinctMessagePartnerIds(userId: string) {
   const partnerIds = new Set<string>();
 
   for (const row of data ?? []) {
-    const partnerId = row.sender_id === userId ? row.recipient_id : row.sender_id;
+    const partnerId = getDirectMessagePartnerId(row, userId);
 
-    if (partnerId && partnerId !== userId) {
+    if (partnerId) {
       partnerIds.add(String(partnerId));
     }
   }
@@ -620,7 +715,7 @@ export function buildLatestMessageByPartner(messages: DirectMessageRow[], userId
   const latest = new Map<string, DirectMessageRow>();
 
   for (const message of messages) {
-    const partnerId = message.sender_id === userId ? message.recipient_id : message.sender_id;
+    const partnerId = getDirectMessagePartnerId(message, userId);
 
     if (!partnerId || latest.has(partnerId)) {
       continue;
@@ -688,7 +783,7 @@ export function buildFirstMessageByPartner(messages: DirectMessageRow[], userId:
   for (const message of [...messages].sort(
     (left, right) => new Date(left.created_at).getTime() - new Date(right.created_at).getTime()
   )) {
-    const partnerId = message.sender_id === userId ? message.recipient_id : message.sender_id;
+    const partnerId = getDirectMessagePartnerId(message, userId);
 
     if (!partnerId || first.has(partnerId)) {
       continue;

@@ -1,10 +1,13 @@
 import { formatUnreadBadge } from "@/lib/chatNotifications";
 import type { OptimisticReadExcludes } from "@/lib/chatUnreadSync";
+import { normalizeCountrySlug } from "@/lib/cityAttractionsCatalog";
+import { COUNTRY_SLUG_TO_CODE } from "@/lib/i18n/geoCountryCodes";
 import { supabase } from "@/lib/supabaseClient";
 
 export type RoomInboxRow = {
   membershipId: string;
   countrySlug: string;
+  countryCode?: string | null;
   citySlug: string;
   cityName: string;
   countryName: string;
@@ -28,6 +31,7 @@ type CountryRow = {
   id: string;
   slug: string;
   name: string;
+  code?: string | null;
 };
 
 type CityRow = {
@@ -337,7 +341,7 @@ async function resolveMembershipCities(memberships: RoomMembershipRow[]) {
 
   const { data: countries, error: countriesError } = await supabase
     .from("countries")
-    .select("id, slug, name")
+    .select("id, slug, name, code")
     .in("slug", countrySlugs);
 
   if (countriesError) {
@@ -383,6 +387,7 @@ async function resolveMembershipCities(memberships: RoomMembershipRow[]) {
         cityId: city.id,
         cityName: city.name,
         countryName: country.name,
+        countryCode: country.code ?? null,
       },
     ];
   });
@@ -397,6 +402,7 @@ function buildRoomInboxRows(
     cityId: string;
     cityName: string;
     countryName: string;
+    countryCode: string | null;
   }>,
   messages: CityMessageRow[]
 ) {
@@ -408,7 +414,7 @@ function buildRoomInboxRows(
     messagesByCity.set(message.city_id, bucket);
   }
 
-  const rooms: RoomInboxRow[] = resolved.map(({ membership, cityId, cityName, countryName }) => {
+  const rooms: RoomInboxRow[] = resolved.map(({ membership, cityId, cityName, countryName, countryCode }) => {
     const cityMessages = messagesByCity.get(cityId) ?? [];
     const latest = cityMessages[0] ?? null;
     const lastReadAt = membership.last_read_at ?? ROOM_MEMBERSHIP_EPOCH;
@@ -421,6 +427,7 @@ function buildRoomInboxRows(
     return {
       membershipId: membership.id,
       countrySlug: membership.country_slug,
+      countryCode,
       citySlug: membership.city_slug,
       cityName,
       countryName,
@@ -463,10 +470,16 @@ type RoomInboxRpcRow = {
   is_hidden: boolean;
 };
 
+function countryCodeFromInboxRow(countrySlug: string, countryName: string) {
+  const normalizedSlug = normalizeCountrySlug(countrySlug, countryName);
+  return COUNTRY_SLUG_TO_CODE[normalizedSlug]?.toUpperCase() ?? null;
+}
+
 function mapRpcRowsToInbox(rows: RoomInboxRpcRow[]): RoomInboxRow[] {
   return rows.map((row) => ({
     membershipId: `${row.country_slug}:${row.city_slug}`,
     countrySlug: row.country_slug,
+    countryCode: countryCodeFromInboxRow(row.country_slug, row.country_name),
     citySlug: row.city_slug,
     cityName: row.city_name,
     countryName: row.country_name,

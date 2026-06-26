@@ -8,6 +8,7 @@ import NotificationsProvider from "@/components/NotificationsProvider";
 import PostViewerProvider from "@/components/PostViewerProvider";
 import SpotLocationModalProvider from "@/components/SpotLocationModalProvider";
 import PushNotificationsBootstrap from "@/components/PushNotificationsBootstrap";
+import OnlinePresenceBootstrap from "@/components/OnlinePresenceBootstrap";
 import CapacitorLaunchGuard from "@/components/CapacitorLaunchGuard";
 import { I18nProvider } from "@/components/I18nProvider";
 import { getSafeAuthSession } from "@/lib/authSession";
@@ -24,6 +25,7 @@ import { MOBILE_APP_ROOT_CLASS } from "@/lib/mobileLayout";
 
 export default function AppProviders({ children }: { children: ReactNode }) {
   const [sessionUserId, setSessionUserId] = useState<string | null>(null);
+  const [authReady, setAuthReady] = useState(false);
 
   useEffect(() => {
     const prefs = loadUserSettingsPreferences();
@@ -34,13 +36,17 @@ export default function AppProviders({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     void getSafeAuthSession().then((result) => {
-      setSessionUserId(result.session?.user?.id ?? null);
+      const nextUserId = result.session?.user?.id ?? null;
+      setSessionUserId((current) => (current === nextUserId ? current : nextUserId));
+      setAuthReady(true);
     });
 
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSessionUserId(session?.user?.id ?? null);
+      const nextUserId = session?.user?.id ?? null;
+      setSessionUserId((current) => (current === nextUserId ? current : nextUserId));
+      setAuthReady(true);
     });
 
     return () => {
@@ -57,6 +63,7 @@ export default function AppProviders({ children }: { children: ReactNode }) {
             <NotificationsProvider>
             <CapacitorLaunchGuard />
             <PushNotificationsBootstrap userId={sessionUserId} />
+            <OnlinePresenceBootstrap userId={sessionUserId} authReady={authReady} />
             <SpotLocationModalProvider>
               <PostViewerProvider>
                 <div className={MOBILE_APP_ROOT_CLASS}>{children}</div>
