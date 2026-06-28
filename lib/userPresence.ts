@@ -6,6 +6,12 @@ import { supabase } from "@/lib/supabaseClient";
 export const PRESENCE_HEARTBEAT_MS = 45 * 1000;
 
 /** DM header treats partner as online when last_seen_at is this fresh. */
+export const PRESENCE_DM_ONLINE_MS = 2 * 60 * 1000;
+
+/** DM header "Last seen recently" window when offline. */
+export const PRESENCE_DM_RECENT_MS = 10 * 60 * 1000;
+
+/** @deprecated Use PRESENCE_DM_ONLINE_MS */
 export const PRESENCE_DM_FRESH_MS = 90 * 1000;
 
 /** Delay before writing is_online=false after confirmed background (not iOS noise). */
@@ -14,8 +20,8 @@ export const PRESENCE_SAFE_OFFLINE_MS = 3 * 60 * 1000;
 /** Offline but still "recently" active — inbox/profile only. */
 export const PRESENCE_RECENT_MS = 15 * 60 * 1000;
 
-/** DB fallback when Realtime Presence is unavailable. */
-export const PRESENCE_ONLINE_MS = 2 * 60 * 1000;
+/** DB fallback when Realtime Presence is unavailable — inbox/profile only. */
+export const PRESENCE_ONLINE_MS = PRESENCE_DM_ONLINE_MS;
 
 /** Re-evaluate relative last-seen labels in DM header. */
 export const PRESENCE_DM_DISPLAY_TICK_MS = 30 * 1000;
@@ -244,7 +250,21 @@ export function isUserOnline(lastSeenAt: string | null | undefined, now = Date.n
   return now - parsed <= PRESENCE_ONLINE_MS;
 }
 
-/** DM header — Realtime Presence, DB is_online, or fresh last_seen_at. */
+/** DM header — online when last_seen_at is within PRESENCE_DM_ONLINE_MS. */
+export function isDmPartnerOnline(
+  lastSeenAt: string | null | undefined,
+  now = Date.now()
+) {
+  const parsed = parseLastSeenAt(lastSeenAt);
+
+  if (parsed === null) {
+    return false;
+  }
+
+  return now - parsed <= PRESENCE_DM_ONLINE_MS;
+}
+
+/** @deprecated DM header uses isDmPartnerOnline(last_seen_at) only. */
 export function isPartnerOnlineForDm(
   presenceOnline: boolean,
   profileIsOnline: boolean,
@@ -255,13 +275,7 @@ export function isPartnerOnlineForDm(
     return true;
   }
 
-  const parsed = parseLastSeenAt(lastSeenAt);
-
-  if (parsed === null) {
-    return false;
-  }
-
-  return now - parsed <= PRESENCE_DM_FRESH_MS;
+  return isDmPartnerOnline(lastSeenAt, now);
 }
 
 function sameCalendarDay(a: Date, b: Date) {
@@ -305,45 +319,37 @@ function formatLastSeenTime(lastSeenAt: string, locale?: string) {
   return new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "short" }).format(date);
 }
 
-/** DM header — online dot or relative / formatted last seen. No vague "recently" fallback. */
+/** DM header — green dot + Online, or formatted last seen. Online = last_seen_at within 2 min. */
 export function formatDmHeaderPresenceLabel(
   status: DmPartnerPresenceStatus,
   t: TranslateFn,
   now = Date.now()
 ) {
-  if (status.isOnline) {
+  const parsed = parseLastSeenAt(status.lastSeenAt);
+  const isOnline = isDmPartnerOnline(status.lastSeenAt, now);
+
+  if (isOnline) {
     return { isOnline: true as const, label: t("common.online") };
   }
-
-  const parsed = parseLastSeenAt(status.lastSeenAt);
 
   if (parsed === null) {
     return { isOnline: false as const, label: t("presence.statusUnknown") };
   }
 
   const ageMs = now - parsed;
-  const minutes = Math.floor(ageMs / 60_000);
-  const hours = Math.floor(ageMs / 3_600_000);
   const seenDate = new Date(parsed);
   const today = new Date(now);
   const yesterday = new Date(now);
   yesterday.setDate(today.getDate() - 1);
 
-  if (minutes < 1) {
-    return { isOnline: false as const, label: t("presence.lastSeenJustNow") };
+  if (ageMs <= PRESENCE_DM_RECENT_MS) {
+    return { isOnline: false as const, label: t("presence.lastSeenRecently") };
   }
 
-  if (minutes < 60) {
+  if (sameCalendarDay(seenDate, today)) {
     return {
       isOnline: false as const,
-      label: t("presence.lastSeenMinutesAgo", { count: minutes }),
-    };
-  }
-
-  if (hours < 24 && sameCalendarDay(seenDate, today)) {
-    return {
-      isOnline: false as const,
-      label: t("presence.lastSeenHoursAgo", { count: hours }),
+      label: t("presence.lastSeen", { time: formatDmTimeHHmm(seenDate) }),
     };
   }
 

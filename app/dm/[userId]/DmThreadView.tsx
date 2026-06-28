@@ -138,8 +138,6 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
     threadPartnerId,
     partner?.profileUsername ?? null
   );
-  const headerIsOnline = partnerPresence.isOnline || partner?.isOnline === true;
-  const headerLastSeenAt = partnerPresence.lastSeenAt ?? partner?.lastSeenAt ?? null;
 
   useEffect(() => {
     console.log("[DM DEBUG] currentUserId", currentUserId);
@@ -812,8 +810,8 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
       <DmChatThreadShell>
         <DmThreadHeader
           partner={partner}
-          partnerLastSeenAt={headerLastSeenAt}
-          partnerIsOnline={headerIsOnline}
+          partnerLastSeenAt={partnerPresence.lastSeenAt ?? partner?.lastSeenAt ?? null}
+          partnerIsOnline={partnerPresence.isOnline}
           isSelfConversation={isSelfConversation}
         />
 

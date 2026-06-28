@@ -233,6 +233,7 @@ export default function OnlinePresenceBootstrap({
 
       console.log("[Online] goOnline confirmed active", {
         userId,
+        lastSeenAt: onlineResult.lastSeenAt,
         source,
         lifecycleGeneration: capturedGeneration,
       });
@@ -313,7 +314,14 @@ export default function OnlinePresenceBootstrap({
         return;
       }
 
-      await setUserOnline(userId, "heartbeat");
+      const result = await setUserOnline(userId, "heartbeat");
+
+      if (!result.error) {
+        console.log("[Online] heartbeat updated", {
+          userId,
+          lastSeenAt: result.lastSeenAt,
+        });
+      }
     };
 
     const startHeartbeatInterval = (source: string, lifecycleGeneration: number) => {
