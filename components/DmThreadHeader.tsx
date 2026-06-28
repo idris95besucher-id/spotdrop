@@ -16,6 +16,7 @@ type DmThreadHeaderProps = {
   partnerLastSeenAt: string | null;
   partnerIsOnline: boolean;
   isSelfConversation: boolean;
+  canSeePartnerPresence?: boolean | null;
 };
 
 /** Instagram-style DM header — always pinned at top of the DM shell. */
@@ -25,6 +26,7 @@ export default function DmThreadHeader({
   partnerLastSeenAt,
   partnerIsOnline,
   isSelfConversation,
+  canSeePartnerPresence = true,
 }: DmThreadHeaderProps) {
   const { t } = useI18n();
 
@@ -55,10 +57,14 @@ export default function DmThreadHeader({
               {partner ? publicProfileUsername(partner.username) : t("dm.chat")}
             </h1>
             {partner && !isSelfConversation ? (
-              <DmHeaderPresenceLabel
-                presence={{ isOnline: partnerIsOnline, lastSeenAt: partnerLastSeenAt }}
-                className="mt-0.5"
-              />
+              canSeePartnerPresence === false ? (
+                <p className="mt-0.5 truncate text-xs text-muted">{t("presence.hidden")}</p>
+              ) : canSeePartnerPresence === true ? (
+                <DmHeaderPresenceLabel
+                  presence={{ isOnline: partnerIsOnline, lastSeenAt: partnerLastSeenAt }}
+                  className="mt-0.5"
+                />
+              ) : null
             ) : null}
           </div>
         </div>

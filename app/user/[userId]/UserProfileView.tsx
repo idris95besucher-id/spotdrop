@@ -23,6 +23,7 @@ import ProfileScreenLayout from "@/components/profile/ProfileScreenLayout";
 import UserPresenceLabel from "@/components/UserPresenceLabel";
 import Shell from "@/components/Shell";
 import { useUserPresence } from "@/lib/useUserPresence";
+import { useCanSeeOnlineStatus } from "@/lib/useCanSeeOnlineStatus";
 import { supabase } from "@/lib/supabaseClient";
 
 type Profile = {
@@ -86,8 +87,9 @@ export default function UserPage({ userIdOverride }: { userIdOverride?: string }
   const [postsError, setPostsError] = useState<string | null>(null);
 
   const isOwnProfile = Boolean(viewerId && profile?.id && viewerId === profile.id);
+  const canSeeProfilePresence = useCanSeeOnlineStatus(viewerId, profile?.id ?? null);
   const { lastSeenAt: profileLastSeenAt } = useUserPresence(
-    profile?.id && !isOwnProfile ? profile.id : null
+    canSeeProfilePresence && profile?.id && !isOwnProfile ? profile.id : null
   );
 
   const handlePostDeleted = (postId: string) => {
@@ -325,11 +327,13 @@ export default function UserPage({ userIdOverride }: { userIdOverride?: string }
                     {profile.name?.trim() || profile.username}
                   </h1>
                   <p className="text-sm font-medium text-slate-500 sm:text-center">@{profile.username}</p>
-                  {!isOwnProfile ? (
+                  {!isOwnProfile && canSeeProfilePresence === true ? (
                     <UserPresenceLabel
                       lastSeenAt={profileLastSeenAt}
                       className="justify-center text-slate-400 sm:mx-auto"
                     />
+                  ) : !isOwnProfile && canSeeProfilePresence === false ? (
+                    <p className="text-sm text-slate-500 sm:text-center">{t("presence.hidden")}</p>
                   ) : null}
                   {locationLine ? (
                     <p className="text-sm font-medium text-slate-400 sm:text-center">{locationLine}</p>

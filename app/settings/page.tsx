@@ -44,6 +44,12 @@ import {
   normalizeMessagePrivacy,
   saveProfileMessagePrivacy,
 } from "@/lib/messagePrivacy";
+import {
+  normalizeOnlineVisibility,
+  ONLINE_VISIBILITY_VALUES,
+  saveProfileOnlineVisibility,
+  type OnlineVisibility,
+} from "@/lib/onlineVisibility";
 import { APP_LANGUAGES, applyDocumentLanguage, type AppLanguageCode } from "@/lib/languages";
 import {
   ACCENT_COLOR_OPTIONS,
@@ -59,6 +65,12 @@ const MESSAGE_PRIVACY_LABEL_KEYS: Record<MessagePrivacy, TranslationKey> = {
   followers: "settings.messagePrivacy.followers",
   friends: "settings.messagePrivacy.friends",
   nobody: "settings.messagePrivacy.nobody",
+};
+
+const ONLINE_VISIBILITY_LABEL_KEYS: Record<OnlineVisibility, TranslationKey> = {
+  everyone: "settings.onlineVisibility.everyone",
+  friends: "settings.onlineVisibility.friends",
+  nobody: "settings.onlineVisibility.nobody",
 };
 
 const THEME_LABEL_KEYS: Record<AccentColorCode, TranslationKey> = {
@@ -77,6 +89,7 @@ export default function SettingsPage() {
   const [savingPrivacy, setSavingPrivacy] = useState(false);
   const [privacyError, setPrivacyError] = useState<string | null>(null);
   const [messagePrivacy, setMessagePrivacy] = useState<MessagePrivacy>("everyone");
+  const [onlineVisibility, setOnlineVisibility] = useState<OnlineVisibility>("everyone");
   const [notifyLikes, setNotifyLikes] = useState(true);
   const [notifyComments, setNotifyComments] = useState(true);
   const [notifyFollowers, setNotifyFollowers] = useState(true);
@@ -98,6 +111,15 @@ export default function SettingsPage() {
       MESSAGE_PRIVACY_VALUES.map((value) => ({
         value,
         label: t(MESSAGE_PRIVACY_LABEL_KEYS[value]),
+      })),
+    [t]
+  );
+
+  const onlineVisibilityOptions = useMemo(
+    () =>
+      ONLINE_VISIBILITY_VALUES.map((value) => ({
+        value,
+        label: t(ONLINE_VISIBILITY_LABEL_KEYS[value]),
       })),
     [t]
   );
@@ -170,7 +192,7 @@ export default function SettingsPage() {
 
       const { data, error } = await supabase
         .from("profiles")
-        .select("is_private, message_privacy")
+        .select("is_private, message_privacy, online_visibility")
         .eq("id", nextSession.user.id)
         .maybeSingle();
 
@@ -191,6 +213,8 @@ export default function SettingsPage() {
         if (resolvedPrivacy !== prefs.messagePrivacy) {
           updateUserSettingsPreferences({ messagePrivacy: resolvedPrivacy });
         }
+
+        setOnlineVisibility(normalizeOnlineVisibility(data?.online_visibility));
       }
 
       setLoading(false);
@@ -240,6 +264,19 @@ export default function SettingsPage() {
       void saveProfileMessagePrivacy(session.user.id, next).then((result) => {
         if (result.error) {
           setPrivacyError("Unable to update message privacy.");
+        }
+      });
+    }
+  };
+
+  const handleOnlineVisibilityChange = (value: string) => {
+    const next = normalizeOnlineVisibility(value);
+    setOnlineVisibility(next);
+
+    if (session?.user) {
+      void saveProfileOnlineVisibility(session.user.id, next).then((result) => {
+        if (result.error) {
+          setPrivacyError("Unable to update online visibility.");
         }
       });
     }
@@ -333,6 +370,12 @@ export default function SettingsPage() {
             value={messagePrivacy}
             options={messagePrivacyOptions}
             onChange={handleMessagePrivacyChange}
+          />
+          <SettingsSelectRow
+            label={t("settings.whoCanSeeOnline")}
+            value={onlineVisibility}
+            options={onlineVisibilityOptions}
+            onChange={handleOnlineVisibilityChange}
           />
           <SettingsRow href="/settings/blocked" label={t("settings.blockedUsers")} icon={Users} />
         </SettingsSection>

@@ -43,6 +43,7 @@ import { CHATS_INBOX_REFRESH_EVENT } from "@/lib/chatsInbox";
 import { resolveDmRoutePartnerId } from "@/lib/chatThreadRoutes";
 import { startDmTypingSync } from "@/lib/dmTypingIndicator";
 import { useDmPartnerPresence } from "@/lib/useDmPartnerPresence";
+import { useCanSeeOnlineStatus } from "@/lib/useCanSeeOnlineStatus";
 import { fetchPartnerProfilePresenceDirect, resolveProfileIsOnline } from "@/lib/userPresence";
 import { checkCanMessageUser, type MessagePrivacyBlockReasonKey } from "@/lib/messagePrivacy";
 import { loadPrivateSpotSharesByIds, type PrivateSpotShare } from "@/lib/privateSpotShares";
@@ -134,8 +135,9 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
   const isSelfConversation = Boolean(
     currentUserId && partnerId && currentUserId === partnerId
   );
+  const canSeePartnerPresence = useCanSeeOnlineStatus(currentUserId, threadPartnerId);
   const partnerPresence = useDmPartnerPresence(
-    threadPartnerId,
+    canSeePartnerPresence ? threadPartnerId : null,
     partner?.profileUsername ?? null
   );
 
@@ -813,6 +815,7 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
           partnerLastSeenAt={partnerPresence.lastSeenAt ?? partner?.lastSeenAt ?? null}
           partnerIsOnline={partnerPresence.isOnline}
           isSelfConversation={isSelfConversation}
+          canSeePartnerPresence={canSeePartnerPresence}
         />
 
         {showIncomingRequestBanner ? (
