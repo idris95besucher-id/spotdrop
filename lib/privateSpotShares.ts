@@ -1,6 +1,12 @@
 import { ensureConversationForOutgoingMessage, touchConversationUpdatedAt } from "@/lib/directConversations";
 import { CHATS_INBOX_REFRESH_EVENT } from "@/lib/chatsInbox";
-import { spotLocationFromCoordinates, type SpotGeoLocation } from "@/lib/spotLocation";
+import {
+  logCheckSpotReceiverCoords,
+  requestCheckSpotGpsReading,
+  validateCheckSpotCoordinates,
+  type CheckSpotGpsReading,
+} from "@/lib/checkSpotGps";
+import { calculateCheckSpotDistanceKm } from "@/lib/privateSpotDistance";
 import { supabase } from "@/lib/supabaseClient";
 
 export type PrivateSpotShareStatus = "pending" | "accepted" | "declined";
@@ -14,10 +20,20 @@ export type PrivateSpotShare = {
   sender_latitude?: number | null;
   sender_longitude?: number | null;
   sender_address?: string | null;
+  sender_location_accuracy?: number | null;
+  sender_location_captured_at?: string | null;
+  receiver_latitude?: number | null;
+  receiver_longitude?: number | null;
+  receiver_location_accuracy?: number | null;
+  receiver_location_captured_at?: string | null;
+  distance_km?: number | null;
   status: PrivateSpotShareStatus;
   accepted_at?: string | null;
   created_at: string;
 };
+
+const SHARE_SELECT =
+  "id, sender_id, recipient_id, sender_latitude, sender_longitude, sender_address, sender_location_accuracy, sender_location_captured_at, receiver_latitude, receiver_longitude, receiver_location_accuracy, receiver_location_captured_at, distance_km, status, accepted_at, created_at";
 
 function isMissingPrivateSpotSharesTable(error: { code?: string; message?: string } | null) {
   if (!error) {
@@ -43,6 +59,10 @@ export function formatPrivateSpotShareError(error: { code?: string; message?: st
 
   if (isMissingPrivateSpotSharesTable(error)) {
     return "CheckSpot is not enabled on the server. Run database/setup-private-spot-sharing.sql in the Supabase SQL editor.";
+  }
+
+  if (lower.includes("distance_km") || lower.includes("sender_location_accuracy")) {
+    return "CheckSpot needs a schema update. Run database/add-checkspot-distance.sql in Supabase.";
   }
 
   if (lower.includes("message_type") || (error.code === "42703" && lower.includes("direct_messages"))) {
@@ -72,6 +92,19 @@ function mapShareRow(row: Record<string, unknown>): PrivateSpotShare {
     sender_latitude: row.sender_latitude != null ? Number(row.sender_latitude) : null,
     sender_longitude: row.sender_longitude != null ? Number(row.sender_longitude) : null,
     sender_address: (row.sender_address as string | null) ?? null,
+    sender_location_accuracy:
+      row.sender_location_accuracy != null ? Number(row.sender_location_accuracy) : null,
+    sender_location_captured_at: row.sender_location_captured_at
+      ? String(row.sender_location_captured_at)
+      : null,
+    receiver_latitude: row.receiver_latitude != null ? Number(row.receiver_latitude) : null,
+    receiver_longitude: row.receiver_longitude != null ? Number(row.receiver_longitude) : null,
+    receiver_location_accuracy:
+      row.receiver_location_accuracy != null ? Number(row.receiver_location_accuracy) : null,
+    receiver_location_captured_at: row.receiver_location_captured_at
+      ? String(row.receiver_location_captured_at)
+      : null,
+    distance_km: row.distance_km != null ? Number(row.distance_km) : null,
     status: row.status as PrivateSpotShareStatus,
     accepted_at: row.accepted_at ? String(row.accepted_at) : null,
     created_at: String(row.created_at),
@@ -90,12 +123,11 @@ export function shareHasCoordinates(share: PrivateSpotShare) {
   const lat = share.sender_latitude;
   const lon = share.sender_longitude;
 
-  return (
-    lat != null &&
-    lon != null &&
-    Number.isFinite(lat) &&
-    Number.isFinite(lon)
-  );
+  if (lat == null || lon == null || !Number.isFinite(lat) || !Number.isFinite(lon)) {
+    return false;
+  }
+
+  return validateCheckSpotCoordinates(lat, lon).ok;
 }
 
 function stripCoordinatesFromShare(share: PrivateSpotShare): PrivateSpotShare {
@@ -104,6 +136,13 @@ function stripCoordinatesFromShare(share: PrivateSpotShare): PrivateSpotShare {
     sender_latitude: null,
     sender_longitude: null,
     sender_address: null,
+    sender_location_accuracy: null,
+    sender_location_captured_at: null,
+    receiver_latitude: null,
+    receiver_longitude: null,
+    receiver_location_accuracy: null,
+    receiver_location_captured_at: null,
+    distance_km: null,
   };
 }
 
@@ -127,13 +166,7 @@ async function fetchPrivateSpotShareFallback(
   shareId: string,
   viewerId: string | null
 ): Promise<{ share: PrivateSpotShare | null; error: string | null }> {
-  const { data, error } = await supabase
-    .from("private_spot_shares")
-    .select(
-      "id, sender_id, recipient_id, sender_latitude, sender_longitude, sender_address, status, accepted_at, created_at"
-    )
-    .eq("id", shareId)
-    .maybeSingle();
+  const { data, error } = await supabase.from("private_spot_shares").select(SHARE_SELECT).eq("id", shareId).maybeSingle();
 
   if (error) {
     return { share: null, error: formatPrivateSpotShareError(error) };
@@ -210,11 +243,19 @@ export async function loadPrivateSpotSharesByIds(shareIds: string[]) {
 export async function sendPrivateSpotShare(input: {
   senderId: string;
   recipientId: string;
-  location: SpotGeoLocation;
+  gps: CheckSpotGpsReading;
 }) {
   if (input.senderId === input.recipientId) {
     return { share: null, error: "You cannot send a CheckSpot to yourself." };
   }
+
+  const validated = validateCheckSpotCoordinates(input.gps.latitude, input.gps.longitude);
+
+  if (!validated.ok) {
+    return { share: null, error: "Location unavailable." };
+  }
+
+  console.log("[CheckSpot] sender coords", input.gps);
 
   const ensured = await ensureConversationForOutgoingMessage(input.senderId, input.recipientId);
 
@@ -231,9 +272,10 @@ export async function sendPrivateSpotShare(input: {
     .insert({
       sender_id: input.senderId,
       recipient_id: input.recipientId,
-      sender_latitude: input.location.latitude,
-      sender_longitude: input.location.longitude,
-      sender_address: input.location.address,
+      sender_latitude: validated.latitude,
+      sender_longitude: validated.longitude,
+      sender_location_accuracy: input.gps.accuracyMeters,
+      sender_location_captured_at: input.gps.capturedAt,
       status: "pending",
     })
     .select("id, sender_id, recipient_id, status, created_at")
@@ -292,17 +334,63 @@ export async function sendPrivateSpotShare(input: {
   };
 }
 
-export async function acceptPrivateSpotShare(shareId: string, recipientId: string) {
+export async function acceptPrivateSpotShare(
+  shareId: string,
+  recipientId: string,
+  receiverGps: CheckSpotGpsReading
+) {
+  const receiverValidated = validateCheckSpotCoordinates(receiverGps.latitude, receiverGps.longitude);
+
+  if (!receiverValidated.ok) {
+    return { share: null, error: "Location unavailable." };
+  }
+
+  logCheckSpotReceiverCoords(receiverGps);
+
+  const { data: pendingShare, error: pendingError } = await supabase
+    .from("private_spot_shares")
+    .select(SHARE_SELECT)
+    .eq("id", shareId)
+    .eq("recipient_id", recipientId)
+    .eq("status", "pending")
+    .maybeSingle();
+
+  if (pendingError) {
+    return { share: null, error: formatPrivateSpotShareError(pendingError) };
+  }
+
+  if (!pendingShare) {
+    return { share: null, error: "This CheckSpot is no longer pending." };
+  }
+
+  const senderLat = Number(pendingShare.sender_latitude);
+  const senderLng = Number(pendingShare.sender_longitude);
+
+  const distanceKm = calculateCheckSpotDistanceKm({
+    shareId,
+    senderLatitude: senderLat,
+    senderLongitude: senderLng,
+    receiverLatitude: receiverValidated.latitude,
+    receiverLongitude: receiverValidated.longitude,
+  });
+
+  const acceptedAt = new Date().toISOString();
+
   const { data: updated, error: updateError } = await supabase
     .from("private_spot_shares")
     .update({
       status: "accepted",
-      accepted_at: new Date().toISOString(),
+      accepted_at: acceptedAt,
+      receiver_latitude: receiverValidated.latitude,
+      receiver_longitude: receiverValidated.longitude,
+      receiver_location_accuracy: receiverGps.accuracyMeters,
+      receiver_location_captured_at: receiverGps.capturedAt,
+      distance_km: distanceKm,
     })
     .eq("id", shareId)
     .eq("recipient_id", recipientId)
     .eq("status", "pending")
-    .select("id, sender_id, recipient_id, status, accepted_at, created_at")
+    .select(SHARE_SELECT)
     .maybeSingle();
 
   if (updateError) {
@@ -321,14 +409,14 @@ export async function acceptPrivateSpotShare(shareId: string, recipientId: strin
     message_type: "spot_share_accepted",
     spot_share_id: shareId,
     body: null,
-    created_at: new Date().toISOString(),
+    created_at: acceptedAt,
   });
 
   if (messageError) {
     return { share: null, error: messageError.message };
   }
 
-  const loaded = await fetchPrivateSpotShare(shareId);
+  const loaded = await fetchPrivateSpotShare(shareId, recipientId);
 
   return { share: loaded.share, error: loaded.error };
 }
@@ -348,31 +436,4 @@ export async function declinePrivateSpotShare(shareId: string, recipientId: stri
   return { error: null };
 }
 
-export async function resolveLocationForSpotShare() {
-  return new Promise<{ location: SpotGeoLocation | null; error: string | null }>((resolve) => {
-    if (typeof navigator === "undefined" || !navigator.geolocation) {
-      resolve({ location: null, error: "Location is not available on this device." });
-      return;
-    }
-
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        void spotLocationFromCoordinates(position.coords.latitude, position.coords.longitude).then(
-          (location) => resolve({ location, error: null })
-        );
-      },
-      (geoError) => {
-        const permissionDenied =
-          geoError.code === geoError.PERMISSION_DENIED || geoError.code === 1;
-
-        resolve({
-          location: null,
-          error: permissionDenied
-            ? "Location access is required for CheckSpot."
-            : geoError.message || "Unable to detect your location.",
-        });
-      },
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 60_000 }
-    );
-  });
-}
+export { requestCheckSpotGpsReading };

@@ -1,53 +1,118 @@
+import { validateCheckSpotCoordinates } from "@/lib/checkSpotGps";
 import type { TranslationKey } from "@/lib/i18n/messages";
 import { haversineKm } from "@/lib/spotLocation";
 
 type TranslateFn = (key: TranslationKey, values?: Record<string, string | number>) => string;
+
+export function haversineDistanceKm(lat1: number, lng1: number, lat2: number, lng2: number) {
+  return haversineKm(lat1, lng1, lat2, lng2);
+}
 
 export function formatApproximateDistanceKm(distanceKm: number, t?: TranslateFn) {
   if (!Number.isFinite(distanceKm) || distanceKm < 0) {
     return null;
   }
 
-  if (distanceKm < 0.1) {
+  if (distanceKm < 0.001) {
     return t ? t("checkspot.distance.lessThan100m") : "Less than 100 m away";
   }
 
   if (distanceKm < 1) {
-    const meters = Math.round((distanceKm * 1000) / 50) * 50;
-    const clamped = Math.max(meters, 100);
+    const meters = Math.max(1, Math.round(distanceKm * 1000));
 
-    if (clamped <= 100) {
+    if (meters < 100) {
       return t ? t("checkspot.distance.lessThan100m") : "Less than 100 m away";
     }
 
-    return t ? t("checkspot.distance.meters", { distance: clamped }) : `${clamped} m away`;
+    return t ? t("checkspot.distance.meters", { distance: meters }) : `${meters} m away`;
   }
 
-  if (distanceKm < 10) {
-    const rounded = Math.round(distanceKm * 10) / 10;
+  const roundedKm = Math.round(distanceKm * 10) / 10;
+  const displayKm = Number.isInteger(roundedKm) ? roundedKm : roundedKm;
 
-    return t ? t("checkspot.distance.kilometers", { distance: rounded }) : `${rounded} km away`;
-  }
-
-  if (distanceKm < 100) {
-    const rounded = Math.round(distanceKm);
-
-    return t ? t("checkspot.distance.kilometers", { distance: rounded }) : `${rounded} km away`;
-  }
-
-  const rounded = Math.round(distanceKm / 5) * 5;
-
-  return t ? t("checkspot.distance.kilometers", { distance: rounded }) : `${rounded} km away`;
+  return t
+    ? t("checkspot.distance.kilometers", { distance: displayKm })
+    : `${displayKm} km away`;
 }
 
-export function approximateDistanceBetween(
-  fromLat: number,
-  fromLon: number,
-  toLat: number,
-  toLon: number,
-  t?: TranslateFn
-) {
-  const km = haversineKm(fromLat, fromLon, toLat, toLon);
+export function hasTrustedCheckSpotDistance(share: {
+  status: string;
+  distance_km?: number | null;
+}) {
+  return share.status === "accepted" && share.distance_km != null && Number.isFinite(share.distance_km);
+}
 
-  return formatApproximateDistanceKm(km, t);
+export function formatCheckSpotShareDistanceLabel(
+  share: {
+    status: string;
+    distance_km?: number | null;
+  },
+  t: TranslateFn
+) {
+  if (share.status !== "accepted") {
+    return null;
+  }
+
+  if (hasTrustedCheckSpotDistance(share)) {
+    return formatApproximateDistanceKm(share.distance_km!, t);
+  }
+
+  return t("checkspot.distanceUnavailable");
+}
+
+export function calculateCheckSpotDistanceKm(input: {
+  shareId?: string;
+  senderLatitude: number;
+  senderLongitude: number;
+  receiverLatitude: number;
+  receiverLongitude: number;
+}): number | null {
+  const senderValidated = validateCheckSpotCoordinates(input.senderLatitude, input.senderLongitude);
+  const receiverValidated = validateCheckSpotCoordinates(input.receiverLatitude, input.receiverLongitude);
+
+  if (!senderValidated.ok) {
+    console.error("[CheckSpot] rejected stale/invalid coords", {
+      shareId: input.shareId,
+      role: "sender",
+      latitude: input.senderLatitude,
+      longitude: input.senderLongitude,
+      reason: senderValidated.reason,
+    });
+
+    return null;
+  }
+
+  if (!receiverValidated.ok) {
+    console.error("[CheckSpot] rejected stale/invalid coords", {
+      shareId: input.shareId,
+      role: "receiver",
+      latitude: input.receiverLatitude,
+      longitude: input.receiverLongitude,
+      reason: receiverValidated.reason,
+    });
+
+    return null;
+  }
+
+  const distanceKm = haversineDistanceKm(
+    senderValidated.latitude,
+    senderValidated.longitude,
+    receiverValidated.latitude,
+    receiverValidated.longitude
+  );
+
+  console.log("[CheckSpot] distance calculated", {
+    shareId: input.shareId,
+    distanceKm,
+    sender: {
+      latitude: senderValidated.latitude,
+      longitude: senderValidated.longitude,
+    },
+    receiver: {
+      latitude: receiverValidated.latitude,
+      longitude: receiverValidated.longitude,
+    },
+  });
+
+  return distanceKm;
 }

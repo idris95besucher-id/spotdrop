@@ -200,6 +200,7 @@ export const EXTENSION_DE: Record<ExtensionKey, string> = {
   "dm.status.read": "Gelesen",
 
   "checkspot.locationRequired": "Standortzugriff ist für CheckSpot erforderlich.",
+  "checkspot.accuracyTooLow": "Standortgenauigkeit ist zu gering. Bitte versuche es erneut.",
   "checkspot.sendTitle": "CheckSpot an diesen Benutzer senden?",
   "checkspot.send": "CheckSpot senden",
   "checkspot.sendAria": "CheckSpot an {username} senden",
@@ -214,6 +215,8 @@ export const EXTENSION_DE: Record<ExtensionKey, string> = {
   "checkspot.partnerDeclined": "{partner} hat deinen CheckSpot abgelehnt.",
   "checkspot.gettingDistance": "Entfernung wird ermittelt…",
   "checkspot.showDistance": "Entfernung anzeigen",
+  "checkspot.distanceUnavailable": "Entfernung nicht verfügbar",
+  "checkspot.locationUnavailable": "Standort nicht verfügbar.",
   "checkspot.distance.lessThan100m": "Weniger als 100 m entfernt",
   "checkspot.distance.meters": "{distance} m entfernt",
   "checkspot.distance.kilometers": "{distance} km entfernt",

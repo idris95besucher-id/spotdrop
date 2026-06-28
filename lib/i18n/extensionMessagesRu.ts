@@ -200,6 +200,7 @@ export const EXTENSION_RU: Record<ExtensionKey, string> = {
   "dm.status.read": "Прочитано",
 
   "checkspot.locationRequired": "Для CheckSpot нужен доступ к геолокации.",
+  "checkspot.accuracyTooLow": "Точность местоположения слишком низкая, попробуйте снова.",
   "checkspot.sendTitle": "Отправить CheckSpot этому пользователю?",
   "checkspot.send": "Отправить CheckSpot",
   "checkspot.sendAria": "Отправить CheckSpot пользователю {username}",
@@ -214,6 +215,8 @@ export const EXTENSION_RU: Record<ExtensionKey, string> = {
   "checkspot.partnerDeclined": "{partner} отклонил ваш CheckSpot.",
   "checkspot.gettingDistance": "Определение расстояния…",
   "checkspot.showDistance": "Показать расстояние",
+  "checkspot.distanceUnavailable": "Расстояние недоступно",
+  "checkspot.locationUnavailable": "Местоположение недоступно.",
   "checkspot.distance.lessThan100m": "Менее 100 м",
   "checkspot.distance.meters": "{distance} м",
   "checkspot.distance.kilometers": "{distance} км",

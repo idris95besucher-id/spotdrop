@@ -6,7 +6,7 @@ import { MapPin } from "lucide-react";
 import { useI18n } from "@/components/I18nProvider";
 import { localizeUserMessage } from "@/lib/i18n/localizeUserMessage";
 import {
-  resolveLocationForSpotShare,
+  requestCheckSpotGpsReading,
   sendPrivateSpotShare,
 } from "@/lib/privateSpotShares";
 
@@ -40,9 +40,9 @@ export default function ShareSpotToUserButton({
     setSending(true);
     setError(null);
 
-    const { location, error: locationError } = await resolveLocationForSpotShare();
+    const { reading, error: locationError } = await requestCheckSpotGpsReading();
 
-    if (locationError || !location) {
+    if (locationError || !reading) {
       setError(locationError ?? t("checkspot.locationRequired"));
       setSending(false);
       return;
@@ -51,7 +51,7 @@ export default function ShareSpotToUserButton({
     const result = await sendPrivateSpotShare({
       senderId,
       recipientId,
-      location,
+      gps: reading,
     });
 
     if (result.error) {

@@ -200,6 +200,7 @@ export const EXTENSION_EN = {
   "dm.status.read": "Read",
 
   "checkspot.locationRequired": "Location access is required for CheckSpot.",
+  "checkspot.accuracyTooLow": "Location accuracy is too low, please try again.",
   "checkspot.sendTitle": "Send CheckSpot to this user?",
   "checkspot.send": "Send CheckSpot",
   "checkspot.sendAria": "Send CheckSpot to {username}",
@@ -214,6 +215,8 @@ export const EXTENSION_EN = {
   "checkspot.partnerDeclined": "{partner} declined your CheckSpot.",
   "checkspot.gettingDistance": "Getting distance…",
   "checkspot.showDistance": "Show distance",
+  "checkspot.distanceUnavailable": "Distance unavailable",
+  "checkspot.locationUnavailable": "Location unavailable.",
   "checkspot.distance.lessThan100m": "Less than 100 m away",
   "checkspot.distance.meters": "{distance} m away",
   "checkspot.distance.kilometers": "{distance} km away",

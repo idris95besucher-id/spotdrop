@@ -1,17 +1,16 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { MapPin } from "lucide-react";
 import DmMessageStatus from "@/components/DmMessageStatus";
 import { useI18n } from "@/components/I18nProvider";
 import { localizeUserMessage } from "@/lib/i18n/localizeUserMessage";
-import { approximateDistanceBetween } from "@/lib/privateSpotDistance";
+import { formatCheckSpotShareDistanceLabel } from "@/lib/privateSpotDistance";
 import {
   acceptPrivateSpotShare,
   declinePrivateSpotShare,
   fetchPrivateSpotShare,
-  resolveLocationForSpotShare,
-  shareHasCoordinates,
+  requestCheckSpotGpsReading,
   type PrivateSpotShare,
 } from "@/lib/privateSpotShares";
 import { publicProfileUsername } from "@/lib/publicProfile";
@@ -47,16 +46,21 @@ export default function DirectMessageSpotShareCard({
 }: DirectMessageSpotShareCardProps) {
   const { t } = useI18n();
   const [share, setShare] = useState<PrivateSpotShare | null>(initialShare);
-  const [distanceLabel, setDistanceLabel] = useState<string | null>(null);
   const [loadingShare, setLoadingShare] = useState(!initialShare);
-  const [loadingDistance, setLoadingDistance] = useState(false);
   const [resolving, setResolving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const isRecipient = share?.recipient_id === currentUserId;
-  const isSender = share?.sender_id === currentUserId;
   const displayPartner = publicProfileUsername(partnerUsername);
   const displaySender = publicProfileUsername(senderUsername);
+
+  const distanceLabel = useMemo(() => {
+    if (!share) {
+      return null;
+    }
+
+    return formatCheckSpotShareDistanceLabel(share, t);
+  }, [share, t]);
 
   useEffect(() => {
     if (initialShare) {
@@ -82,39 +86,19 @@ export default function DirectMessageSpotShareCard({
     };
   }, [currentUserId, initialShare, shareId]);
 
-  const handleShowDistance = async () => {
-    if (!share || share.status !== "accepted" || !shareHasCoordinates(share)) {
-      return;
-    }
-
-    setLoadingDistance(true);
-    setError(null);
-
-    const { location, error: locationError } = await resolveLocationForSpotShare();
-
-    if (locationError || !location) {
-      setError(locationError ?? t("checkspot.locationRequired"));
-      setLoadingDistance(false);
-      return;
-    }
-
-    const label = approximateDistanceBetween(
-      location.latitude,
-      location.longitude,
-      share.sender_latitude!,
-      share.sender_longitude!,
-      t
-    );
-
-    setDistanceLabel(label);
-    setLoadingDistance(false);
-  };
-
   const handleAccept = async () => {
     setResolving(true);
     setError(null);
 
-    const result = await acceptPrivateSpotShare(shareId, currentUserId);
+    const { reading, error: locationError } = await requestCheckSpotGpsReading();
+
+    if (locationError || !reading) {
+      setError(locationError ?? t("checkspot.locationRequired"));
+      setResolving(false);
+      return;
+    }
+
+    const result = await acceptPrivateSpotShare(shareId, currentUserId, reading);
 
     if (result.error) {
       setError(result.error);
@@ -177,15 +161,6 @@ export default function DirectMessageSpotShareCard({
             <MapPin className="h-3.5 w-3.5 shrink-0" aria-hidden />
             {distanceLabel}
           </p>
-        ) : share.status === "accepted" && shareHasCoordinates(share) ? (
-          <button
-            type="button"
-            disabled={loadingDistance}
-            onClick={() => void handleShowDistance()}
-            className="mt-2 text-sm font-semibold text-primary transition hover:text-cyan-200 disabled:opacity-50"
-          >
-            {loadingDistance ? t("checkspot.gettingDistance") : t("checkspot.showDistance")}
-          </button>
         ) : null}
         <DmMessageStatus
           message={{
@@ -228,7 +203,7 @@ export default function DirectMessageSpotShareCard({
               onClick={() => void handleAccept()}
               className="rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-[#050816] transition hover:brightness-110 disabled:opacity-50"
             >
-              {t("common.accept")}
+              {resolving ? t("checkspot.gettingDistance") : t("common.accept")}
             </button>
             <button
               type="button"
@@ -242,7 +217,7 @@ export default function DirectMessageSpotShareCard({
         </>
       ) : null}
 
-      {share.status === "pending" && isSender ? (
+      {share.status === "pending" && share.sender_id === currentUserId ? (
         <p className="mt-2 text-xs text-muted">{t("checkspot.waitingPartner", { partner: displayPartner })}</p>
       ) : null}
 
@@ -259,15 +234,6 @@ export default function DirectMessageSpotShareCard({
           <MapPin className="h-3.5 w-3.5 shrink-0" aria-hidden />
           {distanceLabel}
         </p>
-      ) : share.status === "accepted" && shareHasCoordinates(share) ? (
-        <button
-          type="button"
-          disabled={loadingDistance}
-          onClick={() => void handleShowDistance()}
-          className="mt-2 text-sm font-semibold text-primary transition hover:text-cyan-200 disabled:opacity-50"
-        >
-          {loadingDistance ? t("checkspot.gettingDistance") : t("checkspot.showDistance")}
-        </button>
       ) : null}
 
       {error ? (
