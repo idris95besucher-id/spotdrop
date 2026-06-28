@@ -21,7 +21,6 @@ import {
 } from "@/lib/profileLocation";
 import ProfileAvatarActions from "@/components/ProfileAvatarActions";
 import ProfileMenuSheet from "@/components/ProfileMenuSheet";
-import { useSpotDrafts } from "@/components/SpotDraftsProvider";
 import ShareProfileSheet from "@/components/ShareProfileSheet";
 import ProfileCollectionsTab from "@/components/ProfileCollectionsTab";
 import { ProfileContentTabBar, ProfileContentGridPanel, type ProfileContentTab } from "@/components/ProfileContentTabs";
@@ -55,7 +54,6 @@ function withTimeout<T>(promise: Promise<T>, message: string, timeoutMs = 6000):
 export default function ProfilePage() {
   const { t, locale } = useI18n();
   const router = useRouter();
-  const { drafts } = useSpotDrafts();
   const [profile, setProfile] = useState<ProfileData | null>(null);
   const [location, setLocation] = useState<ResolvedProfileLocation>({ countryName: null, cityName: null });
   const [session, setSession] = useState<Session | null>(null);
@@ -357,13 +355,12 @@ export default function ProfilePage() {
     () =>
       buildProfileMenuItems(
         {
-          draftCount: drafts.length,
           onOpenCollections: handleOpenCollections,
           onSignOut: () => void handleSignOut(),
         },
         t
       ),
-    [drafts.length, handleOpenCollections, handleSignOut, t]
+    [handleOpenCollections, handleSignOut, t]
   );
 
   return (

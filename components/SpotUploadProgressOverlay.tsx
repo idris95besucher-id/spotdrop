@@ -8,14 +8,12 @@ type SpotUploadProgressOverlayProps = {
   visible: boolean;
   progress: SpotUploadProgress | null;
   showDetailed?: boolean;
-  offlineMode?: boolean;
 };
 
 export default function SpotUploadProgressOverlay({
   visible,
   progress,
   showDetailed = false,
-  offlineMode = false,
 }: SpotUploadProgressOverlayProps) {
   if (!visible) {
     return null;
@@ -23,10 +21,8 @@ export default function SpotUploadProgressOverlay({
 
   const rawPercent = progress?.percent ?? 0;
   const barPercent = spotUploadDisplayPercent(rawPercent);
-  const label = offlineMode
-    ? "Saving draft…"
-    : progress?.label ?? (showDetailed ? "Preparing..." : "Publishing spot…");
-  const showBar = !offlineMode && showDetailed;
+  const label = progress?.label ?? (showDetailed ? "Preparing..." : "Publishing spot…");
+  const showBar = showDetailed;
 
   return (
     <div className="pointer-events-auto absolute inset-0 z-[60] flex flex-col items-center justify-center gap-4 bg-black px-8">

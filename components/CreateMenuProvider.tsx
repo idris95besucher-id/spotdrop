@@ -5,18 +5,16 @@ import {
   useCallback,
   useContext,
   useEffect,
-  useRef,
   useState,
   type ReactNode,
 } from "react";
 import { useRouter } from "next/navigation";
 import type { Session } from "@supabase/supabase-js";
-import { Plus, SquarePen, FolderOpen, X } from "lucide-react";
+import { Plus, SquarePen, X } from "lucide-react";
 import { useI18n } from "@/components/I18nProvider";
 import SpotDropSpotsIcon from "@/components/icons/SpotDropSpotsIcon";
 import CreateSpotForm from "@/components/CreateSpotForm";
 import CreatePostForm from "@/components/CreatePostForm";
-import SpotDraftsProvider, { useSpotDrafts } from "@/components/SpotDraftsProvider";
 import { getSafeAuthSession } from "@/lib/authSession";
 import { dispatchProfileContentRefresh } from "@/lib/profileContentRefresh";
 import { supabase } from "@/lib/supabaseClient";
@@ -42,13 +40,9 @@ export function useCreateMenu() {
 function CreateMenuSheet({
   onClose,
   onSelect,
-  draftCount,
-  onOpenDrafts,
 }: {
   onClose: () => void;
   onSelect: (flow: Exclude<CreateFlow, null>) => void;
-  draftCount: number;
-  onOpenDrafts: () => void;
 }) {
   const { t } = useI18n();
 
@@ -60,13 +54,6 @@ function CreateMenuSheet({
       document.body.style.overflow = previousOverflow;
     };
   }, []);
-
-  const draftDescription =
-    draftCount > 0
-      ? draftCount === 1
-        ? t("menu.spotDraftsDescOne")
-        : t("menu.spotDraftsDescMany", { count: draftCount })
-      : t("menu.spotDraftsDescEmpty");
 
   const options = [
     {
@@ -139,61 +126,16 @@ function CreateMenuSheet({
             );
           })}
         </div>
-
-        <div className="border-t border-white/10 p-2">
-          <button
-            type="button"
-            onClick={() => {
-              onOpenDrafts();
-              onClose();
-            }}
-            className="flex w-full items-center gap-4 rounded-2xl px-4 py-4 text-left transition hover:bg-white/5 active:bg-white/10"
-          >
-            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white/5">
-              <FolderOpen className="h-5 w-5 text-primary" strokeWidth={1.75} aria-hidden />
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="block text-sm font-semibold text-white">{t("create.drafts")}</span>
-              <span className="mt-0.5 block text-xs leading-relaxed text-slate-400">{draftDescription}</span>
-            </span>
-          </button>
-        </div>
       </div>
     </div>
   );
 }
 
-type CreateMenuProviderInnerProps = {
-  children: ReactNode;
-  onCreateFlowOpenChange: (open: boolean) => void;
-  registerEditDraftHandler: (handler: (draftId: string) => void) => void;
-};
-
-function CreateMenuProviderInner({
-  children,
-  onCreateFlowOpenChange,
-  registerEditDraftHandler,
-}: CreateMenuProviderInnerProps) {
+export default function CreateMenuProvider({ children }: { children: ReactNode }) {
   const router = useRouter();
-  const { refreshDrafts, openDraftSheet, drafts } = useSpotDrafts();
   const [menuOpen, setMenuOpen] = useState(false);
   const [activeFlow, setActiveFlow] = useState<CreateFlow>(null);
-  const [editingDraftId, setEditingDraftId] = useState<string | null>(null);
   const [session, setSession] = useState<Session | null>(null);
-
-  useEffect(() => {
-    onCreateFlowOpenChange(activeFlow !== null);
-  }, [activeFlow, onCreateFlowOpenChange]);
-
-  const handleEditDraft = useCallback((draftId: string) => {
-    setEditingDraftId(draftId);
-    setMenuOpen(false);
-    setActiveFlow("spot");
-  }, []);
-
-  useEffect(() => {
-    registerEditDraftHandler(handleEditDraft);
-  }, [handleEditDraft, registerEditDraftHandler]);
 
   useEffect(() => {
     let active = true;
@@ -219,7 +161,6 @@ function CreateMenuProviderInner({
   const closeAll = useCallback(() => {
     setMenuOpen(false);
     setActiveFlow(null);
-    setEditingDraftId(null);
   }, []);
 
   const openCreateMenu = useCallback(async () => {
@@ -239,13 +180,11 @@ function CreateMenuProviderInner({
       return;
     }
 
-    setEditingDraftId(null);
     setActiveFlow(null);
     setMenuOpen(true);
   }, [router, session]);
 
   const handleSelectFlow = useCallback((flow: Exclude<CreateFlow, null>) => {
-    setEditingDraftId(null);
     setMenuOpen(false);
     setActiveFlow(flow);
   }, []);
@@ -253,12 +192,7 @@ function CreateMenuProviderInner({
   const handleContentCreated = useCallback(() => {
     dispatchProfileContentRefresh();
     closeAll();
-    void refreshDrafts();
-  }, [closeAll, refreshDrafts]);
-
-  const handleDraftChanged = useCallback(() => {
-    void refreshDrafts();
-  }, [refreshDrafts]);
+  }, [closeAll]);
 
   const userId = session?.user?.id;
 
@@ -267,22 +201,15 @@ function CreateMenuProviderInner({
       {children}
 
       {menuOpen ? (
-        <CreateMenuSheet
-          onClose={closeAll}
-          onSelect={handleSelectFlow}
-          draftCount={drafts.length}
-          onOpenDrafts={openDraftSheet}
-        />
+        <CreateMenuSheet onClose={closeAll} onSelect={handleSelectFlow} />
       ) : null}
 
       {activeFlow === "spot" && userId ? (
         <CreateSpotForm
           userId={userId}
           isOpen
-          draftId={editingDraftId}
           onClose={closeAll}
           onCreated={handleContentCreated}
-          onDraftChanged={handleDraftChanged}
         />
       ) : null}
 
@@ -295,25 +222,6 @@ function CreateMenuProviderInner({
         />
       ) : null}
     </CreateMenuContext.Provider>
-  );
-}
-
-export default function CreateMenuProvider({ children }: { children: ReactNode }) {
-  const editDraftHandlerRef = useRef<(draftId: string) => void>(() => {});
-
-  const registerEditDraftHandler = useCallback((handler: (draftId: string) => void) => {
-    editDraftHandlerRef.current = handler;
-  }, []);
-
-  return (
-    <SpotDraftsProvider onEditDraft={(draftId) => editDraftHandlerRef.current(draftId)}>
-      <CreateMenuProviderInner
-        onCreateFlowOpenChange={() => {}}
-        registerEditDraftHandler={registerEditDraftHandler}
-      >
-        {children}
-      </CreateMenuProviderInner>
-    </SpotDraftsProvider>
   );
 }
 

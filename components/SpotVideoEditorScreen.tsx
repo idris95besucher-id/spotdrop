@@ -75,11 +75,9 @@ type SpotVideoEditorScreenProps = {
   onSpotNameChange: (value: string) => void;
   onUseCurrentLocation: () => void;
   onSelectPlace: (place: PlaceSearchResult) => void;
-  onSaveToDrafts: () => void;
   onDiscardVideo: () => void;
   onRetake: () => void;
   onNext: () => void;
-  savingDraft?: boolean;
 };
 
 export default function SpotVideoEditorScreen({
@@ -99,11 +97,9 @@ export default function SpotVideoEditorScreen({
   onSpotNameChange,
   onUseCurrentLocation,
   onSelectPlace,
-  onSaveToDrafts,
   onDiscardVideo,
   onRetake,
   onNext,
-  savingDraft = false,
 }: SpotVideoEditorScreenProps) {
   const { t, locale } = useI18n();
   const localizedError = localizeUserMessage(t, error);
@@ -675,8 +671,7 @@ export default function SpotVideoEditorScreen({
         <button
           type="button"
           onClick={() => setShowExitSheet(true)}
-          disabled={savingDraft}
-          className="mt-2.5 flex h-10 w-10 items-center justify-center rounded-full bg-black/45 text-white backdrop-blur-sm disabled:opacity-50"
+          className="mt-2.5 flex h-10 w-10 items-center justify-center rounded-full bg-black/45 text-white backdrop-blur-sm"
           aria-label="Back"
         >
           <ArrowLeft className="h-5 w-5" strokeWidth={2} aria-hidden />
@@ -1024,11 +1019,6 @@ export default function SpotVideoEditorScreen({
 
     <SpotVideoPreviewExitSheet
       isOpen={showExitSheet}
-      saving={savingDraft}
-      onSaveToDrafts={() => {
-        setShowExitSheet(false);
-        onSaveToDrafts();
-      }}
       onDiscard={() => {
         setShowExitSheet(false);
         onDiscardVideo();

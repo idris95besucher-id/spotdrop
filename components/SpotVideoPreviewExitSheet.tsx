@@ -2,21 +2,17 @@
 
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { Bookmark, Trash2 } from "lucide-react";
+import { Trash2 } from "lucide-react";
 import { useI18n } from "@/components/I18nProvider";
 
 type SpotVideoPreviewExitSheetProps = {
   isOpen: boolean;
-  saving?: boolean;
-  onSaveToDrafts: () => void;
   onDiscard: () => void;
   onCancel: () => void;
 };
 
 export default function SpotVideoPreviewExitSheet({
   isOpen,
-  saving = false,
-  onSaveToDrafts,
   onDiscard,
   onCancel,
 }: SpotVideoPreviewExitSheetProps) {
@@ -71,19 +67,8 @@ export default function SpotVideoPreviewExitSheet({
         <div className="p-2">
           <button
             type="button"
-            disabled={saving}
-            onClick={onSaveToDrafts}
-            className="flex w-full items-center justify-center gap-2.5 rounded-xl px-4 py-3.5 text-[15px] font-semibold text-white transition active:bg-white/10 disabled:opacity-50"
-          >
-            <Bookmark className="h-5 w-5 text-white/80" strokeWidth={1.75} aria-hidden />
-            {saving ? t("spotEditor.saving") : t("spotEditor.exit.saveToDrafts")}
-          </button>
-
-          <button
-            type="button"
-            disabled={saving}
             onClick={onDiscard}
-            className="flex w-full items-center justify-center gap-2.5 rounded-xl px-4 py-3.5 text-[15px] font-semibold text-red-400 transition active:bg-red-500/10 disabled:opacity-50"
+            className="flex w-full items-center justify-center gap-2.5 rounded-xl px-4 py-3.5 text-[15px] font-semibold text-red-400 transition active:bg-red-500/10"
           >
             <Trash2 className="h-5 w-5" strokeWidth={1.75} aria-hidden />
             {t("spotEditor.exit.discardVideo")}
@@ -93,9 +78,8 @@ export default function SpotVideoPreviewExitSheet({
 
       <button
         type="button"
-        disabled={saving}
         onClick={onCancel}
-        className="relative z-10 mx-3 mb-3 rounded-2xl bg-[#1c1c1c]/95 py-3.5 text-[15px] font-semibold text-white shadow-lg backdrop-blur-xl transition active:bg-white/10 disabled:opacity-50"
+        className="relative z-10 mx-3 mb-3 rounded-2xl bg-[#1c1c1c]/95 py-3.5 text-[15px] font-semibold text-white shadow-lg backdrop-blur-xl transition active:bg-white/10"
         style={{ marginBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}
       >
         {t("common.cancel")}

@@ -64,19 +64,6 @@ export type CoreTranslationKey =
   | "profile.addStory"
   | "profile.spotFallback"
   | "menu.title"
-  | "menu.spotDrafts"
-  | "menu.spotDraftsWithCount"
-  | "menu.spotDraftsDescOne"
-  | "menu.spotDraftsDescMany"
-  | "menu.spotDraftsDescEmpty"
-  | "drafts.empty"
-  | "drafts.untitled"
-  | "drafts.created"
-  | "drafts.upload"
-  | "drafts.uploading"
-  | "drafts.delete"
-  | "drafts.deleteConfirm"
-  | "drafts.backToProfile"
   | "menu.settings"
   | "menu.settingsDesc"
   | "menu.collections"
@@ -229,19 +216,6 @@ const CORE_EN: CoreMessageTable = {
   "profile.addStory": "Add story",
   "profile.spotFallback": "Spot",
   "menu.title": "Profile menu",
-  "menu.spotDrafts": "Spot Drafts",
-  "menu.spotDraftsWithCount": "Spot Drafts · {count}",
-  "menu.spotDraftsDescOne": "1 offline spot on this device",
-  "menu.spotDraftsDescMany": "{count} offline spots on this device",
-  "menu.spotDraftsDescEmpty": "Offline Spots saved on this device",
-  "drafts.empty": "No Spot drafts on this device.",
-  "drafts.untitled": "Untitled spot",
-  "drafts.created": "Created {date}",
-  "drafts.upload": "Upload",
-  "drafts.uploading": "Uploading…",
-  "drafts.delete": "Delete",
-  "drafts.deleteConfirm": "Delete this Spot draft from this device?",
-  "drafts.backToProfile": "Back to profile",
   "menu.settings": "Settings",
   "menu.settingsDesc": "Account, privacy, notifications",
   "menu.collections": "Saved / collections",
@@ -392,19 +366,6 @@ const CORE_RU: CoreMessageTable = {
   "profile.addStory": "Добавить историю",
   "profile.spotFallback": "Место",
   "menu.title": "Меню профиля",
-  "menu.spotDrafts": "Черновики мест",
-  "menu.spotDraftsWithCount": "Черновики мест · {count}",
-  "menu.spotDraftsDescOne": "1 офлайн-место на этом устройстве",
-  "menu.spotDraftsDescMany": "{count} офлайн-мест на этом устройстве",
-  "menu.spotDraftsDescEmpty": "Офлайн-места, сохранённые на этом устройстве",
-  "drafts.empty": "На этом устройстве нет черновиков мест.",
-  "drafts.untitled": "Без названия",
-  "drafts.created": "Создано {date}",
-  "drafts.upload": "Загрузить",
-  "drafts.uploading": "Загрузка…",
-  "drafts.delete": "Удалить",
-  "drafts.deleteConfirm": "Удалить этот черновик места с устройства?",
-  "drafts.backToProfile": "К профилю",
   "menu.settings": "Настройки",
   "menu.settingsDesc": "Аккаунт, приватность, уведомления",
   "menu.collections": "Сохранённое / коллекции",
@@ -555,19 +516,6 @@ const CORE_DE: CoreMessageTable = {
   "profile.addStory": "Story hinzufügen",
   "profile.spotFallback": "Spot",
   "menu.title": "Profilmenü",
-  "menu.spotDrafts": "Spot-Entwürfe",
-  "menu.spotDraftsWithCount": "Spot-Entwürfe · {count}",
-  "menu.spotDraftsDescOne": "1 Offline-Spot auf diesem Gerät",
-  "menu.spotDraftsDescMany": "{count} Offline-Spots auf diesem Gerät",
-  "menu.spotDraftsDescEmpty": "Offline-Spots auf diesem Gerät gespeichert",
-  "drafts.empty": "Keine Spot-Entwürfe auf diesem Gerät.",
-  "drafts.untitled": "Unbenannter Spot",
-  "drafts.created": "Erstellt {date}",
-  "drafts.upload": "Hochladen",
-  "drafts.uploading": "Wird hochgeladen…",
-  "drafts.delete": "Löschen",
-  "drafts.deleteConfirm": "Diesen Spot-Entwurf von diesem Gerät löschen?",
-  "drafts.backToProfile": "Zurück zum Profil",
   "menu.settings": "Einstellungen",
   "menu.settingsDesc": "Konto, Datenschutz, Benachrichtigungen",
   "menu.collections": "Gespeichert / Sammlungen",

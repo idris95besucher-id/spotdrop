@@ -48,6 +48,8 @@ export default function SpotPublishScreen({
       ? item.coverPreviewUrl ?? item.previewUrl
       : item.previewUrl;
 
+  const publishDisabled = publishing || offlineMode;
+
   return (
     <div
       className="fixed inset-0 z-[130] flex flex-col bg-[#050505] text-white"
@@ -56,8 +58,7 @@ export default function SpotPublishScreen({
       <SpotUploadProgressOverlay
         visible={publishing}
         progress={uploadProgress}
-        showDetailed={!offlineMode}
-        offlineMode={offlineMode}
+        showDetailed
       />
 
       <div
@@ -131,7 +132,7 @@ export default function SpotPublishScreen({
         </div>
 
         {offlineMode ? (
-          <p className="text-center text-xs text-white/55">{t("spotEditor.offlineSavedHint")}</p>
+          <p className="text-center text-xs text-white/55">{t("spotEditor.offlineHint")}</p>
         ) : null}
         {localizedError ? <p className="text-center text-xs text-red-400">{localizedError}</p> : null}
       </div>
@@ -143,18 +144,14 @@ export default function SpotPublishScreen({
         <button
           type="button"
           onClick={onPublish}
-          disabled={publishing}
+          disabled={publishDisabled}
           className="flex w-full items-center justify-center gap-1.5 rounded-full bg-primary py-3.5 text-sm font-bold text-background transition hover:brightness-110 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
         >
           {publishing
-            ? offlineMode
-              ? t("spotEditor.saving")
-              : t("spotEditor.publishing")
+            ? t("spotEditor.publishing")
             : uploadFailed
               ? t("spotEditor.retryUpload")
-              : offlineMode
-                ? t("spotEditor.saveOfflineDraft")
-                : t("spotEditor.shareSpot")}
+              : t("spotEditor.shareSpot")}
           {!publishing ? <ChevronRight className="h-4 w-4" aria-hidden /> : null}
         </button>
       </div>

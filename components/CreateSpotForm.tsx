@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
-import SpotOfflineDraftSavedScreen from "@/components/SpotOfflineDraftSavedScreen";
 import SpotInstagramCamera from "@/components/SpotInstagramCamera";
 import { useI18n } from "@/components/I18nProvider";
 import SpotCapturePreviewScreen from "@/components/SpotCapturePreviewScreen";
@@ -29,15 +28,7 @@ import {
   resolveSpotName,
   type SpotPublishBlockReason,
 } from "@/lib/spotPublish";
-import {
-  buildSpotDraftUpsertPayload,
-  createSpotDraftId,
-  getSpotDraftStorage,
-  isDeviceOnline,
-  isLikelyNetworkError,
-  mediaEditorItemFromDraft,
-  type SpotDraftUploadStatus,
-} from "@/lib/spotDraft";
+import { isDeviceOnline, isLikelyNetworkError } from "@/lib/deviceOnline";
 import {
   createMediaEditorItem,
   getActiveMediaEditorItem,
@@ -69,21 +60,17 @@ function publishStatusKey(reason: SpotPublishBlockReason): TranslationKey | null
 type CreateSpotFormProps = {
   userId: string;
   isOpen: boolean;
-  draftId?: string | null;
   onClose: () => void;
   onCreated: () => void;
-  onDraftChanged?: () => void;
 };
 
-type Step = "camera" | "preview" | "publish" | "offline_saved";
+type Step = "camera" | "preview" | "publish";
 
 export default function CreateSpotForm({
   userId,
   isOpen,
-  draftId,
   onClose,
   onCreated,
-  onDraftChanged,
 }: CreateSpotFormProps) {
   const router = useRouter();
   const { t } = useI18n();
@@ -104,87 +91,14 @@ export default function CreateSpotForm({
   const [publishing, setPublishing] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<SpotUploadProgress | null>(null);
   const [uploadFailed, setUploadFailed] = useState(false);
-  const [savingDraft, setSavingDraft] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [loadingDraft, setLoadingDraft] = useState(false);
-  const [isOfflineCapture, setIsOfflineCapture] = useState(false);
 
-  const currentDraftIdRef = useRef<string | null>(draftId ?? null);
-  const saveTimeoutRef = useRef<number | null>(null);
-  const skipSaveOnCloseRef = useRef(false);
   // Pre-warmed location captured while camera is open (fast lookup, low accuracy).
   // Used immediately after capture to avoid making the user wait for GPS.
   const cachedLocationRef = useRef<SpotGeoLocation | null>(null);
   const editorOpenedAtRef = useRef<number | null>(null);
 
   const activeMedia = getActiveMediaEditorItem(mediaItems, activeMediaIndex);
-
-  const notifyDraftChanged = useCallback(() => {
-    onDraftChanged?.();
-  }, [onDraftChanged]);
-
-  const saveDraftFromMedia = useCallback(
-    async (
-      mediaItem: MediaEditorItem,
-      draftLocation: SpotGeoLocation | null,
-      draftLocationSource: SpotLocationSourceKind,
-      draftMatchedPlaceName: string | null,
-      uploadStatus?: SpotDraftUploadStatus
-    ) => {
-      const payload = buildSpotDraftUpsertPayload({
-        id: currentDraftIdRef.current ?? undefined,
-        userId,
-        spotName,
-        collectionId,
-        location: draftLocation,
-        locationSource: draftLocationSource,
-        matchedPlaceName: draftMatchedPlaceName,
-        mediaItem,
-        uploadStatus,
-        uploadError: null,
-      });
-
-      const saved = await getSpotDraftStorage().upsertDraft(payload);
-      currentDraftIdRef.current = saved.id;
-      notifyDraftChanged();
-      return saved;
-    },
-    [collectionId, notifyDraftChanged, spotName, userId]
-  );
-
-  const persistDraft = useCallback(
-    async (options?: { uploadStatus?: SpotDraftUploadStatus; uploadError?: string | null }) => {
-      if (!activeMedia || (step !== "preview" && step !== "publish")) {
-        return null;
-      }
-
-      return saveDraftFromMedia(
-        activeMedia,
-        location,
-        locationSource,
-        matchedPlaceName,
-        options?.uploadStatus
-      );
-    },
-    [
-      activeMedia,
-      location,
-      locationSource,
-      matchedPlaceName,
-      saveDraftFromMedia,
-      step,
-    ]
-  );
-
-  const scheduleDraftSave = useCallback(() => {
-    if (saveTimeoutRef.current !== null) {
-      window.clearTimeout(saveTimeoutRef.current);
-    }
-
-    saveTimeoutRef.current = window.setTimeout(() => {
-      void persistDraft();
-    }, 800);
-  }, [persistDraft]);
 
   const clearMedia = () => {
     setMediaItems((current) => {
@@ -200,11 +114,6 @@ export default function CreateSpotForm({
   };
 
   const resetAll = () => {
-    if (saveTimeoutRef.current !== null) {
-      window.clearTimeout(saveTimeoutRef.current);
-      saveTimeoutRef.current = null;
-    }
-
     clearMedia();
     setStep("camera");
     setSpotName("");
@@ -213,60 +122,8 @@ export default function CreateSpotForm({
     setPublishing(false);
     setUploadProgress(null);
     setUploadFailed(false);
-    setSavingDraft(false);
     setError(null);
-    setLoadingDraft(false);
-    setIsOfflineCapture(false);
-    currentDraftIdRef.current = null;
   };
-
-  const restoreDraft = useCallback(
-    async (nextDraftId: string) => {
-      setLoadingDraft(true);
-      setError(null);
-
-      try {
-        const storage = getSpotDraftStorage();
-        const draft = await storage.getDraft(nextDraftId);
-
-        if (!draft || draft.userId !== userId) {
-          setError(t("spotEditor.error.openDraft"));
-          setStep("camera");
-          return;
-        }
-
-        const mediaBlob = await storage.getDraftBlob(nextDraftId, "media");
-
-        if (!mediaBlob) {
-          setError(t("spotEditor.error.missingMedia"));
-          setStep("camera");
-          return;
-        }
-
-        const coverBlob =
-          draft.media.mediaType === "video" ? await storage.getDraftBlob(nextDraftId, "cover") : null;
-        const item = await mediaEditorItemFromDraft(draft, mediaBlob, coverBlob);
-
-        setMediaItems([item]);
-        setActiveMediaIndex(0);
-        setSpotName(draft.spotName);
-        setCollectionId(draft.collectionId ?? "");
-        setLocation(draft.location);
-        setLocationSource(draft.locationSource);
-        setMatchedPlaceName(draft.matchedPlaceName);
-        setNeedsLocationChoice(!hasSpotPublishLocation(draft.location));
-        setLocationHint(null);
-        setStep("preview");
-        currentDraftIdRef.current = draft.id;
-      } catch (caught) {
-        setError(caught instanceof Error ? caught.message : t("spotEditor.error.openDraft"));
-        setStep("camera");
-      } finally {
-        setLoadingDraft(false);
-      }
-    },
-    [userId]
-  );
 
   useEffect(() => {
     if (!isOpen) {
@@ -275,8 +132,6 @@ export default function CreateSpotForm({
     }
 
     setImmersiveOverlayActive(true);
-    skipSaveOnCloseRef.current = false;
-    currentDraftIdRef.current = draftId ?? null;
 
     if (isDeviceOnline()) {
       void loadDiscoveryPlacesForMatching().then((loaded) => {
@@ -297,12 +152,6 @@ export default function CreateSpotForm({
       setCollectionsLoading(false);
     }
 
-    if (draftId) {
-      void restoreDraft(draftId);
-    } else {
-      setStep("camera");
-    }
-
     // Start a fast location lookup while the camera is open so the result is
     // already cached by the time the user finishes recording.
     cachedLocationRef.current = null;
@@ -319,26 +168,7 @@ export default function CreateSpotForm({
     return () => {
       setImmersiveOverlayActive(false);
     };
-  }, [draftId, isOpen, restoreDraft, userId]);
-
-  useEffect(() => {
-    if (!isOpen || (step !== "preview" && step !== "publish") || !activeMedia || loadingDraft) {
-      return;
-    }
-
-    scheduleDraftSave();
-  }, [
-    activeMedia,
-    collectionId,
-    isOpen,
-    loadingDraft,
-    location,
-    locationSource,
-    matchedPlaceName,
-    scheduleDraftSave,
-    spotName,
-    step,
-  ]);
+  }, [isOpen, userId]);
 
   const handleClose = () => {
     setImmersiveOverlayActive(false);
@@ -346,38 +176,11 @@ export default function CreateSpotForm({
     onClose();
   };
 
-  const saveToDraftAndExit = async () => {
-    if (!activeMedia || step !== "preview") {
-      handleClose();
-      return;
-    }
-
-    setSavingDraft(true);
-    setError(null);
-
-    try {
-      await persistDraft();
-      skipSaveOnCloseRef.current = true;
-      handleClose();
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : t("spotEditor.error.saveDraft"));
-    } finally {
-      setSavingDraft(false);
-    }
-  };
-
   const discardVideoAndReturnToCamera = async () => {
-    skipSaveOnCloseRef.current = true;
     await backToCamera();
   };
 
   const backToCamera = async () => {
-    if (currentDraftIdRef.current) {
-      await getSpotDraftStorage().deleteDraft(currentDraftIdRef.current);
-      currentDraftIdRef.current = null;
-      notifyDraftChanged();
-    }
-
     clearMedia();
     setStep("camera");
     setError(null);
@@ -502,7 +305,6 @@ export default function CreateSpotForm({
     }
 
     const item = createMediaEditorItem(file, nextType);
-    currentDraftIdRef.current = createSpotDraftId();
 
     setMediaItems((current) => {
       revokeMediaEditorItems(current);
@@ -516,36 +318,6 @@ export default function CreateSpotForm({
     setNeedsLocationChoice(false);
     setLocationHint(null);
 
-    if (!isDeviceOnline()) {
-      setIsOfflineCapture(true);
-
-      let capturedLocation: SpotGeoLocation | null = null;
-      let capturedSource: SpotLocationSourceKind = null;
-
-      try {
-        capturedLocation = await requestDeviceLocation();
-        capturedSource = "device";
-      } catch {
-        capturedLocation = null;
-      }
-
-      setLocation(capturedLocation);
-      setLocationSource(capturedSource);
-
-      await saveDraftFromMedia(
-        item,
-        capturedLocation,
-        capturedSource,
-        null,
-        capturedLocation ? "ready" : "draft"
-      );
-
-      skipSaveOnCloseRef.current = true;
-      setStep("offline_saved");
-      return;
-    }
-
-    setIsOfflineCapture(false);
     editorOpenedAtRef.current = Date.now();
     setStep("preview");
     void resolveLocationAfterCapture();
@@ -591,11 +363,7 @@ export default function CreateSpotForm({
     }
 
     if (!isDeviceOnline()) {
-      setPublishing(true);
-      await persistDraft({ uploadStatus: "ready", uploadError: null });
-      skipSaveOnCloseRef.current = true;
-      setPublishing(false);
-      setStep("offline_saved");
+      setError(t("spotEditor.offlineHint"));
       return;
     }
 
@@ -617,12 +385,6 @@ export default function CreateSpotForm({
         },
       });
 
-      if (currentDraftIdRef.current) {
-        await getSpotDraftStorage().deleteDraft(currentDraftIdRef.current);
-        notifyDraftChanged();
-      }
-
-      skipSaveOnCloseRef.current = true;
       const postId = result.postId;
       setPublishing(false);
       onCreated();
@@ -632,23 +394,12 @@ export default function CreateSpotForm({
       }
 
       void handleClose();
-
-      if (currentDraftIdRef.current) {
-        const draftId = currentDraftIdRef.current;
-        void getSpotDraftStorage()
-          .deleteDraft(draftId)
-          .then(() => notifyDraftChanged());
-      }
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : t("spotEditor.error.publishFailed");
       setUploadFailed(true);
 
       if (isLikelyNetworkError(caught)) {
-        await persistDraft({
-          uploadStatus: "ready",
-          uploadError: message,
-        });
-        setError(t("spotEditor.error.uploadFailedDraft"));
+        setError(t("spotEditor.error.uploadFailed"));
       } else {
         setError(localizeUserMessage(t, message) ?? message);
       }
@@ -673,7 +424,7 @@ export default function CreateSpotForm({
     [updateActiveItem]
   );
 
-  const offlineMode = !isDeviceOnline() || isOfflineCapture;
+  const offlineMode = !isDeviceOnline();
   const publishBlockReason = offlineMode
     ? null
     : getSpotPublishBlockReason({
@@ -689,23 +440,6 @@ export default function CreateSpotForm({
       })();
 
   const renderSpotFlow = () => {
-    if (loadingDraft) {
-      return (
-        <div className="fixed inset-0 z-[130] flex items-center justify-center bg-[#050816] px-6 text-center">
-          <p className="text-sm text-muted">{t("spotEditor.openingDraft")}</p>
-        </div>
-      );
-    }
-
-    if (step === "offline_saved" && activeMedia) {
-      return (
-        <SpotOfflineDraftSavedScreen
-          item={activeMedia}
-          onDone={() => void handleClose()}
-        />
-      );
-    }
-
     if (step === "publish" && activeMedia) {
       return (
         <SpotPublishScreen
@@ -747,11 +481,9 @@ export default function CreateSpotForm({
           onSpotNameChange={setSpotName}
           onUseCurrentLocation={() => void resolveFromDevice()}
           onSelectPlace={(place) => void applySearchPlace(place)}
-          onSaveToDrafts={() => void saveToDraftAndExit()}
           onDiscardVideo={() => void discardVideoAndReturnToCamera()}
           onRetake={() => void backToCamera()}
           onNext={() => handleNext()}
-          savingDraft={savingDraft}
         />
       );
     }
@@ -773,7 +505,7 @@ export default function CreateSpotForm({
           onSpotNameChange={setSpotName}
           onUseCurrentLocation={() => void resolveFromDevice()}
           onSelectPlace={(place) => void applySearchPlace(place)}
-          onDismiss={() => void handleClose()}
+          onDiscard={() => void discardVideoAndReturnToCamera()}
           onRetake={() => void backToCamera()}
           onNext={() => handleNext()}
         />
