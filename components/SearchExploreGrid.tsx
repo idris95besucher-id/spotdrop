@@ -20,18 +20,6 @@ import { SPOT_DELETED_EVENT, type SpotDeletedDetail } from "@/lib/spotDeletedEve
 import { SPOT_STATS_UPDATED_EVENT, type SpotStatsUpdatedDetail } from "@/lib/spotStatsEvents";
 import { getPostMedia } from "@/lib/posts";
 
-const MASONRY_ASPECTS = ["aspect-square", "aspect-[4/5]", "aspect-[3/4]"] as const;
-
-function distributeToColumns(posts: FeedSpotRow[]) {
-  const columns: FeedSpotRow[][] = [[], [], []];
-
-  posts.forEach((post, index) => {
-    columns[index % 3].push(post);
-  });
-
-  return columns;
-}
-
 /** Compact display: 1 234 → "1.2k", 1 234 567 → "1.2M" */
 function formatVisitCount(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
@@ -56,7 +44,6 @@ export default function SearchExploreGrid({ onPostsChange }: SearchExploreGridPr
   const initialLoadStartedRef = useRef(false);
 
   const viewerItems = useMemo(() => feedRowsToViewerItems(posts), [posts]);
-  const columns = useMemo(() => distributeToColumns(posts), [posts]);
 
   const loadInitial = useCallback(async () => {
     if (initialLoadStartedRef.current) {
@@ -182,11 +169,11 @@ export default function SearchExploreGrid({ onPostsChange }: SearchExploreGridPr
 
   if (loading) {
     return (
-      <div className={`grid w-full min-w-0 max-w-full grid-cols-3 gap-0.5 ${MOBILE_WIDTH_SAFE_CLASS}`}>
+      <div className={`grid w-full min-w-0 max-w-full grid-cols-3 gap-px ${MOBILE_WIDTH_SAFE_CLASS}`}>
         {Array.from({ length: 9 }).map((_, index) => (
           <div
             key={`search-explore-skeleton-${index}`}
-            className={`animate-pulse bg-slate-900 ${MASONRY_ASPECTS[index % MASONRY_ASPECTS.length]}`}
+            className="aspect-square animate-pulse bg-slate-900"
           />
         ))}
       </div>
@@ -210,20 +197,18 @@ export default function SearchExploreGrid({ onPostsChange }: SearchExploreGridPr
     );
   }
 
-  const renderTile = (post: FeedSpotRow, globalIndex: number) => {
+  const renderTile = (post: FeedSpotRow, postIndex: number) => {
     const { mediaUrl } = getPostMedia(post);
-    const aspectClass = MASONRY_ASPECTS[globalIndex % MASONRY_ASPECTS.length];
     const spotTitle = formatFeedSpotTitle(post);
-    const postIndex = posts.findIndex((item) => item.id === post.id);
     const clickedSpot = postIndex >= 0 ? viewerItems[postIndex] : undefined;
     const visitCount = post.visited_count ?? 0;
     const fallbackLabel = spotTitle || post.content?.trim() || t("profile.spotFallback");
 
     return (
-      <article key={post.id} className="relative select-none touch-manipulation overflow-hidden bg-slate-950">
+      <article key={post.id} className="relative aspect-square overflow-hidden bg-slate-950">
         <PostMediaLink
           postId={post.id}
-          className="block w-full"
+          className="block h-full w-full"
           viewerItems={viewerItems}
           clickedSpot={clickedSpot}
         >
@@ -231,14 +216,12 @@ export default function SearchExploreGrid({ onPostsChange }: SearchExploreGridPr
             <PostCardMedia
               post={post}
               autoplay
-              className={`w-full ${aspectClass}`}
-              imageClassName={`w-full ${aspectClass} object-cover`}
+              className="aspect-square h-full w-full"
+              imageClassName="aspect-square h-full w-full object-cover"
               fallbackLabel={fallbackLabel}
             />
           ) : (
-            <div
-              className={`flex w-full items-center justify-center bg-slate-900 px-2 text-center text-[11px] leading-snug text-slate-300 ${aspectClass}`}
-            >
+            <div className="flex aspect-square h-full w-full items-center justify-center bg-slate-900 px-2 text-center text-[11px] leading-snug text-slate-300">
               <span className="line-clamp-4">{fallbackLabel}</span>
             </div>
           )}
@@ -254,20 +237,10 @@ export default function SearchExploreGrid({ onPostsChange }: SearchExploreGridPr
     );
   };
 
-  let globalIndex = 0;
-
   return (
     <div className={`space-y-3 select-none touch-manipulation ${MOBILE_WIDTH_SAFE_CLASS}`}>
-      <div className="grid w-full min-w-0 max-w-full grid-cols-3 gap-0.5">
-        {columns.map((column, columnIndex) => (
-          <div key={`search-explore-column-${columnIndex}`} className="flex flex-col gap-0.5">
-            {column.map((post) => {
-              const tile = renderTile(post, globalIndex);
-              globalIndex += 1;
-              return tile;
-            })}
-          </div>
-        ))}
+      <div className="grid w-full min-w-0 max-w-full grid-cols-3 gap-px">
+        {posts.map((post, index) => renderTile(post, index))}
       </div>
 
       <div ref={sentinelRef} className="flex min-h-8 items-center justify-center py-4">
