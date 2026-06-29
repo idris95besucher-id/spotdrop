@@ -10,7 +10,6 @@ import PostDetailActionRail from "@/components/PostDetailActionRail";
 import SaveToCollectionSheet from "@/components/SaveToCollectionSheet";
 import SendSpotSheet from "@/components/SendSpotSheet";
 import PostReelMedia from "@/components/PostReelMedia";
-import SpotMapIntro from "@/components/SpotMapIntro";
 import GuidePlaceCard from "@/components/GuidePlaceCard";
 import SpotLocationSummary from "@/components/SpotLocationSummary";
 import { deleteOwnedSpot } from "@/lib/deleteContent";
@@ -40,7 +39,6 @@ import {
   SPOT_LOAD_ERROR,
   type SpotLoadPhase,
 } from "@/lib/spotLoadState";
-import { useSpotMapIntro } from "@/lib/useSpotMapIntro";
 
 function itemHasPreviewMedia(item: ViewerPostListItem) {
   const sources = getReelMediaSources(item);
@@ -383,38 +381,6 @@ export default function PostViewerSlide({
   const isOwnSpot = isSpot && isOwnPost;
   const engagementDisabled = isDemo;
 
-  const mapIntroSpot = useMemo(
-    () => ({
-      content_kind: post.content_kind,
-      spot_latitude: post.spot_latitude,
-      spot_longitude: post.spot_longitude,
-      spot_city: post.spot_city,
-      spot_country: post.spot_country,
-      spot_name: post.spot_name,
-      visibility: post.visibility ?? item.visibility ?? "public",
-    }),
-    [
-      item.visibility,
-      post.content_kind,
-      post.spot_city,
-      post.spot_country,
-      post.spot_latitude,
-      post.spot_longitude,
-      post.spot_name,
-      post.visibility,
-    ]
-  );
-
-  const { showIntro: showMapIntro, introFinished: mapIntroFinished, finishIntro } = useSpotMapIntro(
-    item.id,
-    isActive,
-    mapIntroSpot,
-    mediaType
-  );
-
-  const videoVisible = !showMapIntro && mapIntroFinished;
-  const preloadVideoDuringIntro = showMapIntro && Boolean(mediaUrl && mediaType === "video");
-
   useEffect(() => {
     if (!isActive) {
       return;
@@ -486,33 +452,16 @@ export default function PostViewerSlide({
           </div>
         </div>
       ) : showMediaLayer && mediaUrl && mediaType ? (
-        <div className="absolute inset-0">
-          <div
-            className={`absolute inset-0 transition-opacity duration-500 ${
-              videoVisible ? "opacity-100" : "opacity-0"
-            }`}
-            aria-hidden={!videoVisible}
-          >
-            <PostReelMedia
-              key={mediaRenderKey}
-              mediaUrl={mediaUrl}
-              mediaType={mediaType}
-              posterUrl={posterUrl}
-              isActive={isActive && videoVisible}
-              shouldLoad={shouldLoadMedia || preloadVideoDuringIntro}
-              alt={spotTitle ?? post.content ?? ""}
-              onLoadingChange={isActive && videoVisible ? onActiveMediaLoadingChange : undefined}
-            />
-          </div>
-          {showMapIntro ? (
-            <SpotMapIntro
-              spot={mapIntroSpot}
-              onComplete={finishIntro}
-              onSkip={finishIntro}
-              onFail={finishIntro}
-            />
-          ) : null}
-        </div>
+        <PostReelMedia
+          key={mediaRenderKey}
+          mediaUrl={mediaUrl}
+          mediaType={mediaType}
+          posterUrl={posterUrl}
+          isActive={isActive}
+          shouldLoad={shouldLoadMedia}
+          alt={spotTitle ?? post.content ?? ""}
+          onLoadingChange={isActive ? onActiveMediaLoadingChange : undefined}
+        />
       ) : showMediaLayer && posterUrl ? (
         <PostReelMedia
           key={mediaRenderKey}

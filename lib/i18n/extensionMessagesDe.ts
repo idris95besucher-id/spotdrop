@@ -20,9 +20,6 @@ export const EXTENSION_DE: Record<ExtensionKey, string> = {
   "common.username": "Benutzername",
   "common.online": "Online",
 
-  "spotMapIntro.eyebrow": "Spot entdecken",
-  "spotMapIntro.skip": "Überspringen",
-
   "presence.lastSeenRecently": "Zuletzt kürzlich online",
   "presence.lastSeenJustNow": "Zuletzt gerade online",
   "presence.lastSeenMinutesAgo": "Zuletzt vor {count} Min. online",

@@ -12,7 +12,6 @@ import OwnContentMenu from "@/components/OwnContentMenu";
 import PostCommentsSection from "@/components/PostCommentsSection";
 import PostDetailActionRail from "@/components/PostDetailActionRail";
 import PostReelMedia from "@/components/PostReelMedia";
-import SpotMapIntro from "@/components/SpotMapIntro";
 import SaveToCollectionSheet from "@/components/SaveToCollectionSheet";
 import SendSpotSheet from "@/components/SendSpotSheet";
 import PostMediaViewer from "@/components/PostMediaViewer";
@@ -50,7 +49,6 @@ import { useI18n } from "@/components/I18nProvider";
 import { localizeUserMessage } from "@/lib/i18n/localizeUserMessage";
 import { seeSpotLocation } from "@/lib/seeSpotLocation";
 import { type SpotLoadPhase } from "@/lib/spotLoadState";
-import { useSpotMapIntro } from "@/lib/useSpotMapIntro";
 import { supabase } from "@/lib/supabaseClient";
 
 const REEL_TOP_INSET = "top-[max(0.75rem,env(safe-area-inset-top))]";
@@ -577,37 +575,6 @@ export default function PostDetailPage({ postIdOverride }: PostDetailPageProps =
     : false;
   const engagementDisabled = isDemo || !engagementReady;
   const showActionRail = Boolean(post && !loading && !error);
-  const mapIntroSpot = useMemo(
-    () =>
-      post
-        ? {
-            content_kind: post.content_kind,
-            spot_latitude: post.spot_latitude,
-            spot_longitude: post.spot_longitude,
-            spot_city: post.spot_city,
-            spot_country: post.spot_country,
-            spot_name: post.spot_name,
-            visibility: post.visibility ?? "public",
-          }
-        : {
-            content_kind: null,
-            spot_latitude: null,
-            spot_longitude: null,
-            spot_city: null,
-            spot_country: null,
-            spot_name: null,
-            visibility: "public" as const,
-          },
-    [post]
-  );
-  const { showIntro: showMapIntro, introFinished: mapIntroFinished, finishIntro } = useSpotMapIntro(
-    postId,
-    Boolean(post && !loading && !error && isSpotPost),
-    mapIntroSpot,
-    mediaType
-  );
-  const videoVisible = !showMapIntro && mapIntroFinished;
-  const preloadVideoDuringIntro = showMapIntro && Boolean(mediaUrl && mediaType === "video");
   const isOwnPost = Boolean(post && userId && post.user_id === userId && !isDemo);
   const isSpotSaved = savedCollectionIds.length > 0;
 
@@ -716,30 +683,14 @@ export default function PostDetailPage({ postIdOverride }: PostDetailPageProps =
               </div>
             ) : mediaUrl && mediaType && isSpotPost ? (
               <div className="absolute inset-0" data-media-load-phase={mediaLoadPhase}>
-                <div
-                  className={`absolute inset-0 transition-opacity duration-500 ${
-                    videoVisible ? "opacity-100" : "opacity-0"
-                  }`}
-                  aria-hidden={!videoVisible}
-                >
-                  <PostReelMedia
-                    mediaUrl={mediaUrl}
-                    mediaType={mediaType}
-                    posterUrl={posterUrl}
-                    isActive={videoVisible}
-                    shouldLoad={videoVisible || preloadVideoDuringIntro}
-                    alt={spotTitle ?? post.content ?? ""}
-                    onPhaseChange={setMediaLoadPhase}
-                  />
-                </div>
-                {showMapIntro ? (
-                  <SpotMapIntro
-                    spot={mapIntroSpot}
-                    onComplete={finishIntro}
-                    onSkip={finishIntro}
-                    onFail={finishIntro}
-                  />
-                ) : null}
+                <PostReelMedia
+                  mediaUrl={mediaUrl}
+                  mediaType={mediaType}
+                  posterUrl={posterUrl}
+                  isActive
+                  alt={spotTitle ?? post.content ?? ""}
+                  onPhaseChange={setMediaLoadPhase}
+                />
               </div>
             ) : mediaUrl && mediaType ? (
               <div className="absolute inset-0">

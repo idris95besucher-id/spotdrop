@@ -20,9 +20,6 @@ export const EXTENSION_RU: Record<ExtensionKey, string> = {
   "common.username": "Имя пользователя",
   "common.online": "В сети",
 
-  "spotMapIntro.eyebrow": "Открываем место",
-  "spotMapIntro.skip": "Пропустить",
-
   "presence.lastSeenRecently": "Недавно в сети",
   "presence.lastSeenJustNow": "Был(а) в сети только что",
   "presence.lastSeenMinutesAgo": "Был(а) в сети {count} мин. назад",
