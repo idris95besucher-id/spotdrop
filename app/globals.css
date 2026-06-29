@@ -215,6 +215,73 @@ body:has([data-spot-reel-screen]) .sd-app-root {
   visibility: hidden;
 }
 
+body:has([data-spot-viewer-screen]) [data-mobile-bottom-nav] {
+  display: none !important;
+}
+
+body:has([data-spot-viewer-screen]) .sd-app-root {
+  visibility: hidden;
+}
+
+/* Immersive spot viewer — media edge-to-edge; chrome uses safe-area insets */
+[data-spot-viewer-screen],
+[data-spot-reel-screen] {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  height: 100dvh;
+  height: 100svh;
+  overflow: hidden;
+  padding: 0;
+  margin: 0;
+}
+
+[data-spot-viewer-viewport] {
+  height: 100%;
+  width: 100%;
+}
+
+[data-spot-viewer-slide] {
+  position: relative;
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+
+[data-spot-viewer-media] {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 0;
+  overflow: hidden;
+  /* Bleed under status bar / home indicator — UI overlays stay inset */
+  top: calc(-1 * env(safe-area-inset-top, 0px));
+  bottom: calc(-1 * env(safe-area-inset-bottom, 0px));
+  height: calc(100% + env(safe-area-inset-top, 0px) + env(safe-area-inset-bottom, 0px));
+}
+
+[data-spot-viewer-media] video,
+[data-spot-viewer-media] img {
+  object-fit: cover;
+  object-position: center;
+}
+
+[data-spot-viewer-chrome-top],
+[data-spot-viewer-chrome-menu-top] {
+  position: absolute;
+}
+
+[data-spot-viewer-chrome-top] {
+  top: max(0.75rem, env(safe-area-inset-top, 0px));
+}
+
+[data-spot-viewer-chrome-menu-top] {
+  top: max(3.25rem, env(safe-area-inset-top, 0px));
+}
+
 .sd-theme-proof {
   background: linear-gradient(90deg, var(--sd-primary) 0%, var(--sd-accent) 100%);
   color: #050816;

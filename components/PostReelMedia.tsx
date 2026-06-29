@@ -40,6 +40,26 @@ function cacheBustUrl(url: string, attempt: number) {
   return `${url}${separator}retry=${attempt}&t=${Date.now()}`;
 }
 
+function logVideoStart(event: string, details?: Record<string, unknown>) {
+  console.log(`[Video start] ${event}`, details ?? "");
+}
+
+async function attemptVideoPlay(video: HTMLVideoElement) {
+  video.muted = true;
+  logVideoStart("play called", {
+    paused: video.paused,
+    readyState: video.readyState,
+    currentTime: video.currentTime,
+  });
+
+  try {
+    await video.play();
+    video.muted = viewerGlobalMuted;
+  } catch (error) {
+    console.warn("[Video start] play blocked", error);
+  }
+}
+
 export default function PostReelMedia({
   mediaUrl,
   mediaType,
@@ -53,6 +73,7 @@ export default function PostReelMedia({
   const videoRef = useRef<HTMLVideoElement>(null);
   const retryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const retryCountRef = useRef(0);
+  const playRequestedRef = useRef(false);
 
   const [retryKey, setRetryKey] = useState(0);
   const [phase, setPhase] = useState<SpotLoadPhase>("loading");
@@ -63,7 +84,7 @@ export default function PostReelMedia({
   const resolvedPoster = posterUrl?.trim() || (mediaType === "image" ? mediaUrl : null);
   const playbackUrl = cacheBustUrl(mediaUrl, retryKey);
   const loadHeavyMedia = shouldLoad || isActive;
-  const canPlayVideo = mediaType === "video" && loadHeavyMedia && phase !== "error";
+  const shouldMountVideo = mediaType === "video" && loadHeavyMedia && phase !== "error";
   const canShowImage = mediaType === "image" && loadHeavyMedia;
 
   const markLoaded = useCallback(() => {
@@ -108,6 +129,7 @@ export default function PostReelMedia({
 
     retryCountRef.current += 1;
     setPhase("mediaLoading");
+    playRequestedRef.current = false;
 
     if (retryTimeoutRef.current) {
       clearTimeout(retryTimeoutRef.current);
@@ -119,8 +141,42 @@ export default function PostReelMedia({
     }, RETRY_DELAY_MS);
   }, [markFinalError, markPosterFallbackLoaded, posterReady, resolvedPoster]);
 
+  const requestVideoLoad = useCallback(
+    (video: HTMLVideoElement) => {
+      video.muted = true;
+      video.playsInline = true;
+      video.setAttribute("playsinline", "true");
+      video.setAttribute("webkit-playsinline", "true");
+      logVideoStart("load called", { mediaUrl: playbackUrl, isActive });
+      video.load();
+    },
+    [isActive, playbackUrl]
+  );
+
+  const requestVideoPlay = useCallback((video: HTMLVideoElement) => {
+    if (playRequestedRef.current && !video.paused) {
+      return;
+    }
+
+    playRequestedRef.current = true;
+    void attemptVideoPlay(video);
+  }, []);
+
+  useEffect(() => {
+    if (mediaType !== "video") {
+      return;
+    }
+
+    logVideoStart("mediaUrl received", {
+      mediaUrl: playbackUrl,
+      isActive,
+      shouldLoad,
+    });
+  }, [mediaType, playbackUrl, isActive, shouldLoad]);
+
   useEffect(() => {
     retryCountRef.current = 0;
+    playRequestedRef.current = false;
     setRetryKey(0);
     setMediaReady(false);
     setPosterReady(false);
@@ -128,10 +184,10 @@ export default function PostReelMedia({
   }, [mediaUrl, mediaType, posterUrl]);
 
   useEffect(() => {
-    if (phase === "loading" && isActive && loadHeavyMedia) {
+    if (phase === "loading" && loadHeavyMedia) {
       setPhase("mediaLoading");
     }
-  }, [isActive, loadHeavyMedia, phase]);
+  }, [loadHeavyMedia, phase]);
 
   useEffect(() => {
     if (!isActive || phase === "loaded" || phase === "error") {
@@ -142,7 +198,6 @@ export default function PostReelMedia({
       return;
     }
 
-    // Poster is visible content while video buffers — don't timeout-retry in that case.
     if (mediaType === "video" && resolvedPoster) {
       return;
     }
@@ -183,63 +238,116 @@ export default function PostReelMedia({
     onPhaseChange?.(phase);
   }, [onPhaseChange, phase]);
 
-  // Sync mute state when this slide becomes active (respect global preference).
   useEffect(() => {
-    if (!isActive) return;
+    if (!isActive) {
+      return;
+    }
+
     setIsMuted(viewerGlobalMuted);
     const video = videoRef.current;
-    if (video) video.muted = viewerGlobalMuted;
+
+    if (video) {
+      video.muted = viewerGlobalMuted;
+    }
   }, [isActive]);
 
   useEffect(() => {
     const video = videoRef.current;
 
-    if (!video || mediaType !== "video" || !canPlayVideo) {
+    if (!video || !shouldMountVideo) {
       return;
     }
 
-    video.muted = viewerGlobalMuted;
-    video.playsInline = true;
-    video.setAttribute("playsinline", "true");
-    video.setAttribute("webkit-playsinline", "true");
+    requestVideoLoad(video);
+
+    const handleLoadedMetadata = () => {
+      logVideoStart("loadedmetadata", { readyState: video.readyState });
+    };
+
+    const handleCanPlay = () => {
+      logVideoStart("canplay", { readyState: video.readyState });
+
+      if (isActive) {
+        requestVideoPlay(video);
+      }
+    };
+
+    const handleLoadedData = () => {
+      if (isActive) {
+        requestVideoPlay(video);
+      }
+    };
+
+    const handlePlaying = () => {
+      logVideoStart("playing", { currentTime: video.currentTime });
+      markLoaded();
+    };
+
+    const handleError = () => {
+      playRequestedRef.current = false;
+      setMediaReady(false);
+      scheduleRetry();
+    };
+
+    video.addEventListener("loadedmetadata", handleLoadedMetadata);
+    video.addEventListener("canplay", handleCanPlay);
+    video.addEventListener("loadeddata", handleLoadedData);
+    video.addEventListener("playing", handlePlaying);
+    video.addEventListener("error", handleError);
 
     if (isActive) {
-      if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
-        video.load();
-      }
-
-      const playWhenReady = () => {
-        void video.play().catch(() => {
-          /* autoplay blocked — poster stays visible */
-        });
-      };
-
       if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
-        playWhenReady();
-      } else {
-        video.addEventListener("canplay", playWhenReady, { once: true });
-        return () => video.removeEventListener("canplay", playWhenReady);
+        requestVideoPlay(video);
       }
+    } else {
+      video.pause();
 
+      try {
+        video.currentTime = 0;
+      } catch {
+        /* ignore */
+      }
+    }
+
+    return () => {
+      video.removeEventListener("loadedmetadata", handleLoadedMetadata);
+      video.removeEventListener("canplay", handleCanPlay);
+      video.removeEventListener("loadeddata", handleLoadedData);
+      video.removeEventListener("playing", handlePlaying);
+      video.removeEventListener("error", handleError);
+    };
+  }, [
+    isActive,
+    markLoaded,
+    requestVideoLoad,
+    requestVideoPlay,
+    scheduleRetry,
+    shouldMountVideo,
+    playbackUrl,
+  ]);
+
+  useEffect(() => {
+    if (!isActive || !shouldMountVideo) {
       return;
     }
 
-    video.pause();
+    playRequestedRef.current = false;
+    const video = videoRef.current;
 
-    try {
-      video.currentTime = 0;
-    } catch {
-      /* ignore */
+    if (video && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+      requestVideoPlay(video);
     }
-  }, [canPlayVideo, isActive, mediaType, playbackUrl]);
+  }, [isActive, playbackUrl, requestVideoPlay, shouldMountVideo]);
 
   const toggleMute = useCallback(() => {
     const video = videoRef.current;
     const next = !viewerGlobalMuted;
     viewerGlobalMuted = next;
     setIsMuted(next);
+
     if (video) {
       video.muted = next;
+
       if (!next && video.paused && isActive) {
         void video.play().catch(() => undefined);
       }
@@ -284,7 +392,8 @@ export default function PostReelMedia({
   const showSpinner =
     isActive &&
     (phase === "loading" || phase === "mediaLoading") &&
-    !hasVisibleMedia;
+    !hasVisibleMedia &&
+    !shouldMountVideo;
 
   const isLoading = isActive && phase !== "loaded" && phase !== "error";
 
@@ -300,9 +409,9 @@ export default function PostReelMedia({
           src={resolvedPoster}
           alt=""
           aria-hidden
-          loading={isActive ? "eager" : "lazy"}
+          loading={loadHeavyMedia ? "eager" : "lazy"}
           decoding="async"
-          className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-200 ${
+          className={`absolute inset-0 h-full w-full object-cover object-center transition-opacity duration-200 ${
             showPosterLayer ? "opacity-100" : "opacity-0"
           }`}
           onLoad={() => setPosterReady(true)}
@@ -317,7 +426,7 @@ export default function PostReelMedia({
           alt={alt}
           loading="eager"
           decoding="async"
-          className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-200 ${
+          className={`absolute inset-0 h-full w-full object-cover object-center transition-opacity duration-200 ${
             mediaReady ? "opacity-100" : "opacity-0"
           }`}
           onLoad={handleMediaReady}
@@ -325,26 +434,25 @@ export default function PostReelMedia({
         />
       ) : null}
 
-      {canPlayVideo && isActive ? (
+      {shouldMountVideo ? (
         <video
           ref={videoRef}
           key={playbackUrl}
           src={playbackUrl}
           poster={resolvedPoster ?? undefined}
           playsInline
+          autoPlay={isActive}
+          muted
           loop
           preload="auto"
-          className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-200 ${
-            mediaReady ? "opacity-100" : "opacity-0"
+          className={`absolute inset-0 h-full w-full object-cover object-center transition-opacity duration-200 ${
+            mediaReady && isActive ? "opacity-100" : "opacity-0"
           }`}
           aria-label={alt || "Video"}
-          onLoadedData={handleMediaReady}
-          onCanPlay={handleMediaReady}
-          onError={handleMediaError}
         />
       ) : null}
 
-      {!resolvedPoster && !canPlayVideo && !canShowImage ? (
+      {!resolvedPoster && !shouldMountVideo && !canShowImage ? (
         <div
           className="absolute inset-0 animate-pulse bg-gradient-to-b from-slate-800 via-slate-900 to-slate-950"
           aria-hidden
@@ -369,7 +477,7 @@ export default function PostReelMedia({
           type="button"
           onClick={toggleMute}
           className="absolute right-3 z-20 flex h-10 w-10 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur-sm ring-1 ring-white/20"
-          style={{ top: "max(3.25rem, env(safe-area-inset-top))" }}
+          data-spot-viewer-chrome-menu-top
           aria-label={isMuted ? "Unmute video" : "Mute video"}
         >
           {isMuted ? (

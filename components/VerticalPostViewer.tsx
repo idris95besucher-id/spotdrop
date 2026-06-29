@@ -297,14 +297,18 @@ export default function VerticalPostViewer({
     return null;
   }
 
-  const trackTransform = `translate3d(0, calc(${-activeIndex * 100}dvh + ${dragOffsetPx}px), 0)`;
+  const trackTransform = `translate3d(0, calc(${-activeIndex * 100}% + ${dragOffsetPx}px), 0)`;
 
   return createPortal(
-    <div className="fixed inset-0 z-[120] overscroll-none bg-black text-white">
+    <div
+      data-spot-viewer-screen
+      className="fixed inset-0 z-[120] overscroll-none bg-black text-white"
+    >
       <button
         type="button"
         onClick={onClose}
-        className="absolute left-3 top-[max(0.75rem,env(safe-area-inset-top))] z-50 flex h-10 w-10 items-center justify-center rounded-full bg-black/50 text-white ring-1 ring-white/15 backdrop-blur-md transition hover:bg-black/70"
+        className="absolute left-3 z-50 flex h-10 w-10 items-center justify-center rounded-full bg-black/50 text-white ring-1 ring-white/15 backdrop-blur-md transition hover:bg-black/70"
+        data-spot-viewer-chrome-top
         aria-label="Close viewer"
       >
         <X className="h-5 w-5" aria-hidden />
@@ -313,7 +317,7 @@ export default function VerticalPostViewer({
       <div
         ref={viewportRef}
         data-spot-viewer-viewport
-        className="h-[100dvh] w-full overflow-hidden overscroll-none"
+        className="h-full w-full overflow-hidden overscroll-none"
         style={{ overscrollBehavior: "none", touchAction: "pan-x pinch-zoom" }}
         role="list"
         aria-label="Posts and spots"
@@ -333,7 +337,7 @@ export default function VerticalPostViewer({
             const distance = Math.abs(index - activeIndex);
 
             return (
-              <div key={`${spot.id}-${index}`} className="h-[100dvh] w-full shrink-0">
+              <div key={`${spot.id}-${index}`} className="h-full w-full shrink-0">
                 <PostViewerSlide
                   item={spot}
                   slideIndex={index}

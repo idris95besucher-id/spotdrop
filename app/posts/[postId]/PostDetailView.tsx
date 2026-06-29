@@ -51,7 +51,6 @@ import { seeSpotLocation } from "@/lib/seeSpotLocation";
 import { type SpotLoadPhase } from "@/lib/spotLoadState";
 import { supabase } from "@/lib/supabaseClient";
 
-const REEL_TOP_INSET = "top-[max(0.75rem,env(safe-area-inset-top))]";
 const REEL_ICON_BUTTON_CLASS =
   "flex h-10 w-10 items-center justify-center rounded-full bg-black/50 text-white ring-1 ring-white/15 backdrop-blur-md transition hover:bg-black/70";
 
@@ -612,21 +611,19 @@ export default function PostDetailPage({ postIdOverride }: PostDetailPageProps =
   }, [postId, shareUrl]);
 
   const immersiveView = (
-    <div
-      data-spot-reel-screen
-      className="fixed inset-0 z-[120] flex h-[100dvh] w-full flex-col overscroll-none bg-black text-white"
-    >
+    <div data-spot-reel-screen className="fixed inset-0 z-[120] overflow-hidden bg-black text-white">
       <button
         type="button"
         onClick={handleBack}
-        className={`absolute left-3 ${REEL_TOP_INSET} z-50 ${REEL_ICON_BUTTON_CLASS}`}
+        className={`absolute left-3 z-50 ${REEL_ICON_BUTTON_CLASS}`}
+        data-spot-viewer-chrome-top
         aria-label={t("post.goBack")}
       >
         <ArrowLeft className="h-5 w-5" aria-hidden />
       </button>
 
       {isOwnPost && isSpotPost ? (
-        <div className={`absolute right-3 ${REEL_TOP_INSET} z-50`}>
+        <div className="absolute right-3 z-50" data-spot-viewer-chrome-menu-top>
           <OwnContentMenu
             triggerClassName="bg-black/50 ring-1 ring-white/15 backdrop-blur-md"
             deleteMenuLabel={t("content.deleteSpot")}
@@ -662,7 +659,7 @@ export default function PostDetailPage({ postIdOverride }: PostDetailPageProps =
       {loading ? (
         <PostDetailSkeleton />
       ) : error || !post ? (
-        <div className="flex flex-1 flex-col items-center justify-center gap-4 px-8 text-center">
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 px-8 text-center">
           <p className="text-sm text-red-300">{localizeUserMessage(t, error) ?? t("post.notFound")}</p>
           <button
             type="button"
@@ -674,15 +671,15 @@ export default function PostDetailPage({ postIdOverride }: PostDetailPageProps =
         </div>
       ) : (
         <>
-          <div className="relative min-h-0 flex-1 overflow-hidden">
+          <div className="absolute inset-0 overflow-hidden">
             {guidePlace && !mediaUrl ? (
-              <div className="absolute inset-0 flex items-center justify-center overflow-y-auto px-4 pb-36 pt-16">
+              <div className="absolute inset-0 z-[1] flex items-center justify-center overflow-y-auto px-4 pb-36 pt-[max(3.5rem,env(safe-area-inset-top,0px))]">
                 <div className="w-full max-w-md">
                   <GuidePlaceCard place={guidePlace} postId={post.id} />
                 </div>
               </div>
             ) : mediaUrl && mediaType && isSpotPost ? (
-              <div className="absolute inset-0" data-media-load-phase={mediaLoadPhase}>
+              <div data-spot-viewer-media data-media-load-phase={mediaLoadPhase}>
                 <PostReelMedia
                   mediaUrl={mediaUrl}
                   mediaType={mediaType}
@@ -693,7 +690,7 @@ export default function PostDetailPage({ postIdOverride }: PostDetailPageProps =
                 />
               </div>
             ) : mediaUrl && mediaType ? (
-              <div className="absolute inset-0">
+              <div data-spot-viewer-media>
                 <PostMediaViewer mediaUrl={mediaUrl} mediaType={mediaType} alt={spotTitle ?? post.content ?? ""} />
               </div>
             ) : (
@@ -792,7 +789,10 @@ export default function PostDetailPage({ postIdOverride }: PostDetailPageProps =
             ) : null}
 
             {guidePlace && mediaUrl ? (
-              <div className="absolute left-4 right-16 top-16 z-20 max-h-24 overflow-hidden rounded-2xl border border-white/10 bg-black/55 backdrop-blur-md">
+              <div
+                className="absolute left-4 right-16 z-20 max-h-24 overflow-hidden rounded-2xl border border-white/10 bg-black/55 backdrop-blur-md"
+                style={{ top: "max(4rem, calc(env(safe-area-inset-top, 0px) + 2.5rem))" }}
+              >
                 <GuidePlaceCard place={guidePlace} postId={post.id} />
               </div>
             ) : null}

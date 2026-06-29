@@ -440,39 +440,44 @@ export default function PostViewerSlide({
 
   return (
     <section
+      data-spot-viewer-slide
       data-slide-index={slideIndex}
       data-spot-id={item.id}
-      className="relative h-[100dvh] w-full shrink-0 snap-start snap-always bg-slate-950"
+      className="relative h-full w-full shrink-0 snap-start snap-always bg-slate-950"
       aria-label={`Post by ${authorUsername}`}
     >
       {guidePlace && !mediaUrl && !posterUrl ? (
-        <div className="absolute inset-0 flex items-center justify-center overflow-y-auto px-4 pb-36 pt-16">
+        <div className="absolute inset-0 z-[1] flex items-center justify-center overflow-y-auto px-4 pb-36 pt-[max(3.5rem,env(safe-area-inset-top,0px))]">
           <div className="w-full max-w-md">
             <GuidePlaceCard place={guidePlace} postId={post.id} />
           </div>
         </div>
       ) : showMediaLayer && mediaUrl && mediaType ? (
-        <PostReelMedia
-          key={mediaRenderKey}
-          mediaUrl={mediaUrl}
-          mediaType={mediaType}
-          posterUrl={posterUrl}
-          isActive={isActive}
-          shouldLoad={shouldLoadMedia}
-          alt={spotTitle ?? post.content ?? ""}
-          onLoadingChange={isActive ? onActiveMediaLoadingChange : undefined}
-        />
+        <div data-spot-viewer-media>
+          <PostReelMedia
+            key={mediaRenderKey}
+            mediaUrl={mediaUrl}
+            mediaType={mediaType}
+            posterUrl={posterUrl}
+            isActive={isActive}
+            shouldLoad={shouldLoadMedia}
+            alt={spotTitle ?? post.content ?? ""}
+            onLoadingChange={isActive ? onActiveMediaLoadingChange : undefined}
+          />
+        </div>
       ) : showMediaLayer && posterUrl ? (
-        <PostReelMedia
-          key={mediaRenderKey}
-          mediaUrl={posterUrl}
-          mediaType="image"
-          posterUrl={posterUrl}
-          isActive={isActive}
-          shouldLoad={shouldLoadMedia}
-          alt={spotTitle ?? post.content ?? ""}
-          onLoadingChange={isActive ? onActiveMediaLoadingChange : undefined}
-        />
+        <div data-spot-viewer-media>
+          <PostReelMedia
+            key={mediaRenderKey}
+            mediaUrl={posterUrl}
+            mediaType="image"
+            posterUrl={posterUrl}
+            isActive={isActive}
+            shouldLoad={shouldLoadMedia}
+            alt={spotTitle ?? post.content ?? ""}
+            onLoadingChange={isActive ? onActiveMediaLoadingChange : undefined}
+          />
+        </div>
       ) : showDetailLoading ? (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-slate-900 px-6 text-center">
           <Loader2 className="h-10 w-10 animate-spin text-white/80" aria-hidden />
@@ -498,7 +503,7 @@ export default function PostViewerSlide({
       )}
 
       {isOwnSpot ? (
-        <div className="absolute right-3 top-[max(3.25rem,env(safe-area-inset-top))] z-30">
+        <div className="absolute right-3 z-30" data-spot-viewer-chrome-menu-top>
           <OwnContentMenu
             triggerClassName="bg-black/45 ring-1 ring-white/15 backdrop-blur-md"
             deleteMenuLabel={t("content.deleteSpot")}
@@ -608,7 +613,10 @@ export default function PostViewerSlide({
       </div>
 
       {guidePlace && mediaUrl ? (
-        <div className="absolute left-4 right-16 top-16 z-20 max-h-24 overflow-hidden rounded-2xl border border-white/10 bg-black/55 backdrop-blur-md">
+        <div
+          className="absolute left-4 right-16 z-20 max-h-24 overflow-hidden rounded-2xl border border-white/10 bg-black/55 backdrop-blur-md"
+          style={{ top: "max(4rem, calc(env(safe-area-inset-top, 0px) + 2.5rem))" }}
+        >
           <GuidePlaceCard place={guidePlace} postId={post.id} />
         </div>
       ) : null}
