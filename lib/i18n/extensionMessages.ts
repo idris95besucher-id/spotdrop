@@ -20,6 +20,9 @@ export const EXTENSION_EN = {
   "common.username": "Username",
   "common.online": "Online",
 
+  "spotMapIntro.eyebrow": "Discovering spot",
+  "spotMapIntro.skip": "Skip",
+
   "presence.lastSeenRecently": "Last seen recently",
   "presence.lastSeenJustNow": "Last seen just now",
   "presence.lastSeenMinutesAgo": "Last seen {count} min ago",

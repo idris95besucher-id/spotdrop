@@ -45,6 +45,7 @@ export function postDetailToViewerItem(post: PostDetailRow): ViewerPostListItem 
     spot_country: post.spot_country,
     spot_latitude: post.spot_latitude,
     spot_longitude: post.spot_longitude,
+    visibility: post.visibility ?? null,
     ...normalizeSpotPublicStats(post),
     profiles: post.profiles ?? null,
   };

@@ -26,6 +26,7 @@ export type PostDetailRow = PostMediaFields & {
   spot_country?: string | null;
   spot_latitude?: number | null;
   spot_longitude?: number | null;
+  visibility?: "public" | "private" | null;
   visited_count?: number;
   comments_count?: number;
   collection_save_count?: number;

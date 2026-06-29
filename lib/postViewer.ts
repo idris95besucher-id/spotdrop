@@ -23,6 +23,7 @@ export type ViewerPostListItem = PostMediaFields & {
   spot_latitude?: number | null;
   spot_longitude?: number | null;
   discovery_place_id?: string | null;
+  visibility?: "public" | "private" | null;
   visited_count?: number;
   comments_count?: number;
   collection_save_count?: number;
@@ -55,6 +56,7 @@ export function feedRowToViewerItem(row: FeedSpotRow): ViewerPostListItem {
     spot_latitude: row.spot_latitude,
     spot_longitude: row.spot_longitude,
     discovery_place_id: row.discovery_place_id,
+    visibility: row.visibility ?? "public",
     ...normalizeSpotPublicStats(row),
     profiles: {
       username: row.profiles.username,
@@ -145,6 +147,7 @@ export function profilePostToViewerItem(
     spot_latitude: post.spot_latitude,
     spot_longitude: post.spot_longitude,
     discovery_place_id: post.discovery_place_id,
+    visibility: post.visibility ?? null,
     ...normalizeSpotPublicStats(post),
     profiles: author,
     discovery_places: post.place_name ? { name: post.place_name } : null,
