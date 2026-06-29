@@ -35,6 +35,11 @@ import {
 import { isGuidePlaceRelationMissing, normalizeGuidePlace } from "@/lib/guidePlaces";
 import { publicProfileUsername } from "@/lib/publicProfile";
 import { getErrorMessage, logExactLoadError, userFacingSupabaseListError } from "@/lib/safeLoad";
+import {
+  logSpotLoadQueryResult,
+  logSpotLoadQueryStart,
+  logSpotLoadUiFailure,
+} from "@/lib/spotLoadDiagnostics";
 import { shouldShowSpotLocation, isSpotContent } from "@/lib/spotLocationDisplay";
 import { normalizeSpotPublicStats, EMPTY_SPOT_PUBLIC_STATS, type SpotPublicStats } from "@/lib/spotRanking";
 import { dispatchSpotStatsUpdated, SPOT_STATS_UPDATED_EVENT, type SpotStatsUpdatedDetail } from "@/lib/spotStatsEvents";
@@ -43,6 +48,7 @@ import { setImmersiveOverlayActive } from "@/lib/immersiveOverlay";
 import { useI18n } from "@/components/I18nProvider";
 import { localizeUserMessage } from "@/lib/i18n/localizeUserMessage";
 import { seeSpotLocation } from "@/lib/seeSpotLocation";
+import { type SpotLoadPhase } from "@/lib/spotLoadState";
 import { supabase } from "@/lib/supabaseClient";
 
 const REEL_TOP_INSET = "top-[max(0.75rem,env(safe-area-inset-top))]";
@@ -173,6 +179,7 @@ export default function PostDetailPage({ postIdOverride }: PostDetailPageProps =
   const [saveStateLoading, setSaveStateLoading] = useState(false);
   const [shareUrl, setShareUrl] = useState("");
   const [mounted, setMounted] = useState(false);
+  const [mediaLoadPhase, setMediaLoadPhase] = useState<SpotLoadPhase>("loading");
 
   useLayoutEffect(() => {
     setMounted(true);
@@ -224,6 +231,7 @@ export default function PostDetailPage({ postIdOverride }: PostDetailPageProps =
       setLoading(true);
       setError(null);
       setPost(null);
+      setMediaLoadPhase("loading");
       setEngagementReady(false);
       setSessionReady(false);
       setUserId(null);
@@ -262,6 +270,8 @@ export default function PostDetailPage({ postIdOverride }: PostDetailPageProps =
         }
 
         const queryId = postIdForQuery(postId);
+        logSpotLoadQueryStart("PostDetailView", postId, queryId);
+
         let primaryResult = await supabase
           .from("posts")
           .select(POST_DETAIL_SELECT)
@@ -269,6 +279,12 @@ export default function PostDetailPage({ postIdOverride }: PostDetailPageProps =
           .single();
 
         if (isMissingSpotRankingInSelect(primaryResult.error)) {
+          console.warn("[Spot load] PostDetailView retry without ranking columns", {
+            receivedSpotId: postId,
+            queryId,
+            errorCode: primaryResult.error?.code ?? null,
+            errorMessage: primaryResult.error?.message ?? null,
+          });
           primaryResult = await supabase
             .from("posts")
             .select(POST_DETAIL_SELECT.replace(", visited_count, comments_count, collection_save_count", ""))
@@ -277,34 +293,26 @@ export default function PostDetailPage({ postIdOverride }: PostDetailPageProps =
         }
 
         const { data, error: postError } = isGuidePlaceRelationMissing(primaryResult.error)
-          ? await supabase.from("posts").select(POST_DETAIL_SELECT_LEGACY).eq("id", queryId).single()
+          ? await (async () => {
+              console.warn("[Spot load] PostDetailView retry legacy select (no guide_places embed)", {
+                receivedSpotId: postId,
+                queryId,
+                errorCode: primaryResult.error?.code ?? null,
+                errorMessage: primaryResult.error?.message ?? null,
+              });
+              return supabase.from("posts").select(POST_DETAIL_SELECT_LEGACY).eq("id", queryId).single();
+            })()
           : primaryResult;
 
-        const fetchRow = data as Record<string, unknown> | null;
-
-        console.log("POST FETCH RESULT", {
-          paramsPostId: postId,
+        logSpotLoadQueryResult({
+          context: "PostDetailView",
+          receivedSpotId: postId,
           queryId,
-          media_url: fetchRow?.media_url ?? null,
-          video_url: fetchRow?.video_url ?? null,
-          thumbnail_url: fetchRow?.thumbnail_url ?? null,
-          video_cover_url: fetchRow?.video_cover_url ?? null,
-          image_url: fetchRow?.image_url ?? null,
-          spot_name: fetchRow?.spot_name ?? null,
-          media_type: fetchRow?.media_type ?? null,
-          storage_path: fetchRow?.media_url
-            ? (() => {
-                try {
-                  const pathname = new URL(String(fetchRow.media_url)).pathname;
-                  const marker = "/post-media/";
-                  const index = pathname.indexOf(marker);
-                  return index >= 0 ? pathname.slice(index + marker.length) : null;
-                } catch {
-                  return null;
-                }
-              })()
-            : null,
+          data: data as Record<string, unknown> | null,
           error: postError,
+          select: isGuidePlaceRelationMissing(primaryResult.error)
+            ? POST_DETAIL_SELECT_LEGACY
+            : POST_DETAIL_SELECT,
         });
 
         if (cancelled) {
@@ -313,12 +321,23 @@ export default function PostDetailPage({ postIdOverride }: PostDetailPageProps =
 
         if (postError) {
           logExactLoadError(postError);
+          logSpotLoadUiFailure("PostDetailView", "Supabase query error", {
+            receivedSpotId: postId,
+            queryId,
+            errorCode: postError.code ?? null,
+            errorMessage: postError.message ?? null,
+            userFacingError: userFacingSupabaseListError(postError) ?? "Unable to load this post.",
+          });
           setError(userFacingSupabaseListError(postError) ?? "Unable to load this post.");
           setLoading(false);
           return;
         }
 
         if (!data) {
+          logSpotLoadUiFailure("PostDetailView", "no row returned", {
+            receivedSpotId: postId,
+            queryId,
+          });
           setError("Post not found.");
           setLoading(false);
           return;
@@ -328,6 +347,11 @@ export default function PostDetailPage({ postIdOverride }: PostDetailPageProps =
         const authorProfile = Array.isArray(row.profiles) ? row.profiles[0] : row.profiles;
 
         if (isGuideAccountProfile(authorProfile)) {
+          logSpotLoadUiFailure("PostDetailView", "guide account post hidden", {
+            receivedSpotId: postId,
+            queryId,
+            userId: row.user_id,
+          });
           setError("Post not found.");
           setLoading(false);
           return;
@@ -658,13 +682,14 @@ export default function PostDetailPage({ postIdOverride }: PostDetailPageProps =
                 </div>
               </div>
             ) : mediaUrl && mediaType && isSpotPost ? (
-              <div className="absolute inset-0">
+              <div className="absolute inset-0" data-media-load-phase={mediaLoadPhase}>
                 <PostReelMedia
                   mediaUrl={mediaUrl}
                   mediaType={mediaType}
                   posterUrl={posterUrl}
                   isActive
                   alt={spotTitle ?? post.content ?? ""}
+                  onPhaseChange={setMediaLoadPhase}
                 />
               </div>
             ) : mediaUrl && mediaType ? (

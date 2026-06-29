@@ -6,6 +6,11 @@ import type { I18nLocale } from "@/lib/i18n/locales";
 import { formatSpotLocationDisplay } from "@/lib/spotLocationDisplay";
 import { isDemoPostId, normalizePostId, postIdForQuery } from "@/lib/postIds";
 import { logExactLoadError, userFacingSupabaseListError } from "@/lib/safeLoad";
+import {
+  logSpotLoadQueryResult,
+  logSpotLoadQueryStart,
+  logSpotLoadUiFailure,
+} from "@/lib/spotLoadDiagnostics";
 import { supabase } from "@/lib/supabaseClient";
 
 export type PostDetailRow = PostMediaFields & {
@@ -87,6 +92,10 @@ export async function loadPostDetail(postId: string): Promise<{
   const normalizedId = normalizePostId(postId);
 
   if (!normalizedId) {
+    logSpotLoadUiFailure("loadPostDetail", "invalid spotId before query", {
+      receivedSpotId: postId,
+      normalizedId: null,
+    });
     return { post: null, error: "Post not found.", isDemo: false };
   }
 
@@ -101,31 +110,17 @@ export async function loadPostDetail(postId: string): Promise<{
 
   try {
     const queryId = postIdForQuery(normalizedId);
+    logSpotLoadQueryStart("loadPostDetail", normalizedId, queryId);
+
     const { data, error } = await supabase.from("posts").select("*").eq("id", queryId).single();
 
-    console.log("POST FETCH RESULT", {
-      paramsPostId: normalizedId,
+    logSpotLoadQueryResult({
+      context: "loadPostDetail",
+      receivedSpotId: normalizedId,
       queryId,
-      media_url: data?.media_url ?? null,
-      video_url: data?.video_url ?? null,
-      thumbnail_url: data?.thumbnail_url ?? null,
-      video_cover_url: data?.video_cover_url ?? null,
-      image_url: data?.image_url ?? null,
-      spot_name: data?.spot_name ?? null,
-      media_type: data?.media_type ?? null,
-      storage_path: data?.media_url
-        ? (() => {
-            try {
-              const pathname = new URL(String(data.media_url)).pathname;
-              const marker = "/post-media/";
-              const index = pathname.indexOf(marker);
-              return index >= 0 ? pathname.slice(index + marker.length) : null;
-            } catch {
-              return null;
-            }
-          })()
-        : null,
+      data: data as PostDetailRow | null,
       error,
+      select: "posts *",
     });
 
     if (error) {
@@ -134,12 +129,21 @@ export async function loadPostDetail(postId: string): Promise<{
     }
 
     if (!data) {
+      logSpotLoadUiFailure("loadPostDetail", "no row after successful query", {
+        receivedSpotId: normalizedId,
+        queryId,
+      });
       return { post: null, error: "Post not found.", isDemo: false };
     }
 
     const row = data as PostDetailRow & { id: string | number };
 
     if (await isGuideAccountUserId(String(row.user_id))) {
+      logSpotLoadUiFailure("loadPostDetail", "post author is guide account — hidden", {
+        receivedSpotId: normalizedId,
+        queryId,
+        userId: row.user_id,
+      });
       return { post: null, error: "Post not found.", isDemo: false };
     }
 

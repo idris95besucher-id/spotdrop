@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { UserRound } from "lucide-react";
+import { Loader2, UserRound } from "lucide-react";
 import OwnContentMenu from "@/components/OwnContentMenu";
 import { useSpotLocationModal } from "@/components/SpotLocationModalProvider";
 import PostCommentsSection from "@/components/PostCommentsSection";
@@ -33,9 +33,12 @@ import { seeSpotLocation } from "@/lib/seeSpotLocation";
 import { loadSpotCollectionSaveState } from "@/lib/collections";
 import { getViewerSpotMediaUrl, type ViewerPostListItem } from "@/lib/postViewer";
 import { useI18n } from "@/components/I18nProvider";
-
-const DETAIL_LOAD_TIMEOUT_MS = 3_000;
-const SPOT_LOAD_ERROR = "Could not load spot. Try again.";
+import { logSpotLoadUiFailure } from "@/lib/spotLoadDiagnostics";
+import {
+  SPOT_DETAIL_FETCH_TIMEOUT_MS,
+  SPOT_LOAD_ERROR,
+  type SpotLoadPhase,
+} from "@/lib/spotLoadState";
 
 function itemHasPreviewMedia(item: ViewerPostListItem) {
   const sources = getReelMediaSources(item);
@@ -98,6 +101,7 @@ export default function PostViewerSlide({
 }: PostViewerSlideProps) {
   const { t } = useI18n();
   const [post, setPost] = useState<PostDetailRow>(() => previewToPost(item));
+  const [detailLoadPhase, setDetailLoadPhase] = useState<SpotLoadPhase>("loading");
   const [detailError, setDetailError] = useState<string | null>(null);
   const [isDemo, setIsDemo] = useState(() => isDemoPostId(item.id));
 
@@ -125,6 +129,7 @@ export default function PostViewerSlide({
 
   useEffect(() => {
     setPost(previewToPost(item));
+    setDetailLoadPhase("loading");
     setDetailError(null);
     setIsDemo(isDemoPostId(item.id));
     setReactions(EMPTY_REACTIONS);
@@ -143,13 +148,24 @@ export default function PostViewerSlide({
     }
 
     let cancelled = false;
+    let loadSettled = false;
     const hadPreviewMedia = itemHasPreviewMedia(item);
 
-    const timeoutId = window.setTimeout(() => {
-      if (!cancelled && !hadPreviewMedia && !itemHasPreviewMedia(item)) {
-        setDetailError(SPOT_LOAD_ERROR);
+    const finalTimeoutId = window.setTimeout(() => {
+      if (cancelled || loadSettled || hadPreviewMedia || itemHasPreviewMedia(item)) {
+        return;
       }
-    }, DETAIL_LOAD_TIMEOUT_MS);
+
+      logSpotLoadUiFailure("PostViewerSlide", "detail fetch final timeout — no preview media", {
+        receivedSpotId: item.id,
+        timeoutMs: SPOT_DETAIL_FETCH_TIMEOUT_MS,
+        hadPreviewMedia,
+        previewMediaUrl: getViewerSpotMediaUrl(item),
+        genericMessage: SPOT_LOAD_ERROR,
+      });
+      setDetailLoadPhase("error");
+      setDetailError(SPOT_LOAD_ERROR);
+    }, SPOT_DETAIL_FETCH_TIMEOUT_MS);
 
     const loadDetail = async () => {
       if (isDemoPostId(item.id)) {
@@ -158,12 +174,34 @@ export default function PostViewerSlide({
         if (!cancelled && demo) {
           setPost(demo);
           setIsDemo(true);
+          setDetailLoadPhase("loaded");
         }
 
+        loadSettled = true;
+        window.clearTimeout(finalTimeoutId);
         return;
       }
 
+      console.log("[Spot load] PostViewerSlide before loadPostDetail", {
+        receivedSpotId: item.id,
+        isActive,
+        shouldPreloadMedia,
+        hadPreviewMedia,
+      });
+
       const result = await loadPostDetail(item.id);
+
+      console.log("[Spot load] PostViewerSlide after loadPostDetail", {
+        receivedSpotId: item.id,
+        postLoaded: Boolean(result.post),
+        loadError: result.error,
+        isDemo: result.isDemo,
+        hadPreviewMedia,
+        previewMediaUrl: getViewerSpotMediaUrl(item),
+      });
+
+      loadSettled = true;
+      window.clearTimeout(finalTimeoutId);
 
       if (cancelled) {
         return;
@@ -172,6 +210,7 @@ export default function PostViewerSlide({
       if (result.post) {
         setPost(result.post);
         setIsDemo(result.isDemo);
+        setDetailLoadPhase("loaded");
         setDetailError(null);
         if (result.post.content_kind === "spot") {
           const stats = normalizeSpotPublicStats(result.post);
@@ -182,7 +221,18 @@ export default function PostViewerSlide({
       }
 
       if (!hadPreviewMedia && !itemHasPreviewMedia(item)) {
-        setDetailError(SPOT_LOAD_ERROR);
+        logSpotLoadUiFailure("PostViewerSlide", "showing generic spot error after failed load", {
+          receivedSpotId: item.id,
+          supabaseError: result.error,
+          genericMessage: SPOT_LOAD_ERROR,
+          likelyCause: result.error
+            ? "Supabase query failed — see [Spot load] query result above"
+            : "Post row missing and feed item had no preview media URLs",
+        });
+        setDetailLoadPhase("error");
+        setDetailError(result.error ?? SPOT_LOAD_ERROR);
+      } else {
+        setDetailLoadPhase("loaded");
       }
     };
 
@@ -190,7 +240,7 @@ export default function PostViewerSlide({
 
     return () => {
       cancelled = true;
-      window.clearTimeout(timeoutId);
+      window.clearTimeout(finalTimeoutId);
     };
   }, [item.id, isActive, shouldPreloadMedia]);
 
@@ -302,14 +352,17 @@ export default function PostViewerSlide({
     };
   }, [isActive, isSpot, item.id, userId]);
 
-  const spotSources = getReelMediaSources(item);
+  const spotSources = getReelMediaSources(post);
   const mediaUrl = spotSources.mediaUrl;
   const mediaType = spotSources.mediaType;
-  const posterUrl = spotSources.posterUrl ?? item.thumbnail_url ?? null;
+  const posterUrl = spotSources.posterUrl ?? post.thumbnail_url ?? null;
   const mediaRenderKey = `${item.id}-${mediaUrl ?? ""}-${posterUrl ?? ""}`;
   const shouldLoadMedia = isActive || shouldPreloadMedia;
   const hasSpotMedia = Boolean((mediaUrl && mediaType) || posterUrl);
   const showMediaLayer = hasSpotMedia;
+  const detailStillLoading = detailLoadPhase === "loading";
+  const showDetailLoading = !hasSpotMedia && detailStillLoading;
+  const showDetailError = !hasSpotMedia && detailLoadPhase === "error" && detailError;
   const postAuthor = post.profiles;
   const authorUsername = publicProfileUsername(postAuthor?.username);
   const guidePlace = normalizeGuidePlace(post.guide_places);
@@ -419,20 +472,27 @@ export default function PostViewerSlide({
           alt={spotTitle ?? post.content ?? ""}
           onLoadingChange={isActive ? onActiveMediaLoadingChange : undefined}
         />
+      ) : showDetailLoading ? (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-slate-900 px-6 text-center">
+          <Loader2 className="h-10 w-10 animate-spin text-white/80" aria-hidden />
+          {spotTitle ? (
+            <p className="text-sm font-semibold text-white">{spotTitle}</p>
+          ) : (
+            <p className="text-sm font-medium text-white">Spot</p>
+          )}
+        </div>
+      ) : showDetailError ? (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-slate-900 px-6 text-center">
+          <p className="text-sm text-red-300">{detailError}</p>
+        </div>
       ) : (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-slate-900 px-6 text-center">
-          {detailError ? (
-            <p className="text-sm text-red-300">{detailError}</p>
+          {spotTitle ? (
+            <p className="text-sm font-semibold text-white">{spotTitle}</p>
           ) : (
-            <>
-              {spotTitle ? (
-                <p className="text-sm font-semibold text-white">{spotTitle}</p>
-              ) : (
-                <p className="text-sm font-medium text-white">Spot</p>
-              )}
-              <p className="text-xs text-slate-500">Media unavailable</p>
-            </>
+            <p className="text-sm font-medium text-white">Spot</p>
           )}
+          <p className="text-xs text-slate-500">Media unavailable</p>
         </div>
       )}
 

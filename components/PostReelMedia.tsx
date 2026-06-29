@@ -2,11 +2,15 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Loader2, Volume2, VolumeX } from "lucide-react";
+import { logSpotLoadUiFailure } from "@/lib/spotLoadDiagnostics";
+import {
+  getSpotMediaLoadTimeoutMs,
+  SPOT_LOAD_ERROR,
+  type SpotLoadPhase,
+} from "@/lib/spotLoadState";
 
 const MAX_AUTO_RETRIES = 3;
 const RETRY_DELAY_MS = 1200;
-const LOAD_TIMEOUT_MS = 3_000;
-const SPOT_LOAD_ERROR = "Could not load spot. Try again.";
 
 /**
  * Module-level mute preference that persists while the user scrolls through the
@@ -24,6 +28,7 @@ type PostReelMediaProps = {
   shouldLoad?: boolean;
   alt?: string;
   onLoadingChange?: (loading: boolean) => void;
+  onPhaseChange?: (phase: SpotLoadPhase) => void;
 };
 
 function cacheBustUrl(url: string, attempt: number) {
@@ -43,32 +48,66 @@ export default function PostReelMedia({
   shouldLoad = true,
   alt = "",
   onLoadingChange,
+  onPhaseChange,
 }: PostReelMediaProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const retryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const retryCountRef = useRef(0);
 
   const [retryKey, setRetryKey] = useState(0);
+  const [phase, setPhase] = useState<SpotLoadPhase>("loading");
   const [mediaReady, setMediaReady] = useState(false);
   const [posterReady, setPosterReady] = useState(false);
-  const [videoFailed, setVideoFailed] = useState(false);
-  const [loadTimedOut, setLoadTimedOut] = useState(false);
-  // Follows the global preference so all slides share one mute state.
   const [isMuted, setIsMuted] = useState(viewerGlobalMuted);
 
   const resolvedPoster = posterUrl?.trim() || (mediaType === "image" ? mediaUrl : null);
   const playbackUrl = cacheBustUrl(mediaUrl, retryKey);
   const loadHeavyMedia = shouldLoad || isActive;
-  const canPlayVideo = mediaType === "video" && loadHeavyMedia && !videoFailed;
+  const canPlayVideo = mediaType === "video" && loadHeavyMedia && phase !== "error";
   const canShowImage = mediaType === "image" && loadHeavyMedia;
+
+  const markLoaded = useCallback(() => {
+    setMediaReady(true);
+    setPhase("loaded");
+    retryCountRef.current = 0;
+  }, []);
+
+  const markPosterFallbackLoaded = useCallback(() => {
+    setPhase("loaded");
+    retryCountRef.current = 0;
+  }, []);
+
+  const markFinalError = useCallback(
+    (reason: string, details: Record<string, unknown>) => {
+      logSpotLoadUiFailure("PostReelMedia", reason, {
+        mediaUrl,
+        mediaType,
+        posterUrl: posterUrl ?? null,
+        retryCount: retryCountRef.current,
+        genericMessage: SPOT_LOAD_ERROR,
+        ...details,
+      });
+      setPhase("error");
+    },
+    [mediaType, mediaUrl, posterUrl]
+  );
 
   const scheduleRetry = useCallback(() => {
     if (retryCountRef.current >= MAX_AUTO_RETRIES) {
-      setVideoFailed(true);
+      if (resolvedPoster && posterReady) {
+        markPosterFallbackLoaded();
+        return;
+      }
+
+      markFinalError("media load failed after retries — storage/CDN issue", {
+        posterReady,
+        hasPoster: Boolean(resolvedPoster),
+      });
       return;
     }
 
     retryCountRef.current += 1;
+    setPhase("mediaLoading");
 
     if (retryTimeoutRef.current) {
       clearTimeout(retryTimeoutRef.current);
@@ -76,33 +115,61 @@ export default function PostReelMedia({
 
     retryTimeoutRef.current = setTimeout(() => {
       setMediaReady(false);
-      setVideoFailed(false);
       setRetryKey((current) => current + 1);
     }, RETRY_DELAY_MS);
-  }, []);
+  }, [markFinalError, markPosterFallbackLoaded, posterReady, resolvedPoster]);
 
   useEffect(() => {
     retryCountRef.current = 0;
     setRetryKey(0);
     setMediaReady(false);
     setPosterReady(false);
-    setVideoFailed(false);
-    setLoadTimedOut(false);
+    setPhase("loading");
   }, [mediaUrl, mediaType, posterUrl]);
 
   useEffect(() => {
-    if (!isActive) {
+    if (phase === "loading" && isActive && loadHeavyMedia) {
+      setPhase("mediaLoading");
+    }
+  }, [isActive, loadHeavyMedia, phase]);
+
+  useEffect(() => {
+    if (!isActive || phase === "loaded" || phase === "error") {
       return;
     }
 
+    if (mediaReady) {
+      return;
+    }
+
+    // Poster is visible content while video buffers — don't timeout-retry in that case.
+    if (mediaType === "video" && resolvedPoster) {
+      return;
+    }
+
+    const timeoutMs = getSpotMediaLoadTimeoutMs();
     const timeout = window.setTimeout(() => {
-      setLoadTimedOut(true);
-    }, LOAD_TIMEOUT_MS);
+      if (mediaReady || posterReady) {
+        return;
+      }
+
+      scheduleRetry();
+    }, timeoutMs);
 
     return () => {
       window.clearTimeout(timeout);
     };
-  }, [isActive, mediaUrl, mediaType, retryKey]);
+  }, [
+    isActive,
+    mediaReady,
+    mediaType,
+    mediaUrl,
+    phase,
+    posterReady,
+    resolvedPoster,
+    retryKey,
+    scheduleRetry,
+  ]);
 
   useEffect(() => {
     return () => {
@@ -111,6 +178,10 @@ export default function PostReelMedia({
       }
     };
   }, []);
+
+  useEffect(() => {
+    onPhaseChange?.(phase);
+  }, [onPhaseChange, phase]);
 
   // Sync mute state when this slide becomes active (respect global preference).
   useEffect(() => {
@@ -127,8 +198,6 @@ export default function PostReelMedia({
       return;
     }
 
-    // Must start muted for iOS/Android autoplay policy.
-    // The user can tap the speaker button to unmute.
     video.muted = viewerGlobalMuted;
     video.playsInline = true;
     video.setAttribute("playsinline", "true");
@@ -171,8 +240,6 @@ export default function PostReelMedia({
     setIsMuted(next);
     if (video) {
       video.muted = next;
-      // If the video was paused only because autoplay-with-sound was blocked,
-      // resume playback now that the user has explicitly interacted.
       if (!next && video.paused && isActive) {
         void video.play().catch(() => undefined);
       }
@@ -180,17 +247,20 @@ export default function PostReelMedia({
   }, [isActive]);
 
   const handleMediaReady = () => {
-    setMediaReady(true);
-    setVideoFailed(false);
-    setLoadTimedOut(false);
-    retryCountRef.current = 0;
+    markLoaded();
   };
 
   const handleMediaError = () => {
     setMediaReady(false);
+    scheduleRetry();
+  };
 
-    if (mediaType === "video" && resolvedPoster) {
-      setVideoFailed(true);
+  const handlePosterError = () => {
+    if (!isActive || mediaType !== "video") {
+      return;
+    }
+
+    if (mediaReady) {
       return;
     }
 
@@ -198,29 +268,25 @@ export default function PostReelMedia({
   };
 
   const showImageLayer = canShowImage && isActive;
-  const hasVisibleMedia =
-    (mediaType === "image" && showImageLayer) ||
+  const hasPrimaryMedia =
+    (mediaType === "image" && showImageLayer && mediaReady) ||
     (mediaType === "video" && isActive && mediaReady);
   const showPosterLayer =
     Boolean(resolvedPoster) &&
     isActive &&
     mediaType === "video" &&
     !mediaReady &&
-    !loadTimedOut &&
-    !videoFailed;
-  const mediaUnavailable = isActive && (videoFailed || loadTimedOut);
+    phase !== "error";
+  const hasPosterFallback = showPosterLayer && posterReady;
+  const hasVisibleMedia = hasPrimaryMedia || hasPosterFallback;
+  const showFinalError = phase === "error" && !hasVisibleMedia;
+
   const showSpinner =
     isActive &&
-    mediaType === "video" &&
-    !mediaReady &&
-    !showPosterLayer &&
-    !posterReady &&
-    !mediaUnavailable;
+    (phase === "loading" || phase === "mediaLoading") &&
+    !hasVisibleMedia;
 
-  const isLoading =
-    isActive &&
-    !mediaUnavailable &&
-    (mediaType === "image" ? !mediaReady : !mediaReady && !videoFailed);
+  const isLoading = isActive && phase !== "loaded" && phase !== "error";
 
   useEffect(() => {
     onLoadingChange?.(isLoading);
@@ -240,11 +306,7 @@ export default function PostReelMedia({
             showPosterLayer ? "opacity-100" : "opacity-0"
           }`}
           onLoad={() => setPosterReady(true)}
-          onError={() => {
-            if (isActive && mediaType === "video") {
-              scheduleRetry();
-            }
-          }}
+          onError={handlePosterError}
         />
       ) : null}
 
@@ -255,7 +317,9 @@ export default function PostReelMedia({
           alt={alt}
           loading="eager"
           decoding="async"
-          className="absolute inset-0 h-full w-full object-cover opacity-100"
+          className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-200 ${
+            mediaReady ? "opacity-100" : "opacity-0"
+          }`}
           onLoad={handleMediaReady}
           onError={handleMediaError}
         />
@@ -293,14 +357,13 @@ export default function PostReelMedia({
         </div>
       ) : null}
 
-      {mediaUnavailable && !hasVisibleMedia && !showPosterLayer ? (
+      {showFinalError ? (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-slate-900 px-6 text-center">
           <p className="text-sm font-medium text-white">{alt || "Spot"}</p>
           <p className="text-xs text-red-300">{SPOT_LOAD_ERROR}</p>
         </div>
       ) : null}
 
-      {/* ── Speaker / mute button — only shown for active videos ── */}
       {mediaType === "video" && isActive && mediaReady ? (
         <button
           type="button"
