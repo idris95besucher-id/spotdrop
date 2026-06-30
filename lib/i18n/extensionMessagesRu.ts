@@ -697,4 +697,8 @@ export const EXTENSION_RU: Record<ExtensionKey, string> = {
   "spotCamera.error.micDeniedWarning": "Доступ к микрофону запрещён. Видео будет записано без звука. Включите микрофон в Настройках и откройте камеру снова.",
   "spotCamera.error.recordingFailed": "Запись не удалась. Попробуйте ещё раз.",
   "spotCamera.error.recordingBrowserUnsaved": "Запись может не сохраниться, если вы покинете страницу до завершения.",
+
+  "story.source.title": "Новая история",
+  "story.source.takePhoto": "Сделать фото",
+  "story.source.photoLibrary": "Фотоплёнка",
 };

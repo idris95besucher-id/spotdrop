@@ -1,4 +1,5 @@
 import { publicProfileUsername } from "@/lib/publicProfile";
+import { isOnlineNow } from "@/lib/userPresence";
 import { supabase } from "@/lib/supabaseClient";
 
 export const LIVE_LOCATION_STALE_MS = 10 * 60 * 1000;
@@ -37,12 +38,39 @@ export type UserLiveLocationRow = {
 export type LiveMapUser = UserLiveLocationRow & {
   username: string;
   avatar_url: string | null;
+  is_online: boolean | null;
+  last_seen_at: string | null;
 };
 
 type ProfileJoin = {
   username: string;
   avatar_url: string | null;
+  is_online: boolean | null;
+  last_seen_at: string | null;
 };
+
+export function isLiveMapUserOnlineNow(
+  user: Pick<LiveMapUser, "user_id" | "username" | "is_online" | "last_seen_at">,
+  presenceOnlineIds: ReadonlySet<string>,
+  screen: string
+) {
+  return isOnlineNow({
+    screen,
+    userId: user.user_id,
+    username: user.username,
+    isOnlineFlag: user.is_online,
+    lastSeenAt: user.last_seen_at,
+    presenceOnline: presenceOnlineIds.has(user.user_id),
+  });
+}
+
+export function filterOnlineLiveMapUsers(
+  users: LiveMapUser[],
+  presenceOnlineIds: ReadonlySet<string>,
+  screen: string
+) {
+  return users.filter((user) => isLiveMapUserOnlineNow(user, presenceOnlineIds, screen));
+}
 
 function liveLocationCutoffIso() {
   return new Date(Date.now() - LIVE_LOCATION_STALE_MS).toISOString();
@@ -143,7 +171,9 @@ export async function fetchLiveMapUsers(): Promise<{
 
   const { data, error } = await supabase
     .from("user_live_locations")
-    .select("user_id, latitude, longitude, city, country, is_live, updated_at, profiles(username, avatar_url)")
+    .select(
+      "user_id, latitude, longitude, city, country, is_live, updated_at, profiles(username, avatar_url, is_online, last_seen_at)"
+    )
     .eq("is_live", true)
     .gte("updated_at", liveLocationCutoffIso());
 
@@ -177,6 +207,8 @@ export async function fetchLiveMapUsers(): Promise<{
       updated_at: String(row.updated_at),
       username: publicProfileUsername(profileRow.username),
       avatar_url: (profileRow.avatar_url as string | null) ?? null,
+      is_online: (profileRow.is_online as boolean | null) ?? null,
+      last_seen_at: (profileRow.last_seen_at as string | null) ?? null,
     });
   }
 

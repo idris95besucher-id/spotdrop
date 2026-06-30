@@ -3,15 +3,12 @@
 import {
   useCallback,
   useEffect,
-  useId,
-  useLayoutEffect,
   useRef,
   useState,
-  type ChangeEvent,
 } from "react";
 import { ArrowLeft, Image as ImageIcon, Loader2, RotateCcw, X, Zap, ZapOff } from "lucide-react";
 import { useI18n } from "@/components/I18nProvider";
-import { GALLERY_MEDIA_ACCEPT, isIOSDevice } from "@/lib/pickMediaFromGallery";
+import { pickMediaFromGallery } from "@/lib/pickMediaFromGallery";
 import {
   CAMERA_MAX_VIDEO_SECONDS,
   capturePhotoFromVideo,
@@ -38,6 +35,7 @@ type StoryCameraFlowProps = {
   onClose: () => void;
   onCreated: () => void;
   overlayClassName?: string;
+  initialGalleryFile?: File | null;
 };
 
 type Phase = "camera" | "preview";
@@ -56,6 +54,7 @@ export default function StoryCameraFlow({
   onClose,
   onCreated,
   overlayClassName = "z-[130]",
+  initialGalleryFile = null,
 }: StoryCameraFlowProps) {
   const { t } = useI18n();
   const [phase, setPhase] = useState<Phase>("camera");
@@ -77,9 +76,7 @@ export default function StoryCameraFlow({
   const [publishing, setPublishing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const galleryInputId = useId();
-  const galleryInputRef = useRef<HTMLInputElement>(null);
-  const [isIOS, setIsIOS] = useState(false);
+  const initialGalleryHandledRef = useRef(false);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -176,34 +173,6 @@ export default function StoryCameraFlow({
     [attachStreamToVideo, facingMode]
   );
 
-  useLayoutEffect(() => {
-    setIsIOS(isIOSDevice());
-  }, []);
-
-  useEffect(() => {
-    if (!isOpen) {
-      setImmersiveOverlayActive(false);
-      stopCameraStream(streamRef.current);
-      streamRef.current = null;
-      resetAll();
-      return;
-    }
-
-    setImmersiveOverlayActive(true);
-    document.body.style.overflow = "hidden";
-
-    if (phase === "camera") {
-      void startCamera();
-    }
-
-    return () => {
-      setImmersiveOverlayActive(false);
-      document.body.style.overflow = "";
-      stopCameraStream(streamRef.current);
-      streamRef.current = null;
-    };
-  }, [isOpen, phase, resetAll, startCamera]);
-
   const goToPreview = useCallback(
     async (file: File, type: "image" | "video") => {
       stopCameraStream(streamRef.current);
@@ -241,6 +210,47 @@ export default function StoryCameraFlow({
     },
     [startCamera]
   );
+
+  useEffect(() => {
+    if (!isOpen) {
+      initialGalleryHandledRef.current = false;
+      setImmersiveOverlayActive(false);
+      stopCameraStream(streamRef.current);
+      streamRef.current = null;
+      resetAll();
+      return;
+    }
+
+    setImmersiveOverlayActive(true);
+    document.body.style.overflow = "hidden";
+
+    if (initialGalleryFile && !initialGalleryHandledRef.current) {
+      initialGalleryHandledRef.current = true;
+      const storyType = getStoryMediaType(initialGalleryFile);
+
+      if (storyType) {
+        void goToPreview(initialGalleryFile, storyType);
+      }
+
+      return () => {
+        setImmersiveOverlayActive(false);
+        document.body.style.overflow = "";
+        stopCameraStream(streamRef.current);
+        streamRef.current = null;
+      };
+    }
+
+    if (phase === "camera") {
+      void startCamera();
+    }
+
+    return () => {
+      setImmersiveOverlayActive(false);
+      document.body.style.overflow = "";
+      stopCameraStream(streamRef.current);
+      streamRef.current = null;
+    };
+  }, [goToPreview, initialGalleryFile, isOpen, phase, resetAll, startCamera]);
 
   const handleRetake = useCallback(() => {
     resetMedia();
@@ -364,27 +374,32 @@ export default function StoryCameraFlow({
     beginRecording();
   };
 
-  const handleGalleryInputChange = (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    event.target.value = "";
-
-    if (!file || isRecording || captureBusy || cameraStarting) {
-      return;
-    }
-
-    const storyType = getStoryMediaType(file);
-
-    if (!storyType) {
-      setError("Stories support photos and videos only.");
+  const openGalleryPicker = async () => {
+    if (galleryPickerDisabled) {
       return;
     }
 
     setCaptureBusy(true);
     setError(null);
 
-    void goToPreview(file, storyType).finally(() => {
+    try {
+      const file = await pickMediaFromGallery();
+
+      if (!file) {
+        return;
+      }
+
+      const storyType = getStoryMediaType(file);
+
+      if (!storyType) {
+        setError("Stories support photos and videos only.");
+        return;
+      }
+
+      await goToPreview(file, storyType);
+    } finally {
       setCaptureBusy(false);
-    });
+    }
   };
 
   const galleryPickerDisabled = isRecording || captureBusy || cameraStarting || Boolean(cameraError);
@@ -576,52 +591,15 @@ export default function StoryCameraFlow({
             </div>
 
             <div className="flex items-center justify-between px-2">
-              {isIOS ? (
-                <label
-                  className={`flex h-12 w-12 shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-lg border-2 border-white bg-white/10 ${
-                    galleryPickerDisabled ? "pointer-events-none opacity-40" : ""
-                  }`}
-                  aria-label="Open photo library"
-                >
-                  {/* Never add capture to gallery input, iOS shows camera/choose file menu. */}
-                  <input
-                    ref={galleryInputRef}
-                    type="file"
-                    accept={GALLERY_MEDIA_ACCEPT}
-                    multiple={false}
-                    className="sr-only"
-                    tabIndex={-1}
-                    aria-hidden
-                    disabled={galleryPickerDisabled}
-                    onChange={handleGalleryInputChange}
-                  />
-                  <ImageIcon className="pointer-events-none h-5 w-5 text-white" aria-hidden />
-                </label>
-              ) : (
-                <>
-                  <input
-                    id={galleryInputId}
-                    ref={galleryInputRef}
-                    type="file"
-                    accept={GALLERY_MEDIA_ACCEPT}
-                    multiple={false}
-                    className="sr-only"
-                    tabIndex={-1}
-                    aria-hidden
-                    disabled={galleryPickerDisabled}
-                    onChange={handleGalleryInputChange}
-                  />
-                  <label
-                    htmlFor={galleryInputId}
-                    className={`flex h-12 w-12 shrink-0 cursor-pointer items-center justify-center overflow-hidden rounded-lg border-2 border-white bg-white/10 ${
-                      galleryPickerDisabled ? "pointer-events-none opacity-40" : ""
-                    }`}
-                    aria-label="Open photo library"
-                  >
-                    <ImageIcon className="h-5 w-5 text-white" aria-hidden />
-                  </label>
-                </>
-              )}
+              <button
+                type="button"
+                onClick={() => void openGalleryPicker()}
+                disabled={galleryPickerDisabled}
+                className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-lg border-2 border-white bg-white/10 disabled:opacity-40"
+                aria-label="Open photo library"
+              >
+                <ImageIcon className="h-5 w-5 text-white" aria-hidden />
+              </button>
 
               <button
                 type="button"

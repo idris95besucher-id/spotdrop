@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Loader2, Volume2, VolumeX } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { logSpotLoadUiFailure } from "@/lib/spotLoadDiagnostics";
 import {
   getSpotMediaLoadTimeoutMs,
@@ -14,10 +14,22 @@ const RETRY_DELAY_MS = 1200;
 
 /**
  * Module-level mute preference that persists while the user scrolls through the
- * reel. Starts muted (required for iOS/Android autoplay). Once the user taps the
- * speaker icon the preference flips and every subsequent slide plays with sound.
+ * reel. Starts muted (required for iOS/Android autoplay). Tapping the video
+ * toggles sound — no visible speaker control (Instagram Reels style).
  */
 let viewerGlobalMuted = true;
+
+function applySpotViewerVideoAttributes(video: HTMLVideoElement) {
+  video.controls = false;
+  video.playsInline = true;
+  video.setAttribute("playsinline", "true");
+  video.setAttribute("webkit-playsinline", "true");
+  video.disablePictureInPicture = true;
+  video.setAttribute("disablepictureinpicture", "");
+  video.setAttribute("disableremoteplayback", "");
+  video.setAttribute("controlsList", "nodownload nofullscreen noremoteplayback");
+  video.setAttribute("x-webkit-airplay", "deny");
+}
 
 type PostReelMediaProps = {
   mediaUrl: string;
@@ -38,6 +50,10 @@ function cacheBustUrl(url: string, attempt: number) {
 
   const separator = url.includes("?") ? "&" : "?";
   return `${url}${separator}retry=${attempt}&t=${Date.now()}`;
+}
+
+function logSpotMedia(event: string, details?: Record<string, unknown>) {
+  console.log(`[Spot media] ${event}`, details ?? "");
 }
 
 function logVideoStart(event: string, details?: Record<string, unknown>) {
@@ -79,7 +95,6 @@ export default function PostReelMedia({
   const [phase, setPhase] = useState<SpotLoadPhase>("loading");
   const [mediaReady, setMediaReady] = useState(false);
   const [posterReady, setPosterReady] = useState(false);
-  const [isMuted, setIsMuted] = useState(viewerGlobalMuted);
 
   const resolvedPoster = posterUrl?.trim() || (mediaType === "image" ? mediaUrl : null);
   const playbackUrl = cacheBustUrl(mediaUrl, retryKey);
@@ -91,7 +106,8 @@ export default function PostReelMedia({
     setMediaReady(true);
     setPhase("loaded");
     retryCountRef.current = 0;
-  }, []);
+    logSpotMedia("loaded", { mediaUrl: playbackUrl, mediaType });
+  }, [mediaType, playbackUrl]);
 
   const markPosterFallbackLoaded = useCallback(() => {
     setPhase("loaded");
@@ -143,10 +159,8 @@ export default function PostReelMedia({
 
   const requestVideoLoad = useCallback(
     (video: HTMLVideoElement) => {
+      applySpotViewerVideoAttributes(video);
       video.muted = true;
-      video.playsInline = true;
-      video.setAttribute("playsinline", "true");
-      video.setAttribute("webkit-playsinline", "true");
       logVideoStart("load called", { mediaUrl: playbackUrl, isActive });
       video.load();
     },
@@ -163,16 +177,23 @@ export default function PostReelMedia({
   }, []);
 
   useEffect(() => {
-    if (mediaType !== "video") {
-      return;
-    }
-
-    logVideoStart("mediaUrl received", {
+    logSpotMedia("mediaUrl", {
       mediaUrl: playbackUrl,
+      mediaType,
       isActive,
       shouldLoad,
     });
   }, [mediaType, playbackUrl, isActive, shouldLoad]);
+
+  useEffect(() => {
+    if (shouldMountVideo) {
+      logSpotMedia("render video", { playbackUrl, isActive });
+    }
+
+    if (canShowImage && isActive) {
+      logSpotMedia("render image", { playbackUrl });
+    }
+  }, [canShowImage, isActive, playbackUrl, shouldMountVideo]);
 
   useEffect(() => {
     retryCountRef.current = 0;
@@ -243,7 +264,6 @@ export default function PostReelMedia({
       return;
     }
 
-    setIsMuted(viewerGlobalMuted);
     const video = videoRef.current;
 
     if (video) {
@@ -273,6 +293,9 @@ export default function PostReelMedia({
     };
 
     const handleLoadedData = () => {
+      logSpotMedia("loaded", { mediaType: "video", playbackUrl, readyState: video.readyState });
+      markLoaded();
+
       if (isActive) {
         requestVideoPlay(video);
       }
@@ -343,7 +366,6 @@ export default function PostReelMedia({
     const video = videoRef.current;
     const next = !viewerGlobalMuted;
     viewerGlobalMuted = next;
-    setIsMuted(next);
 
     if (video) {
       video.muted = next;
@@ -383,17 +405,18 @@ export default function PostReelMedia({
     Boolean(resolvedPoster) &&
     isActive &&
     mediaType === "video" &&
+    posterReady &&
     !mediaReady &&
     phase !== "error";
-  const hasPosterFallback = showPosterLayer && posterReady;
+  const hasPosterFallback = showPosterLayer;
   const hasVisibleMedia = hasPrimaryMedia || hasPosterFallback;
   const showFinalError = phase === "error" && !hasVisibleMedia;
 
   const showSpinner =
     isActive &&
     (phase === "loading" || phase === "mediaLoading") &&
-    !hasVisibleMedia &&
-    !shouldMountVideo;
+    !posterReady &&
+    !mediaReady;
 
   const isLoading = isActive && phase !== "loaded" && phase !== "error";
 
@@ -402,7 +425,7 @@ export default function PostReelMedia({
   }, [isLoading, onLoadingChange]);
 
   return (
-    <div className="absolute inset-0 bg-slate-900">
+    <div className="absolute inset-0 z-0 h-full w-full bg-black">
       {resolvedPoster ? (
         <img
           key={`poster-${resolvedPoster}`}
@@ -411,10 +434,13 @@ export default function PostReelMedia({
           aria-hidden
           loading={loadHeavyMedia ? "eager" : "lazy"}
           decoding="async"
-          className={`absolute inset-0 h-full w-full object-cover object-center transition-opacity duration-200 ${
+          className={`absolute inset-0 z-0 h-full w-full object-cover object-center transition-opacity duration-200 ${
             showPosterLayer ? "opacity-100" : "opacity-0"
           }`}
-          onLoad={() => setPosterReady(true)}
+          onLoad={() => {
+            setPosterReady(true);
+            logSpotMedia("loaded", { mediaType: "poster", src: resolvedPoster });
+          }}
           onError={handlePosterError}
         />
       ) : null}
@@ -426,7 +452,7 @@ export default function PostReelMedia({
           alt={alt}
           loading="eager"
           decoding="async"
-          className={`absolute inset-0 h-full w-full object-cover object-center transition-opacity duration-200 ${
+          className={`absolute inset-0 z-[1] h-full w-full object-cover object-center transition-opacity duration-200 ${
             mediaReady ? "opacity-100" : "opacity-0"
           }`}
           onLoad={handleMediaReady}
@@ -445,7 +471,17 @@ export default function PostReelMedia({
           muted
           loop
           preload="auto"
-          className={`absolute inset-0 h-full w-full object-cover object-center transition-opacity duration-200 ${
+          controls={false}
+          disablePictureInPicture
+          disableRemotePlayback
+          controlsList="nodownload nofullscreen noremoteplayback"
+          onClick={(event) => {
+            event.stopPropagation();
+            if (isActive && mediaReady) {
+              toggleMute();
+            }
+          }}
+          className={`absolute inset-0 z-[1] h-full w-full object-cover object-center transition-opacity duration-200 ${
             mediaReady && isActive ? "opacity-100" : "opacity-0"
           }`}
           aria-label={alt || "Video"}
@@ -460,32 +496,16 @@ export default function PostReelMedia({
       ) : null}
 
       {showSpinner ? (
-        <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-slate-900/40">
+        <div className="pointer-events-none absolute inset-0 z-[2] flex items-center justify-center">
           <Loader2 className="h-10 w-10 animate-spin text-white/85" aria-hidden />
         </div>
       ) : null}
 
       {showFinalError ? (
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-slate-900 px-6 text-center">
+        <div className="absolute inset-0 z-[2] flex flex-col items-center justify-center gap-2 bg-black/80 px-6 text-center">
           <p className="text-sm font-medium text-white">{alt || "Spot"}</p>
           <p className="text-xs text-red-300">{SPOT_LOAD_ERROR}</p>
         </div>
-      ) : null}
-
-      {mediaType === "video" && isActive && mediaReady ? (
-        <button
-          type="button"
-          onClick={toggleMute}
-          className="absolute right-3 z-20 flex h-10 w-10 items-center justify-center rounded-full bg-black/50 text-white backdrop-blur-sm ring-1 ring-white/20"
-          data-spot-viewer-chrome-menu-top
-          aria-label={isMuted ? "Unmute video" : "Mute video"}
-        >
-          {isMuted ? (
-            <VolumeX className="h-5 w-5" aria-hidden />
-          ) : (
-            <Volume2 className="h-5 w-5" aria-hidden />
-          )}
-        </button>
       ) : null}
     </div>
   );

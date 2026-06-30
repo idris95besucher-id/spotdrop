@@ -8,10 +8,13 @@ import { localizeError } from "@/lib/i18n/localizeError";
 import { filterRecipientsAllowedToMessage } from "@/lib/messagePrivacy";
 import {
   fetchLiveMapUsers,
+  filterOnlineLiveMapUsers,
   LIVE_LOCATION_ERROR,
   LIVE_LOCATION_PUSH_MS,
   type LiveMapUser,
 } from "@/lib/userLiveLocation";
+import { usePresenceOnlineIds } from "@/lib/usePresenceOnlineIds";
+import LiveMapUserPresenceLine from "@/components/LiveMapUserPresenceLine";
 import { supabase } from "@/lib/supabaseClient";
 import type { I18nLocale } from "@/lib/i18n/locales";
 import { localizeCityByEnglishName, localizeCountryByEnglishName } from "@/lib/i18n/localizeGeo";
@@ -58,6 +61,7 @@ function distanceKm(
 
 export default function VisitNearbyPanel() {
   const { t, locale } = useI18n();
+  const { presenceOnlineIds, freshnessTick } = usePresenceOnlineIds();
   const [userId, setUserId] = useState<string | null>(null);
   const [authChecked, setAuthChecked] = useState(false);
   const [users, setUsers] = useState<LiveMapUser[]>([]);
@@ -158,16 +162,22 @@ export default function VisitNearbyPanel() {
   }, [authChecked, loadUsers, userId]);
 
   const sortedUsers = useMemo(() => {
+    const onlineUsers = filterOnlineLiveMapUsers(
+      users.filter((user) => user.user_id !== userId),
+      presenceOnlineIds,
+      "visit-nearby"
+    );
+
     if (!viewerCoords) {
-      return users;
+      return onlineUsers;
     }
 
-    return [...users].sort((a, b) => {
+    return [...onlineUsers].sort((a, b) => {
       const distanceA = distanceKm(viewerCoords, a);
       const distanceB = distanceKm(viewerCoords, b);
       return distanceA - distanceB;
     });
-  }, [users, viewerCoords]);
+  }, [freshnessTick, presenceOnlineIds, userId, users, viewerCoords]);
 
   if (!authChecked) {
     return (
@@ -247,7 +257,7 @@ export default function VisitNearbyPanel() {
                 <div className="min-w-0">
                   <p className="truncate text-sm font-semibold text-white">@{user.username}</p>
                   {place ? <p className="truncate text-xs text-slate-400">{place}</p> : null}
-                  <p className="mt-0.5 text-[11px] font-medium text-cyan-300">{t("map.userOnline")}</p>
+                  <LiveMapUserPresenceLine user={user} screen="visit-nearby" />
                 </div>
               </Link>
               <div className="flex shrink-0 flex-col items-end gap-2">

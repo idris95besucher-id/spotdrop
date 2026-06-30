@@ -329,7 +329,9 @@ export default function UserPage({ userIdOverride }: { userIdOverride?: string }
                   <p className="text-sm font-medium text-slate-500 sm:text-center">@{profile.username}</p>
                   {!isOwnProfile && canSeeProfilePresence === true ? (
                     <UserPresenceLabel
+                      userId={profile.id}
                       lastSeenAt={profileLastSeenAt}
+                      username={profile.username}
                       className="justify-center text-slate-400 sm:mx-auto"
                     />
                   ) : !isOwnProfile && canSeeProfilePresence === false ? (

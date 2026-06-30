@@ -43,6 +43,8 @@ import {
   upsertRoomMembershipOnMessage,
 } from "@/lib/roomMemberships";
 import { useChatScroll, useChatScrollEffect } from "@/lib/useChatScroll";
+import { isOnlineNow } from "@/lib/userPresence";
+import { usePresenceOnlineIds } from "@/lib/usePresenceOnlineIds";
 import { CHAT_MESSAGES_FLEX_PADDING } from "@/lib/useKeyboardInsets";
 
 type Country = {
@@ -146,6 +148,7 @@ function countPresencePeers(channel: RealtimeChannel) {
 
 export default function RoomChatPage() {
   const { t, locale } = useI18n();
+  const { presenceOnlineIds, freshnessTick } = usePresenceOnlineIds();
   const pathname = usePathname();
   const params = useParams<{ country: string; city: string }>();
   const searchParams = useSearchParams();
@@ -481,11 +484,10 @@ export default function RoomChatPage() {
     let cancelled = false;
 
     const loadCityOnline = async () => {
-      const { count, error } = await supabase
+      const { data, error } = await supabase
         .from("profiles")
-        .select("id", { count: "exact", head: true })
-        .eq("city_id", cityId)
-        .eq("is_online", true);
+        .select("id, is_online, last_seen_at")
+        .eq("city_id", cityId);
 
       if (cancelled) {
         return;
@@ -497,7 +499,18 @@ export default function RoomChatPage() {
         return;
       }
 
-      setCityOnlineCount(count ?? 0);
+      const count =
+        data?.filter((profile) =>
+          isOnlineNow({
+            screen: "city-room",
+            userId: profile.id,
+            isOnlineFlag: profile.is_online,
+            lastSeenAt: profile.last_seen_at,
+            presenceOnline: presenceOnlineIds.has(profile.id),
+          })
+        ).length ?? 0;
+
+      setCityOnlineCount(count);
     };
 
     void loadCityOnline();
@@ -505,7 +518,7 @@ export default function RoomChatPage() {
     return () => {
       cancelled = true;
     };
-  }, [cityId]);
+  }, [cityId, freshnessTick, presenceOnlineIds]);
 
   useEffect(() => {
     if (!cityId) {

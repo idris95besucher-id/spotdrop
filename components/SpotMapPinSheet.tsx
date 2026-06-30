@@ -5,6 +5,7 @@ import { MapPin, X } from "lucide-react";
 import { useI18n } from "@/components/I18nProvider";
 import type { MapSpotPin } from "@/lib/spots";
 import { getMapSpotPinPreviewUrl, getMapSpotPinTitle } from "@/lib/mapSpotPin";
+import { normalizePostId } from "@/lib/postIds";
 import SpotLocationSummary from "@/components/SpotLocationSummary";
 
 type SpotMapPinSheetProps = {
@@ -22,6 +23,23 @@ export default function SpotMapPinSheet({ pin, onClose }: SpotMapPinSheetProps) 
   const previewUrl = getMapSpotPinPreviewUrl(pin);
   const title = getMapSpotPinTitle(pin);
   const visitCount = pin.visited_count ?? 0;
+  const spotId = normalizePostId(pin.id);
+  const spotHref = spotId ? `/posts?id=${encodeURIComponent(spotId)}` : null;
+
+  const thumbnailClassName =
+    "relative flex h-20 w-20 shrink-0 touch-manipulation overflow-hidden rounded-full border-[2.5px] border-cyan-400/90 bg-[#0b1026] shadow-[0_0_0_2px_rgba(34,211,238,0.18),0_8px_24px_rgba(0,0,0,0.45),0_0_18px_rgba(34,211,238,0.22)] transition hover:border-cyan-300 active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/70";
+
+  const thumbnailContent = previewUrl ? (
+    <img src={previewUrl} alt="" className="h-full w-full object-cover" draggable={false} />
+  ) : (
+    <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-[#164e63] to-[#312e81] text-xl">
+      📍
+    </div>
+  );
+
+  const handleMissingSpotId = () => {
+    console.warn("[SpotMapPinSheet] missing spotId — cannot open viewer", { pin });
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center">
@@ -44,15 +62,20 @@ export default function SpotMapPinSheet({ pin, onClose }: SpotMapPinSheetProps) 
         </div>
 
         <div className="flex items-start gap-3 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3">
-          <div className="relative h-[72px] w-[72px] shrink-0 overflow-hidden rounded-full border-[2.5px] border-cyan-400/90 bg-[#0b1026] shadow-[0_0_0_2px_rgba(34,211,238,0.18),0_8px_24px_rgba(0,0,0,0.45),0_0_18px_rgba(34,211,238,0.22)]">
-            {previewUrl ? (
-              <img src={previewUrl} alt="" className="h-full w-full object-cover" />
-            ) : (
-              <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-[#164e63] to-[#312e81] text-xl">
-                📍
-              </div>
-            )}
-          </div>
+          {spotHref ? (
+            <Link href={spotHref} className={thumbnailClassName} aria-label={t("map.openSpot")}>
+              {thumbnailContent}
+            </Link>
+          ) : (
+            <button
+              type="button"
+              onClick={handleMissingSpotId}
+              className={thumbnailClassName}
+              aria-label={t("map.openSpot")}
+            >
+              {thumbnailContent}
+            </button>
+          )}
 
           <div className="min-w-0 flex-1 pt-0.5">
             <div className="mb-1 flex items-start justify-between gap-2">
@@ -98,12 +121,22 @@ export default function SpotMapPinSheet({ pin, onClose }: SpotMapPinSheetProps) 
         </div>
 
         <div className="border-t border-white/8 px-4 py-3 pb-[max(1rem,env(safe-area-inset-bottom))]">
-          <Link
-            href={`/posts?id=${encodeURIComponent(pin.id)}`}
-            className="flex w-full items-center justify-center rounded-full bg-cyan-500 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400 active:scale-[0.99]"
-          >
-            {t("map.openSpot")}
-          </Link>
+          {spotHref ? (
+            <Link
+              href={spotHref}
+              className="flex w-full items-center justify-center rounded-full bg-cyan-500 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400 active:scale-[0.99]"
+            >
+              {t("map.openSpot")}
+            </Link>
+          ) : (
+            <button
+              type="button"
+              onClick={handleMissingSpotId}
+              className="flex w-full items-center justify-center rounded-full bg-cyan-500/50 py-3 text-sm font-semibold text-slate-950"
+            >
+              {t("map.openSpot")}
+            </button>
+          )}
         </div>
       </div>
     </div>

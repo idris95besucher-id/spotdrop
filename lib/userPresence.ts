@@ -5,14 +5,17 @@ import { supabase } from "@/lib/supabaseClient";
 /** Heartbeat interval while app is active (30–45s). */
 export const PRESENCE_HEARTBEAT_MS = 45 * 1000;
 
-/** DM header treats partner as online when last_seen_at is this fresh. */
-export const PRESENCE_DM_ONLINE_MS = 2 * 60 * 1000;
+/** User is online when last_seen_at is within this window (unless Realtime Presence says otherwise). */
+export const PRESENCE_ONLINE_FRESH_MS = 90 * 1000;
+
+/** @deprecated Use PRESENCE_ONLINE_FRESH_MS */
+export const PRESENCE_DM_ONLINE_MS = PRESENCE_ONLINE_FRESH_MS;
+
+/** @deprecated Use PRESENCE_ONLINE_FRESH_MS */
+export const PRESENCE_DM_FRESH_MS = PRESENCE_ONLINE_FRESH_MS;
 
 /** DM header "Last seen recently" window when offline. */
 export const PRESENCE_DM_RECENT_MS = 10 * 60 * 1000;
-
-/** @deprecated Use PRESENCE_DM_ONLINE_MS */
-export const PRESENCE_DM_FRESH_MS = 90 * 1000;
 
 /** Delay before writing is_online=false after confirmed background (not iOS noise). */
 export const PRESENCE_SAFE_OFFLINE_MS = 3 * 60 * 1000;
@@ -21,7 +24,7 @@ export const PRESENCE_SAFE_OFFLINE_MS = 3 * 60 * 1000;
 export const PRESENCE_RECENT_MS = 15 * 60 * 1000;
 
 /** DB fallback when Realtime Presence is unavailable — inbox/profile only. */
-export const PRESENCE_ONLINE_MS = PRESENCE_DM_ONLINE_MS;
+export const PRESENCE_ONLINE_MS = PRESENCE_ONLINE_FRESH_MS;
 
 /** Re-evaluate relative last-seen labels in DM header. */
 export const PRESENCE_DM_DISPLAY_TICK_MS = 30 * 1000;
@@ -29,9 +32,80 @@ export const PRESENCE_DM_DISPLAY_TICK_MS = 30 * 1000;
 type TranslateFn = (key: TranslationKey, values?: Record<string, string | number>) => string;
 
 export type DmPartnerPresenceStatus = {
+  userId?: string | null;
+  username?: string | null;
+  rawIsOnline?: boolean | null;
+  presenceOnline?: boolean;
   isOnline: boolean;
   lastSeenAt: string | null;
 };
+
+export type IsOnlineNowInput = {
+  presenceOnline?: boolean;
+  isOnlineFlag?: unknown;
+  /** @deprecated Prefer isOnlineFlag */
+  rawIsOnline?: unknown;
+  lastSeenAt?: string | null;
+  screen?: string;
+  userId?: string | null;
+  username?: string | null;
+  now?: number;
+};
+
+export type ComputeUserIsOnlineInput = IsOnlineNowInput;
+
+export function isLastSeenFresh(
+  lastSeenAt: string | null | undefined,
+  now = Date.now()
+) {
+  const parsed = parseLastSeenAt(lastSeenAt);
+
+  if (parsed === null) {
+    return false;
+  }
+
+  return now - parsed <= PRESENCE_ONLINE_FRESH_MS;
+}
+
+/** Single source of truth for online UI — never trust stale profiles.is_online alone. */
+export function isOnlineNow(input: IsOnlineNowInput) {
+  const now = input.now ?? Date.now();
+  const isFresh = isLastSeenFresh(input.lastSeenAt, now);
+  const presenceOnline = Boolean(input.presenceOnline);
+  const computedIsOnline = presenceOnline || isFresh;
+  const rawIsOnline = readRawIsOnline(input.isOnlineFlag ?? input.rawIsOnline);
+
+  console.log("[Online UI] computed status", {
+    screen: input.screen ?? "unknown",
+    userId: input.userId ?? null,
+    username: input.username ?? null,
+    rawIsOnline,
+    lastSeenAt: input.lastSeenAt ?? null,
+    presenceOnline,
+    isFresh,
+    computedIsOnline,
+  });
+
+  return computedIsOnline;
+}
+
+/** @deprecated Prefer isOnlineNow */
+export function computeUserIsOnline(input: ComputeUserIsOnlineInput) {
+  return isOnlineNow(input);
+}
+
+/** Resolve online from DB row + optional Realtime Presence (never is_online alone). */
+export function resolveProfileIsOnline(
+  rawIsOnline: unknown,
+  lastSeenAt: string | null | undefined,
+  options: Omit<IsOnlineNowInput, "isOnlineFlag" | "rawIsOnline" | "lastSeenAt"> = {}
+) {
+  return isOnlineNow({
+    ...options,
+    isOnlineFlag: rawIsOnline,
+    lastSeenAt,
+  });
+}
 
 export function isProfileUserId(value: string) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
@@ -59,29 +133,23 @@ function readRawIsOnline(value: unknown): boolean | null {
   return null;
 }
 
-/** Resolve is_online from DB flag and/or fresh last_seen_at heartbeat. */
-export function resolveProfileIsOnline(
-  rawIsOnline: unknown,
-  lastSeenAt: string | null | undefined
-) {
-  if (readRawIsOnline(rawIsOnline) === true) {
-    return true;
-  }
-
-  return isPartnerOnlineForDm(false, false, lastSeenAt);
-}
-
-function presenceFromRow(row: PartnerPresenceRow | null) {
+function presenceFromRow(row: PartnerPresenceRow | null, screen = "profile-fetch") {
   const lastSeenAt = (row?.last_seen_at as string | null) ?? null;
   const rawIsOnline = row?.is_online ?? null;
+  const userId = (row?.id as string | null) ?? null;
+  const username = (row?.username as string | null) ?? null;
 
   return {
-    profileId: (row?.id as string | null) ?? null,
-    username: (row?.username as string | null) ?? null,
+    profileId: userId,
+    username,
     name: (row?.name as string | null) ?? null,
     rawIsOnline,
     lastSeenAt,
-    isOnline: resolveProfileIsOnline(rawIsOnline, lastSeenAt),
+    isOnline: resolveProfileIsOnline(rawIsOnline, lastSeenAt, {
+      screen,
+      userId,
+      username,
+    }),
   };
 }
 
@@ -120,6 +188,7 @@ export async function fetchPartnerProfilePresenceDirect(
       profileId: null as string | null,
       isOnline: false,
       lastSeenAt: null as string | null,
+      rawIsOnline: null as boolean | null,
       error: error.message,
     };
   }
@@ -198,6 +267,7 @@ export async function fetchPartnerProfilePresenceDirect(
     profileId: resolved.profileId,
     isOnline: resolved.isOnline,
     lastSeenAt: resolved.lastSeenAt,
+    rawIsOnline: resolved.rawIsOnline,
     error: null as string | null,
   };
 }
@@ -240,42 +310,41 @@ export function parseLastSeenAt(lastSeenAt: string | null | undefined) {
   return Number.isNaN(parsed) ? null : parsed;
 }
 
-export function isUserOnline(lastSeenAt: string | null | undefined, now = Date.now()) {
-  const parsed = parseLastSeenAt(lastSeenAt);
-
-  if (parsed === null) {
-    return false;
-  }
-
-  return now - parsed <= PRESENCE_ONLINE_MS;
+export function isUserOnline(
+  lastSeenAt: string | null | undefined,
+  now = Date.now(),
+  options: Omit<IsOnlineNowInput, "lastSeenAt" | "now"> = {}
+) {
+  return isOnlineNow({
+    ...options,
+    lastSeenAt,
+    now,
+    screen: options.screen ?? "isUserOnline",
+  });
 }
 
-/** DM header — online when last_seen_at is within PRESENCE_DM_ONLINE_MS. */
+/** @deprecated Use isLastSeenFresh or computeUserIsOnline */
 export function isDmPartnerOnline(
   lastSeenAt: string | null | undefined,
   now = Date.now()
 ) {
-  const parsed = parseLastSeenAt(lastSeenAt);
-
-  if (parsed === null) {
-    return false;
-  }
-
-  return now - parsed <= PRESENCE_DM_ONLINE_MS;
+  return isLastSeenFresh(lastSeenAt, now);
 }
 
-/** @deprecated DM header uses isDmPartnerOnline(last_seen_at) only. */
+/** @deprecated Use isOnlineNow */
 export function isPartnerOnlineForDm(
   presenceOnline: boolean,
   profileIsOnline: boolean,
   lastSeenAt: string | null | undefined,
   now = Date.now()
 ) {
-  if (presenceOnline || profileIsOnline) {
-    return true;
-  }
-
-  return isDmPartnerOnline(lastSeenAt, now);
+  return isOnlineNow({
+    presenceOnline,
+    isOnlineFlag: profileIsOnline,
+    lastSeenAt,
+    now,
+    screen: "dm-partner-legacy",
+  });
 }
 
 function sameCalendarDay(a: Date, b: Date) {
@@ -319,14 +388,24 @@ function formatLastSeenTime(lastSeenAt: string, locale?: string) {
   return new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "short" }).format(date);
 }
 
-/** DM header — green dot + Online, or formatted last seen. Online = last_seen_at within 2 min. */
+/** DM header — green dot + Online, or formatted last seen. */
 export function formatDmHeaderPresenceLabel(
   status: DmPartnerPresenceStatus,
   t: TranslateFn,
   now = Date.now()
 ) {
   const parsed = parseLastSeenAt(status.lastSeenAt);
-  const isOnline = isDmPartnerOnline(status.lastSeenAt, now);
+  const isOnline =
+    status.isOnline ??
+    isOnlineNow({
+      screen: "dm-header-label",
+      userId: status.userId,
+      username: status.username,
+      isOnlineFlag: status.rawIsOnline,
+      lastSeenAt: status.lastSeenAt,
+      presenceOnline: status.presenceOnline,
+      now,
+    });
 
   if (isOnline) {
     return { isOnline: true as const, label: t("common.online") };
@@ -369,16 +448,36 @@ export function formatDmHeaderPresenceLabel(
 export function formatUserPresenceLabel(
   lastSeenAt: string | null | undefined,
   t: TranslateFn,
-  locale?: string
+  locale?: string,
+  options: {
+    isOnline?: boolean;
+    userId?: string | null;
+    username?: string | null;
+    rawIsOnline?: unknown;
+    isOnlineFlag?: unknown;
+    presenceOnline?: boolean;
+    screen?: string;
+  } = {}
 ) {
-  if (isUserOnline(lastSeenAt)) {
+  const isOnline =
+    options.isOnline ??
+    isOnlineNow({
+      screen: options.screen ?? "presence-label",
+      userId: options.userId,
+      username: options.username,
+      isOnlineFlag: options.isOnlineFlag ?? options.rawIsOnline,
+      lastSeenAt,
+      presenceOnline: options.presenceOnline,
+    });
+
+  if (isOnline) {
     return { isOnline: true as const, label: t("common.online") };
   }
 
   const parsed = parseLastSeenAt(lastSeenAt);
 
   if (parsed === null) {
-    return { isOnline: false as const, label: t("presence.lastSeenRecently") };
+    return { isOnline: false as const, label: null };
   }
 
   const age = Date.now() - parsed;

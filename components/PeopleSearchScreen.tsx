@@ -9,6 +9,8 @@ import { getCountryFlag } from "@/lib/countryFlags";
 import { localizeCountryName, localizeCityName } from "@/lib/i18n/localizeGeo";
 import { localizeUserMessage } from "@/lib/i18n/localizeUserMessage";
 import { excludeGuideProfiles, publicProfileUsername, sanitizePublicProfiles } from "@/lib/publicProfile";
+import { isOnlineNow } from "@/lib/userPresence";
+import { usePresenceOnlineIds } from "@/lib/usePresenceOnlineIds";
 import { supabase } from "@/lib/supabaseClient";
 
 type Country = {
@@ -33,10 +35,13 @@ type SearchProfile = {
   city_id?: string | null;
   date_of_birth?: string | null;
   is_online?: boolean | null;
+  last_seen_at?: string | null;
 };
 
-const PROFILE_SELECT = "id, username, avatar_url, country_slug, city_id, date_of_birth, is_online";
-const PROFILE_SELECT_LEGACY = "id, username, avatar_url, country_slug, city_id, date_of_birth, is_online";
+const PROFILE_SELECT =
+  "id, username, avatar_url, country_slug, city_id, date_of_birth, is_online, last_seen_at";
+const PROFILE_SELECT_LEGACY =
+  "id, username, avatar_url, country_slug, city_id, date_of_birth, is_online";
 
 function calculateAge(dateOfBirth: string | null | undefined) {
   if (!dateOfBirth) {
@@ -85,6 +90,17 @@ export default function PeopleSearchScreen() {
   const [appliedMaxAge, setAppliedMaxAge] = useState("99");
   const [appliedOnlineOnly, setAppliedOnlineOnly] = useState(false);
   const [hasAppliedFilters, setHasAppliedFilters] = useState(false);
+  const { presenceOnlineIds, freshnessTick } = usePresenceOnlineIds();
+
+  const profileIsOnline = (profile: SearchProfile) =>
+    isOnlineNow({
+      screen: "search",
+      userId: profile.id,
+      username: profile.username,
+      isOnlineFlag: profile.is_online,
+      lastSeenAt: profile.last_seen_at,
+      presenceOnline: presenceOnlineIds.has(profile.id),
+    });
 
   useEffect(() => {
     const loadPageData = async () => {
@@ -177,7 +193,7 @@ export default function PeopleSearchScreen() {
     }
 
     if (appliedOnlineOnly) {
-      list = list.filter((profile) => profile.is_online === true);
+      list = list.filter((profile) => profileIsOnline(profile));
     }
 
     const minAgeNumber = appliedMinAge ? Number(appliedMinAge) : null;
@@ -213,6 +229,8 @@ export default function PeopleSearchScreen() {
     appliedMinAge,
     appliedMaxAge,
     appliedOnlineOnly,
+    presenceOnlineIds,
+    freshnessTick,
   ]);
 
   const displayedProfiles = useMemo(() => {
@@ -317,7 +335,7 @@ export default function PeopleSearchScreen() {
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
               <h2 className="truncate text-lg font-semibold text-white">{publicProfileUsername(profile.username)}</h2>
-              {profile.is_online ? (
+              {profileIsOnline(profile) ? (
                 <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2.5 py-1 text-xs font-medium text-emerald-300">
                   <span className="h-2 w-2 rounded-full bg-emerald-400" />
                   {t("common.online")}

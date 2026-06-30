@@ -3,78 +3,50 @@
 import { useEffect, useRef, useState } from "react";
 import {
   fetchPartnerProfilePresenceDirect,
-  isDmPartnerOnline,
   PRESENCE_DM_DISPLAY_TICK_MS,
   type DmPartnerPresenceStatus,
 } from "@/lib/userPresence";
+import { useUserOnlineStatus } from "@/lib/useUserOnlineStatus";
 import { supabase } from "@/lib/supabaseClient";
 
-/** DM header partner presence — last_seen_at only (online within 2 min). */
+/** DM header partner presence — Realtime Presence + fresh last_seen_at (90s). */
 export function useDmPartnerPresence(
   partnerId: string | null,
   partnerUsername?: string | null
 ): DmPartnerPresenceStatus {
   const [lastSeenAt, setLastSeenAt] = useState<string | null>(null);
-  const [displayTick, setDisplayTick] = useState(0);
+  const [rawIsOnline, setRawIsOnline] = useState<boolean | null>(null);
   const lastSeenAtRef = useRef<string | null>(null);
-  const statusRef = useRef<{ isOnline: boolean; lastSeenAt: string | null } | null>(null);
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      setDisplayTick((value) => value + 1);
-    }, PRESENCE_DM_DISPLAY_TICK_MS);
-
-    return () => {
-      clearInterval(interval);
-    };
-  }, []);
 
   useEffect(() => {
     if (!partnerId) {
       setLastSeenAt(null);
+      setRawIsOnline(null);
       lastSeenAtRef.current = null;
-      statusRef.current = null;
       return;
     }
 
     let cancelled = false;
 
-    const publishStatus = (nextLastSeenAt: string | null, reason: string) => {
-      const nextIsOnline = isDmPartnerOnline(nextLastSeenAt);
-      const previous = statusRef.current;
-
-      if (!previous) {
-        console.log("[Online] partner status loaded", {
-          partnerId,
-          lastSeenAt: nextLastSeenAt,
-          isOnline: nextIsOnline,
-          reason,
-        });
-      } else if (
-        previous.isOnline !== nextIsOnline ||
-        previous.lastSeenAt !== nextLastSeenAt
-      ) {
-        console.log("[Online] partner status changed", {
-          partnerId,
-          lastSeenAt: nextLastSeenAt,
-          isOnline: nextIsOnline,
-          previousIsOnline: previous.isOnline,
-          previousLastSeenAt: previous.lastSeenAt,
-          reason,
-        });
-      }
-
-      statusRef.current = { isOnline: nextIsOnline, lastSeenAt: nextLastSeenAt };
-    };
-
-    const applyLastSeenAt = (nextLastSeenAt: string | null, reason: string) => {
+    const applyProfileRow = (
+      nextLastSeenAt: string | null,
+      nextRawIsOnline: boolean | null,
+      reason: string
+    ) => {
       if (cancelled) {
         return;
       }
 
       lastSeenAtRef.current = nextLastSeenAt;
       setLastSeenAt(nextLastSeenAt);
-      publishStatus(nextLastSeenAt, reason);
+      setRawIsOnline(nextRawIsOnline);
+
+      console.log("[Online] partner status updated", {
+        partnerId,
+        lastSeenAt: nextLastSeenAt,
+        rawIsOnline: nextRawIsOnline,
+        reason,
+      });
     };
 
     const loadProfileStatus = async (reason: string) => {
@@ -94,7 +66,7 @@ export function useDmPartnerPresence(
         return;
       }
 
-      applyLastSeenAt(result.lastSeenAt, reason);
+      applyProfileRow(result.lastSeenAt, result.rawIsOnline ?? null, reason);
     };
 
     void loadProfileStatus("initial");
@@ -118,10 +90,17 @@ export function useDmPartnerPresence(
           filter: `id=eq.${partnerId}`,
         },
         (payload) => {
-          const row = payload.new as { last_seen_at?: string | null };
+          const row = payload.new as {
+            last_seen_at?: string | null;
+            is_online?: boolean | null;
+          };
 
-          if (row.last_seen_at !== undefined) {
-            applyLastSeenAt(row.last_seen_at ?? null, "postgres_changes");
+          if (row.last_seen_at !== undefined || row.is_online !== undefined) {
+            applyProfileRow(
+              row.last_seen_at ?? lastSeenAtRef.current,
+              row.is_online ?? null,
+              "postgres_changes"
+            );
           }
         }
       )
@@ -136,40 +115,19 @@ export function useDmPartnerPresence(
       window.clearInterval(pollTimer);
       document.removeEventListener("visibilitychange", onVisible);
       void supabase.removeChannel(profileChannel);
-      statusRef.current = null;
     };
   }, [partnerId, partnerUsername]);
 
-  const isOnline = isDmPartnerOnline(lastSeenAt);
-
-  useEffect(() => {
-    if (!partnerId) {
-      return;
-    }
-
-    const previous = statusRef.current;
-
-    if (!previous || previous.lastSeenAt !== lastSeenAt) {
-      return;
-    }
-
-    if (previous.isOnline === isOnline) {
-      return;
-    }
-
-    console.log("[Online] partner status changed", {
-      partnerId,
-      lastSeenAt,
-      isOnline,
-      previousIsOnline: previous.isOnline,
-      previousLastSeenAt: previous.lastSeenAt,
-      reason: "display-tick",
-    });
-
-    statusRef.current = { isOnline, lastSeenAt };
-  }, [partnerId, lastSeenAt, isOnline, displayTick]);
+  const isOnline = useUserOnlineStatus(partnerId, lastSeenAt, {
+    screen: "dm-header",
+    username: partnerUsername,
+    rawIsOnline,
+  });
 
   return {
+    userId: partnerId,
+    username: partnerUsername ?? null,
+    rawIsOnline,
     isOnline,
     lastSeenAt,
   };

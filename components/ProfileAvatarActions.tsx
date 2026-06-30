@@ -6,7 +6,9 @@ import { flushSync } from "react-dom";
 import { Camera, Loader2, Sparkles, UserRound } from "lucide-react";
 import { useI18n } from "@/components/I18nProvider";
 import StoryCameraFlow from "@/components/StoryCameraFlow";
-import { pickImageFromGallery } from "@/lib/pickMediaFromGallery";
+import StoryMediaSourceSheet from "@/components/StoryMediaSourceSheet";
+import { pickImageFromGallery, pickMediaFromGallery } from "@/lib/pickMediaFromGallery";
+import { getStoryMediaType } from "@/lib/storyMedia";
 
 type ProfileAvatarActionsProps = {
   userId: string;
@@ -29,7 +31,9 @@ export default function ProfileAvatarActions({
 }: ProfileAvatarActionsProps) {
   const { t } = useI18n();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [storySourceOpen, setStorySourceOpen] = useState(false);
   const [storyOpen, setStoryOpen] = useState(false);
+  const [initialGalleryFile, setInitialGalleryFile] = useState<File | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -50,10 +54,38 @@ export default function ProfileAvatarActions({
     };
   }, [menuOpen]);
 
-  const openStory = () => {
+  const openStorySource = () => {
     setMenuOpen(false);
+    setStorySourceOpen(true);
+  };
+
+  const openStoryCamera = () => {
+    setInitialGalleryFile(null);
     flushSync(() => {
       setStoryOpen(true);
+    });
+  };
+
+  const handleTakePhoto = () => {
+    openStoryCamera();
+  };
+
+  const handlePhotoLibrary = () => {
+    void pickMediaFromGallery().then((file) => {
+      if (!file) {
+        return;
+      }
+
+      const storyType = getStoryMediaType(file);
+
+      if (!storyType) {
+        return;
+      }
+
+      setInitialGalleryFile(file);
+      flushSync(() => {
+        setStoryOpen(true);
+      });
     });
   };
 
@@ -131,7 +163,7 @@ export default function ProfileAvatarActions({
             <button
               type="button"
               role="menuitem"
-              onClick={openStory}
+              onClick={openStorySource}
               className="flex w-full items-center gap-2.5 border-t border-white/10 px-4 py-3 text-left text-sm font-medium text-white transition hover:bg-white/5"
             >
               <Sparkles className="h-4 w-4 text-fuchsia-300" aria-hidden />
@@ -141,12 +173,24 @@ export default function ProfileAvatarActions({
         ) : null}
       </div>
 
+      <StoryMediaSourceSheet
+        isOpen={storySourceOpen}
+        onClose={() => setStorySourceOpen(false)}
+        onTakePhoto={handleTakePhoto}
+        onPhotoLibrary={handlePhotoLibrary}
+      />
+
       <StoryCameraFlow
         userId={userId}
         isOpen={storyOpen}
-        onClose={() => setStoryOpen(false)}
+        initialGalleryFile={initialGalleryFile}
+        onClose={() => {
+          setStoryOpen(false);
+          setInitialGalleryFile(null);
+        }}
         onCreated={() => {
           setStoryOpen(false);
+          setInitialGalleryFile(null);
           onStoryCreated();
         }}
       />

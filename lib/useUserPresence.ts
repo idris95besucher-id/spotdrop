@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { fetchUserLastSeenAt, isUserOnline, PRESENCE_HEARTBEAT_MS } from "@/lib/userPresence";
+import { fetchUserLastSeenAt, PRESENCE_HEARTBEAT_MS } from "@/lib/userPresence";
+import { useUserOnlineStatus } from "@/lib/useUserOnlineStatus";
 
 export function useUserPresence(userId: string | null, pollMs = PRESENCE_HEARTBEAT_MS) {
   const [lastSeenAt, setLastSeenAt] = useState<string | null>(null);
@@ -47,8 +48,12 @@ export function useUserPresence(userId: string | null, pollMs = PRESENCE_HEARTBE
     };
   }, [pollMs, userId]);
 
+  const isOnline = useUserOnlineStatus(userId, lastSeenAt, {
+    screen: "profile",
+  });
+
   return {
     lastSeenAt,
-    isOnline: isUserOnline(lastSeenAt),
+    isOnline,
   };
 }

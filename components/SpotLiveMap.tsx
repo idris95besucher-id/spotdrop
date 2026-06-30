@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Crosshair, Minus, Plus, Radio } from "lucide-react";
 import { useI18n } from "@/components/I18nProvider";
 import LiveMapUserSheet from "@/components/LiveMapUserSheet";
@@ -12,6 +12,7 @@ import { supabase } from "@/lib/supabaseClient";
 import { publicProfileUsername } from "@/lib/publicProfile";
 import {
   fetchLiveMapUsers,
+  filterOnlineLiveMapUsers,
   LIVE_LOCATION_ERROR,
   LIVE_LOCATION_PUSH_MS,
   stopUserLiveLocation,
@@ -19,6 +20,7 @@ import {
   validateLiveCoordinates,
   type LiveMapUser,
 } from "@/lib/userLiveLocation";
+import { usePresenceOnlineIds } from "@/lib/usePresenceOnlineIds";
 import { localizeError } from "@/lib/i18n/localizeError";
 import type { TranslationKey } from "@/lib/i18n/messages";
 import "maplibre-gl/dist/maplibre-gl.css";
@@ -149,6 +151,7 @@ function formatLiveLocationError(t: (key: TranslationKey) => string, error: stri
 
 export default function SpotLiveMap({ userId, embedded = false }: SpotLiveMapProps) {
   const { t } = useI18n();
+  const { presenceOnlineIds, freshnessTick } = usePresenceOnlineIds();
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<import("maplibre-gl").Map | null>(null);
   const maplibreRef = useRef<typeof import("maplibre-gl") | null>(null);
@@ -180,6 +183,11 @@ export default function SpotLiveMap({ userId, embedded = false }: SpotLiveMapPro
   const [isLive, setIsLive] = useState(false);
   const [goingLive, setGoingLive] = useState(false);
   const [liveSuccess, setLiveSuccess] = useState<string | null>(null);
+
+  const onlineLiveUsers = useMemo(
+    () => filterOnlineLiveMapUsers(liveUsers, presenceOnlineIds, "map-live"),
+    [freshnessTick, liveUsers, presenceOnlineIds]
+  );
 
   const mapStyle = getMapLibreStyleUrl();
 
@@ -620,7 +628,7 @@ export default function SpotLiveMap({ userId, embedded = false }: SpotLiveMapPro
 
     const nextLiveIds = new Set<string>();
 
-    for (const liveUser of liveUsers) {
+    for (const liveUser of onlineLiveUsers) {
       if (liveUser.user_id === userId) {
         continue;
       }
@@ -653,7 +661,7 @@ export default function SpotLiveMap({ userId, embedded = false }: SpotLiveMapPro
         liveMarkersRef.current.delete(userIdKey);
       }
     });
-  }, [handleSelectLiveUser, liveUsers, mapReady, t, userId]);
+  }, [handleSelectLiveUser, onlineLiveUsers, mapReady, t, userId]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -713,7 +721,7 @@ export default function SpotLiveMap({ userId, embedded = false }: SpotLiveMapPro
     }
   }, [mapReady, pins, savedIds]);
 
-  const liveCount = liveUsers.length;
+  const liveCount = onlineLiveUsers.length;
 
   const handleLocateMe = useCallback(() => {
     const map = mapRef.current;

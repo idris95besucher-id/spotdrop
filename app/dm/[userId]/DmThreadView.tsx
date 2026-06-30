@@ -48,8 +48,7 @@ import { fetchPartnerProfilePresenceDirect, resolveProfileIsOnline } from "@/lib
 import { checkCanMessageUser, type MessagePrivacyBlockReasonKey } from "@/lib/messagePrivacy";
 import { loadPrivateSpotSharesByIds, type PrivateSpotShare } from "@/lib/privateSpotShares";
 import { useDmThreadScroll } from "@/lib/useDmThreadScroll";
-import { useDmComposerPosition } from "@/lib/useDmComposerInsets";
-import { chatComposerBottomPadding } from "@/lib/useKeyboardInsets";
+import { useDmComposerPosition, dmComposerBottomPadding } from "@/lib/useDmComposerInsets";
 import { isGuideAccountUsername, publicProfileUsername } from "@/lib/publicProfile";
 import { supabase } from "@/lib/supabaseClient";
 
@@ -454,7 +453,11 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
       }
 
       const partnerLastSeenAt = (partnerRow.last_seen_at as string | null) ?? null;
-      const partnerIsOnline = resolveProfileIsOnline(partnerRow.is_online, partnerLastSeenAt);
+      const partnerIsOnline = resolveProfileIsOnline(partnerRow.is_online, partnerLastSeenAt, {
+        screen: "dm-thread-load",
+        userId: partnerRow.id,
+        username: partnerRow.username,
+      });
 
       setPartner({
         id: partnerRow.id,
@@ -812,8 +815,7 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
       <DmChatThreadShell>
         <DmThreadHeader
           partner={partner}
-          partnerLastSeenAt={partnerPresence.lastSeenAt ?? partner?.lastSeenAt ?? null}
-          partnerIsOnline={partnerPresence.isOnline}
+          presence={partnerPresence}
           isSelfConversation={isSelfConversation}
           canSeePartnerPresence={canSeePartnerPresence}
         />
@@ -981,7 +983,15 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
           </div>
 
           <DmComposerPortal>
-            <div ref={setComposerRef} className="fixed left-0 right-0 z-[60] bg-[#050816]" style={{ bottom: 0 }}>
+            <div
+              ref={setComposerRef}
+              className="fixed left-0 right-0 z-[60] pointer-events-none"
+              style={{
+                bottom: 0,
+                paddingBottom: dmComposerBottomPadding(isDmKeyboardOpen),
+              }}
+            >
+              <div className="pointer-events-auto bg-[#050816]">
               {partnerTypingName ? (
                 <p
                   className="border-t border-white/5 bg-[#0B1026] px-4 py-1.5 text-xs text-slate-400"
@@ -993,7 +1003,6 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
               <form
                 onSubmit={(event) => void handleSend(event)}
                 className="border-t border-white/10 bg-[#050816] p-3"
-                style={{ paddingBottom: chatComposerBottomPadding(isDmKeyboardOpen) }}
               >
             <div className="flex items-end gap-2">
               {currentUserId && partner && !isSelfConversation ? (
@@ -1029,6 +1038,7 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
               <p className="mt-2 text-xs text-red-300">{localizeUserMessage(t, sendError) ?? sendError}</p>
             ) : null}
             </form>
+              </div>
             </div>
           </DmComposerPortal>
         </section>

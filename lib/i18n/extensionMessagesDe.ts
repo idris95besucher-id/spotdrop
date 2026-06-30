@@ -697,4 +697,8 @@ export const EXTENSION_DE: Record<ExtensionKey, string> = {
   "spotCamera.error.micDeniedWarning": "Mikrofonzugriff wurde verweigert. Video wird ohne Ton aufgenommen. Aktiviere das Mikrofon in den Einstellungen und öffne die Kamera erneut.",
   "spotCamera.error.recordingFailed": "Aufnahme fehlgeschlagen. Bitte erneut versuchen.",
   "spotCamera.error.recordingBrowserUnsaved": "Die Aufnahme wird möglicherweise nicht gespeichert, wenn du die Seite vor dem Abschluss verlässt.",
+
+  "story.source.title": "Neue Story",
+  "story.source.takePhoto": "Foto aufnehmen",
+  "story.source.photoLibrary": "Fotomediathek",
 };

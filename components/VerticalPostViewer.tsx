@@ -297,7 +297,7 @@ export default function VerticalPostViewer({
     return null;
   }
 
-  const trackTransform = `translate3d(0, calc(${-activeIndex * 100}% + ${dragOffsetPx}px), 0)`;
+  const trackTransform = `translate3d(0, calc(${-activeIndex * 100}svh + ${dragOffsetPx}px), 0)`;
 
   return createPortal(
     <div
@@ -337,7 +337,7 @@ export default function VerticalPostViewer({
             const distance = Math.abs(index - activeIndex);
 
             return (
-              <div key={`${spot.id}-${index}`} className="h-full w-full shrink-0">
+              <div key={`${spot.id}-${index}`} className="h-[100svh] w-full shrink-0">
                 <PostViewerSlide
                   item={spot}
                   slideIndex={index}

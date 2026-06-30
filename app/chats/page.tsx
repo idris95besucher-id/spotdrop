@@ -9,7 +9,7 @@ import ChatInboxActionSheet, {
 import { useChatNotifications } from "@/components/ChatNotificationsProvider";
 import DmInboxListItem from "@/components/DmInboxListItem";
 import { useI18n } from "@/components/I18nProvider";
-import MessageRequestItem, { type MessageRequestItemData } from "@/components/MessageRequestItem";
+import type { MessageRequestItemData } from "@/components/MessageRequestItem";
 import MobileSecondaryHeader from "@/components/MobileSecondaryHeader";
 import RoomInboxListItem from "@/components/RoomInboxListItem";
 import Shell from "@/components/Shell";
@@ -43,8 +43,6 @@ import { hideRoomFromMessages, setRoomMuted, type RoomInboxRow } from "@/lib/roo
 import { PRESENCE_HEARTBEAT_MS } from "@/lib/userPresence";
 import { supabase } from "@/lib/supabaseClient";
 
-type ChatsTab = "chats" | "requests";
-
 type ActionTarget =
   | { kind: "dm"; chat: InboxChatRow }
   | { kind: "room"; room: RoomInboxRow };
@@ -54,13 +52,12 @@ export default function ChatsPage() {
   const [session, setSession] = useState<Session | null>(null);
   const [loadingSession, setLoadingSession] = useState(true);
   const [loadingChats, setLoadingChats] = useState(false);
-  const [activeTab, setActiveTab] = useState<ChatsTab>("chats");
   const [items, setItems] = useState<InboxItem[]>([]);
   const [requests, setRequests] = useState<MessageRequestItemData[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [actionTarget, setActionTarget] = useState<ActionTarget | null>(null);
-  const { unreadCount, refreshUnreadCount } = useChatNotifications();
+  const { refreshUnreadCount } = useChatNotifications();
   const silentReloadRef = useRef(false);
 
   const refresh = useCallback(() => {
@@ -316,9 +313,7 @@ export default function ChatsPage() {
   }, [refresh, session?.user?.id]);
 
   const pendingCount = requests.length;
-  const unreadBadge = formatUnreadBadge(unreadCount);
   const requestsBadge = formatUnreadBadge(pendingCount);
-  const showAlerts = pendingCount > 0 || unreadCount > 0;
   const hasInboxItems = items.length > 0;
 
   const actionSheetTarget = useMemo((): ChatInboxActionSheetTarget | null => {
@@ -385,68 +380,28 @@ export default function ChatsPage() {
   return (
     <Shell showHeader={false} flushTop>
       <div className={`mx-auto flex min-h-0 w-full max-w-lg flex-1 flex-col ${MOBILE_WIDTH_SAFE_CLASS}`}>
-        <MobileSecondaryHeader title={t("chats.title")} backHref="/feed" />
-
-        {session?.user && showAlerts ? (
-          <section className="flex flex-wrap gap-2 border-b border-white/[0.08] px-4 py-3">
-            {pendingCount > 0 ? (
-              <button
-                type="button"
-                onClick={() => setActiveTab("requests")}
-                className="inline-flex items-center gap-2 rounded-full bg-[#050816] px-3 py-1.5 text-sm font-semibold text-white ring-1 ring-white/10"
+        <MobileSecondaryHeader
+          title={t("chats.title")}
+          backHref="/feed"
+          trailing={
+            session?.user ? (
+              <Link
+                href="/chats/requests"
+                className="relative inline-flex items-center rounded-full px-2.5 py-1.5 text-sm font-semibold text-white transition hover:bg-white/10 active:opacity-80"
               >
                 {t("chats.requests")}
-                <span className="rounded-full bg-red-500 px-2 py-0.5 text-xs font-bold text-white">
-                  {requestsBadge}
-                </span>
-              </button>
-            ) : null}
-            {unreadCount > 0 ? (
-              <button
-                type="button"
-                onClick={() => setActiveTab("chats")}
-                className="inline-flex items-center gap-2 rounded-full bg-[#050816] px-3 py-1.5 text-sm font-semibold text-white ring-1 ring-white/10"
-              >
-                {t("chats.newMessages")}
-                <span className="rounded-full bg-primary px-2 py-0.5 text-xs font-bold text-[#050816]">
-                  {unreadBadge}
-                </span>
-              </button>
-            ) : null}
-          </section>
-        ) : null}
-
-        {session?.user ? (
-          <div className="grid grid-cols-2 border-b border-white/[0.08]">
-            <button
-              type="button"
-              onClick={() => setActiveTab("chats")}
-              className={`py-3 text-sm font-semibold transition ${
-                activeTab === "chats"
-                  ? "border-b-2 border-white text-white"
-                  : "text-muted hover:text-white"
-              }`}
-            >
-              {t("chats.title")}
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveTab("requests")}
-              className={`relative py-3 text-sm font-semibold transition ${
-                activeTab === "requests"
-                  ? "border-b-2 border-white text-white"
-                  : "text-muted hover:text-white"
-              }`}
-            >
-              {t("chats.requests")}
-              {pendingCount > 0 ? (
-                <span className="ml-1.5 inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-red-500 px-1.5 text-[10px] font-bold text-white">
-                  {requestsBadge}
-                </span>
-              ) : null}
-            </button>
-          </div>
-        ) : null}
+                {pendingCount > 0 ? (
+                  <span
+                    className="absolute -right-0.5 -top-0.5 inline-flex min-h-[18px] min-w-[18px] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold leading-none text-white"
+                    aria-label={t("chats.viewRequests", { count: requestsBadge ?? pendingCount })}
+                  >
+                    {requestsBadge}
+                  </span>
+                ) : null}
+              </Link>
+            ) : null
+          }
+        />
 
         {loadingSession ? (
           <div className="px-4 py-12 text-center text-sm text-muted">{t("common.loading")}</div>
@@ -466,36 +421,17 @@ export default function ChatsPage() {
           <div className="mx-4 my-6 rounded-2xl border border-red-500/20 bg-red-500/5 p-4 text-sm text-red-200">
             {localizeUserMessage(t, error) ?? error}
           </div>
-        ) : activeTab === "requests" ? (
-          requests.length === 0 ? (
-            <div className="px-4 py-16 text-center">
-              <p className="text-lg font-semibold text-white">{t("chats.noRequests")}</p>
-              <p className="mt-2 text-sm text-muted">{t("chats.noRequestsBody")}</p>
-            </div>
-          ) : (
-            <ul className="divide-y divide-white/[0.06] px-2 py-2 sm:px-3">
-              {requests.map((request) => (
-                <MessageRequestItem
-                  key={request.conversationId}
-                  request={request}
-                  viewerUserId={session.user.id}
-                  onResolved={refresh}
-                />
-              ))}
-            </ul>
-          )
         ) : !hasInboxItems ? (
           <div className="px-4 py-16 text-center">
             <p className="text-lg font-semibold text-white">{t("chats.noMessages")}</p>
             <p className="mt-2 text-sm text-muted">{t("chats.noMessagesBody")}</p>
             {pendingCount > 0 ? (
-              <button
-                type="button"
-                onClick={() => setActiveTab("requests")}
+              <Link
+                href="/chats/requests"
                 className="mt-4 inline-flex items-center gap-2 rounded-full bg-primary px-5 py-2.5 text-sm font-semibold text-[#050816]"
               >
                 {t("chats.viewRequests", { count: requestsBadge ?? pendingCount })}
-              </button>
+              </Link>
             ) : (
               <Link
                 href="/search"
@@ -506,7 +442,7 @@ export default function ChatsPage() {
             )}
           </div>
         ) : (
-          <ul className="min-h-0 flex-1 divide-y divide-white/[0.06] overflow-y-auto select-none">
+          <ul className="min-h-0 flex-1 divide-y divide-white/[0.06] overflow-y-auto px-2 py-1 select-none sm:px-3">
             {items.map((item) =>
               item.kind === "room" ? (
                 <RoomInboxListItem

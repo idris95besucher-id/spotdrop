@@ -1,14 +1,31 @@
 "use client";
 
-import { isUserOnline } from "@/lib/userPresence";
+import { useUserOnlineStatus } from "@/lib/useUserOnlineStatus";
 
 type UserOnlineDotProps = {
+  userId: string;
   lastSeenAt: string | null | undefined;
+  username?: string | null;
+  rawIsOnline?: unknown;
+  screen?: string;
   className?: string;
 };
 
-export default function UserOnlineDot({ lastSeenAt, className = "" }: UserOnlineDotProps) {
-  if (!isUserOnline(lastSeenAt)) {
+export default function UserOnlineDot({
+  userId,
+  lastSeenAt,
+  username,
+  rawIsOnline,
+  screen = "online-dot",
+  className = "",
+}: UserOnlineDotProps) {
+  const isOnline = useUserOnlineStatus(userId, lastSeenAt, {
+    screen,
+    username,
+    rawIsOnline,
+  });
+
+  if (!isOnline) {
     return null;
   }
 

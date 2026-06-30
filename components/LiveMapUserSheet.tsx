@@ -8,6 +8,7 @@ import { localizeCityByEnglishName, localizeCountryByEnglishName } from "@/lib/i
 import { auditLocationLocaleOutput } from "@/lib/i18n/localizeGeoAudit";
 import { checkCanMessageUser } from "@/lib/messagePrivacy";
 import type { I18nLocale } from "@/lib/i18n/locales";
+import LiveMapUserPresenceLine from "@/components/LiveMapUserPresenceLine";
 import type { LiveMapUser } from "@/lib/userLiveLocation";
 import { supabase } from "@/lib/supabaseClient";
 
@@ -101,7 +102,11 @@ export default function LiveMapUserSheet({ user, onClose }: LiveMapUserSheetProp
             <div className="min-w-0">
               <p className="truncate text-base font-semibold text-white">@{user.username}</p>
               {place ? <p className="truncate text-sm text-slate-400">{place}</p> : null}
-              <p className="mt-1 text-xs font-medium text-cyan-300">{t("map.userOnline")}</p>
+              <LiveMapUserPresenceLine
+                user={user}
+                screen="map-user-sheet"
+                className="mt-1 text-xs font-medium"
+              />
             </div>
           </div>
           <button

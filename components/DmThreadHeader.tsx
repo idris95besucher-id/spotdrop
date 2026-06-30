@@ -6,6 +6,7 @@ import DmHeaderPresenceLabel from "@/components/DmHeaderPresenceLabel";
 import { useI18n } from "@/components/I18nProvider";
 import { MOBILE_SAFE_AREA_INSET_TOP } from "@/lib/mobileLayout";
 import { publicProfileUsername } from "@/lib/publicProfile";
+import type { DmPartnerPresenceStatus } from "@/lib/userPresence";
 
 type DmThreadHeaderProps = {
   backHref?: string;
@@ -13,8 +14,7 @@ type DmThreadHeaderProps = {
     username: string;
     avatar_url?: string | null;
   } | null;
-  partnerLastSeenAt: string | null;
-  partnerIsOnline: boolean;
+  presence: DmPartnerPresenceStatus;
   isSelfConversation: boolean;
   canSeePartnerPresence?: boolean | null;
 };
@@ -23,8 +23,7 @@ type DmThreadHeaderProps = {
 export default function DmThreadHeader({
   backHref = "/chats",
   partner,
-  partnerLastSeenAt,
-  partnerIsOnline,
+  presence,
   isSelfConversation,
   canSeePartnerPresence = true,
 }: DmThreadHeaderProps) {
@@ -60,10 +59,7 @@ export default function DmThreadHeader({
               canSeePartnerPresence === false ? (
                 <p className="mt-0.5 truncate text-xs text-muted">{t("presence.hidden")}</p>
               ) : canSeePartnerPresence === true ? (
-                <DmHeaderPresenceLabel
-                  presence={{ isOnline: partnerIsOnline, lastSeenAt: partnerLastSeenAt }}
-                  className="mt-0.5"
-                />
+                <DmHeaderPresenceLabel presence={presence} className="mt-0.5" />
               ) : null
             ) : null}
           </div>

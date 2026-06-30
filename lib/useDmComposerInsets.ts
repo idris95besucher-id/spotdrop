@@ -120,3 +120,12 @@ export function useDmComposerPosition(options: UseDmComposerPositionOptions = {}
     setComposerRef,
   };
 }
+
+/** DM composer only — safe-area inset + 12px above the Home Indicator (keyboard closed). */
+export function dmComposerBottomPadding(isKeyboardOpen: boolean) {
+  if (isKeyboardOpen) {
+    return "0.75rem";
+  }
+
+  return "calc(env(safe-area-inset-bottom, 0px) + 12px)";
+}

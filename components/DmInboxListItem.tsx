@@ -67,7 +67,12 @@ export default function DmInboxListItem({ chat, onLongPress }: DmInboxListItemPr
           {hasUnread ? (
             <span className="absolute -right-0.5 -top-0.5 h-3.5 w-3.5 rounded-full border-2 border-[#0B1026] bg-primary" />
           ) : null}
-          <UserOnlineDot lastSeenAt={chat.lastSeenAt} />
+          <UserOnlineDot
+            userId={chat.partnerId}
+            lastSeenAt={chat.lastSeenAt}
+            username={chat.username}
+            screen="chats-inbox"
+          />
         </div>
 
         <div className="min-w-0 flex-1">

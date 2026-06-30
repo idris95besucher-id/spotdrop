@@ -696,6 +696,10 @@ export const EXTENSION_EN = {
   "spotCamera.error.micDeniedWarning": "Microphone access was denied. Video will be recorded without sound. Enable microphone in Settings and reopen the camera.",
   "spotCamera.error.recordingFailed": "Recording failed. Please try again.",
   "spotCamera.error.recordingBrowserUnsaved": "Recording may not be saved if you leave this page before finishing.",
+
+  "story.source.title": "New story",
+  "story.source.takePhoto": "Take Photo",
+  "story.source.photoLibrary": "Photo Library",
 } as const;
 
 export type ExtensionKey = keyof typeof EXTENSION_EN;

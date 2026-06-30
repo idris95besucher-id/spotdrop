@@ -443,7 +443,7 @@ export default function PostViewerSlide({
       data-spot-viewer-slide
       data-slide-index={slideIndex}
       data-spot-id={item.id}
-      className="relative h-full w-full shrink-0 snap-start snap-always bg-slate-950"
+      className="relative h-full min-h-[100svh] w-full shrink-0 snap-start snap-always bg-black"
       aria-label={`Post by ${authorUsername}`}
     >
       {guidePlace && !mediaUrl && !posterUrl ? (
