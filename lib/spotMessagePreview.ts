@@ -2,13 +2,13 @@ import type { I18nLocale } from "@/lib/i18n/locales";
 import {
   formatPostDetailLocation,
   formatPostDetailSpotTitle,
+  loadPostDetail,
   type PostDetailRow,
 } from "@/lib/postDetail";
-import { isDemoPostId, normalizePostId, postIdForQuery } from "@/lib/postIds";
-import { getPostMedia, getPostThumbnailUrl, POST_AUTHOR_PROFILES_FKEY } from "@/lib/posts";
+import { isDemoPostId, normalizePostId } from "@/lib/postIds";
+import { getPostMedia, getPostThumbnailUrl } from "@/lib/posts";
 import { getViewerSpotMediaUrl, type ViewerPostListItem } from "@/lib/postViewer";
 import { normalizeSpotPublicStats } from "@/lib/spotRanking";
-import { supabase } from "@/lib/supabaseClient";
 
 export type SpotMessagePreview = {
   postId: string;
@@ -17,12 +17,6 @@ export type SpotMessagePreview = {
   thumbnailUrl: string | null;
   isVideo: boolean;
 };
-
-const SPOT_PREVIEW_SELECT =
-  `id, user_id, content, created_at, content_kind, spot_name, spot_address, spot_city, spot_country, spot_latitude, spot_longitude, image_url, video_url, media_url, media_type, video_cover_url, thumbnail_url, visited_count, comments_count, collection_save_count, ${POST_AUTHOR_PROFILES_FKEY}(username, avatar_url)`;
-
-const SPOT_PREVIEW_SELECT_LEGACY =
-  "id, user_id, content, created_at, content_kind, spot_name, spot_address, spot_city, spot_country, spot_latitude, spot_longitude, image_url, video_url, media_url, media_type, video_cover_url, thumbnail_url, visited_count, comments_count, collection_save_count";
 
 export function postDetailToViewerItem(post: PostDetailRow): ViewerPostListItem {
   const id = normalizePostId(post.id)!;
@@ -39,6 +33,7 @@ export function postDetailToViewerItem(post: PostDetailRow): ViewerPostListItem 
     thumbnail_url: post.thumbnail_url,
     media_url: post.media_url,
     media_type: post.media_type,
+    audio_muted: post.audio_muted,
     spot_name: post.spot_name,
     spot_address: post.spot_address,
     spot_city: post.spot_city,
@@ -63,6 +58,10 @@ export function buildSpotMessagePreview(post: PostDetailRow, locale: I18nLocale 
   };
 }
 
+/**
+ * Load a Spot for chat / map overlays using the same detail query + normalizer
+ * as PostDetailView / PostViewerSlide (`loadPostDetail`).
+ */
 export async function loadSpotMessagePreview(postId: string, locale: I18nLocale = "en") {
   const normalizedId = normalizePostId(postId);
 
@@ -82,44 +81,19 @@ export async function loadSpotMessagePreview(postId: string, locale: I18nLocale 
     };
   }
 
-  const queryId = postIdForQuery(normalizedId);
+  const result = await loadPostDetail(normalizedId);
 
-  let result = await supabase.from("posts").select(SPOT_PREVIEW_SELECT).eq("id", queryId).maybeSingle();
-
-  if (result.error?.code === "42703") {
-    result = await supabase.from("posts").select(SPOT_PREVIEW_SELECT_LEGACY).eq("id", queryId).maybeSingle();
-  }
-
-  if (result.error) {
+  if (result.error || !result.post) {
     return {
       preview: null as SpotMessagePreview | null,
       viewerItem: null as ViewerPostListItem | null,
-      error: result.error.message || "Spot unavailable.",
+      error: result.error || "Spot unavailable.",
     };
   }
-
-  if (!result.data) {
-    return {
-      preview: null as SpotMessagePreview | null,
-      viewerItem: null as ViewerPostListItem | null,
-      error: "Spot unavailable.",
-    };
-  }
-
-  const raw = result.data as PostDetailRow & {
-    id: string | number;
-    profiles?: PostDetailRow["profiles"] | NonNullable<PostDetailRow["profiles"]>[];
-  };
-  const profile = Array.isArray(raw.profiles) ? raw.profiles[0] : raw.profiles;
-  const post: PostDetailRow = {
-    ...raw,
-    id: normalizePostId(raw.id) ?? normalizedId,
-    profiles: profile ?? null,
-  };
 
   return {
-    preview: buildSpotMessagePreview(post, locale),
-    viewerItem: postDetailToViewerItem(post),
+    preview: buildSpotMessagePreview(result.post, locale),
+    viewerItem: postDetailToViewerItem(result.post),
     error: null as string | null,
   };
 }

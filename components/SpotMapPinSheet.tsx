@@ -1,12 +1,17 @@
 "use client";
 
 import Link from "next/link";
-import { MapPin, UserRound, X } from "lucide-react";
+import { useState } from "react";
+import { Loader2, MapPin, UserRound, X } from "lucide-react";
 import { useI18n } from "@/components/I18nProvider";
+import { usePostViewerOptional } from "@/components/PostViewerProvider";
+import SpotLocationSummary from "@/components/SpotLocationSummary";
 import type { MapSpotPin } from "@/lib/spots";
 import { getMapSpotPinPreviewUrl, getMapSpotPinTitle } from "@/lib/mapSpotPin";
 import { normalizePostId } from "@/lib/postIds";
-import SpotLocationSummary from "@/components/SpotLocationSummary";
+import { getReelMediaSources } from "@/lib/postViewerMedia";
+import { getViewerSpotMediaUrl } from "@/lib/postViewer";
+import { loadSpotMessagePreview } from "@/lib/spotMessagePreview";
 
 type SpotMapPinSheetProps = {
   pin: MapSpotPin | null;
@@ -33,6 +38,9 @@ function formatCreatedDate(iso: string | null | undefined, locale: string) {
 
 export default function SpotMapPinSheet({ pin, embedded = false, onClose }: SpotMapPinSheetProps) {
   const { t, locale } = useI18n();
+  const postViewer = usePostViewerOptional();
+  const [openingSpot, setOpeningSpot] = useState(false);
+  const [openError, setOpenError] = useState<string | null>(null);
 
   if (!pin) {
     return null;
@@ -42,7 +50,6 @@ export default function SpotMapPinSheet({ pin, embedded = false, onClose }: Spot
   const title = getMapSpotPinTitle(pin);
   const visitCount = pin.visited_count ?? 0;
   const spotId = normalizePostId(pin.id);
-  const spotHref = spotId ? `/posts?id=${encodeURIComponent(spotId)}` : null;
   const profileHref = `/user?id=${encodeURIComponent(pin.user_id)}`;
   const createdLabel = formatCreatedDate(
     pin.created_at,
@@ -61,8 +68,73 @@ export default function SpotMapPinSheet({ pin, embedded = false, onClose }: Spot
     </div>
   );
 
-  const handleMissingSpotId = () => {
-    console.warn("[SpotMapPinSheet] missing spotId — cannot open viewer", { pin });
+  const handleViewSpot = async () => {
+    if (!spotId || openingSpot) {
+      if (!spotId) {
+        console.warn("[Map→Spot] missing post id on marker", { pin });
+        setOpenError(t("spotShare.spotUnavailable"));
+      }
+      return;
+    }
+
+    setOpeningSpot(true);
+    setOpenError(null);
+
+    console.log("[Map→Spot] selected map marker post ID", spotId);
+
+    const result = await loadSpotMessagePreview(spotId, locale);
+    const viewerItem = result.viewerItem;
+    const sources = viewerItem ? getReelMediaSources(viewerItem) : null;
+    const mediaUrl = viewerItem ? getViewerSpotMediaUrl(viewerItem) : null;
+
+    console.log("[Map→Spot] fetched post", {
+      requestedId: spotId,
+      fetchedId: viewerItem?.id ?? null,
+      error: result.error,
+      media_url: viewerItem?.media_url ?? null,
+      image_url: viewerItem?.image_url ?? null,
+      video_url: viewerItem?.video_url ?? null,
+      media_type: viewerItem?.media_type ?? null,
+      thumbnail_url: viewerItem?.thumbnail_url ?? null,
+      video_cover_url: viewerItem?.video_cover_url ?? null,
+      normalizedMediaUrl: mediaUrl,
+      resolvedMediaType: sources?.mediaType ?? null,
+      mediaLoadReady: Boolean(sources?.mediaUrl || sources?.posterUrl),
+    });
+
+    setOpeningSpot(false);
+
+    if (!viewerItem) {
+      console.warn("[Map→Spot] media load failure — post missing", { spotId, error: result.error });
+      setOpenError(result.error ?? t("spotShare.spotUnavailable"));
+      return;
+    }
+
+    if (!sources?.mediaUrl && !sources?.posterUrl) {
+      console.warn("[Map→Spot] media load failure — no media fields", {
+        spotId,
+        fetchedId: viewerItem.id,
+      });
+      setOpenError(t("spotShare.spotUnavailable"));
+      return;
+    }
+
+    console.log("[Map→Spot] media load success", {
+      fetchedId: viewerItem.id,
+      normalizedMediaUrl: sources.mediaUrl ?? sources.posterUrl,
+      mediaType: sources.mediaType,
+    });
+
+    if (postViewer) {
+      // Overlay keeps Visit map mounted (zoom / selected marker preserved on close).
+      postViewer.openPostViewer([viewerItem], {
+        initialSpotId: viewerItem.id,
+        initialMediaUrl: result.preview?.thumbnailUrl ?? mediaUrl,
+      });
+      return;
+    }
+
+    window.location.assign(`/posts?id=${encodeURIComponent(viewerItem.id)}`);
   };
 
   return (
@@ -72,6 +144,7 @@ export default function SpotMapPinSheet({ pin, embedded = false, onClose }: Spot
         className="absolute inset-0 bg-black/45 backdrop-blur-[1px]"
         aria-label={t("map.closeSpotDetails")}
         onClick={onClose}
+        disabled={openingSpot}
       />
 
       <div
@@ -111,7 +184,8 @@ export default function SpotMapPinSheet({ pin, embedded = false, onClose }: Spot
           <button
             type="button"
             onClick={onClose}
-            className="rounded-full p-1.5 text-slate-400 transition hover:bg-white/10 hover:text-white"
+            disabled={openingSpot}
+            className="rounded-full p-1.5 text-slate-400 transition hover:bg-white/10 hover:text-white disabled:opacity-50"
             aria-label={t("common.close")}
           >
             <X className="h-4 w-4" aria-hidden />
@@ -119,15 +193,15 @@ export default function SpotMapPinSheet({ pin, embedded = false, onClose }: Spot
         </div>
 
         <div className="flex items-start gap-3 px-4 pb-3 pt-4">
-          {spotHref ? (
-            <Link href={spotHref} className={thumbnailClassName} aria-label={t("map.openSpot")}>
-              {thumbnailContent}
-            </Link>
-          ) : (
-            <button type="button" onClick={handleMissingSpotId} className={thumbnailClassName} aria-label={t("map.openSpot")}>
-              {thumbnailContent}
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={() => void handleViewSpot()}
+            disabled={openingSpot || !spotId}
+            className={thumbnailClassName}
+            aria-label={t("map.openSpot")}
+          >
+            {thumbnailContent}
+          </button>
 
           <div className="min-w-0 flex-1 pt-0.5">
             <h2 id="spot-map-pin-title" className="truncate text-base font-semibold text-white">
@@ -166,23 +240,22 @@ export default function SpotMapPinSheet({ pin, embedded = false, onClose }: Spot
           </div>
         </div>
 
+        {openError ? (
+          <p className="px-4 pb-2 text-center text-xs text-red-300" role="alert">
+            {openError}
+          </p>
+        ) : null}
+
         <div className="border-t border-white/8 px-4 py-3 pb-[max(1rem,env(safe-area-inset-bottom))]">
-          {spotHref ? (
-            <Link
-              href={spotHref}
-              className="flex w-full items-center justify-center rounded-full bg-cyan-500 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400 active:scale-[0.99]"
-            >
-              {t("map.viewSpot")}
-            </Link>
-          ) : (
-            <button
-              type="button"
-              onClick={handleMissingSpotId}
-              className="flex w-full items-center justify-center rounded-full bg-cyan-500/50 py-3 text-sm font-semibold text-slate-950"
-            >
-              {t("map.viewSpot")}
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={() => void handleViewSpot()}
+            disabled={openingSpot || !spotId}
+            className="flex w-full items-center justify-center gap-2 rounded-full bg-cyan-500 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400 active:scale-[0.99] disabled:opacity-60"
+          >
+            {openingSpot ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : null}
+            {openingSpot ? t("spotShare.loadingSpot") : t("map.viewSpot")}
+          </button>
         </div>
       </div>
     </div>

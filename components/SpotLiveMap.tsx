@@ -1320,7 +1320,11 @@ export default function SpotLiveMap({ userId, embedded = false }: SpotLiveMapPro
         embedded={embedded}
         onClose={() => setSelectedPin(null)}
       />
-      <LiveMapUserSheet user={selectedLiveUser} onClose={() => setSelectedLiveUser(null)} />
+      <LiveMapUserSheet
+        user={selectedLiveUser}
+        embedded={embedded}
+        onClose={() => setSelectedLiveUser(null)}
+      />
       {selectedMapMark ? (
         <MapMarkDetailSheet
           mark={selectedMapMark}

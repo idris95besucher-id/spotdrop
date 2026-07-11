@@ -94,20 +94,50 @@ export default function MapMarkDetailSheet({
     setOpeningSpot(true);
     setError(null);
 
+    console.log("[Map→Spot] selected map mark related post ID", relatedSpotId);
+
     const result = await loadSpotMessagePreview(relatedSpotId, locale);
+    const viewerItem = result.viewerItem;
+    const mediaUrl = viewerItem ? getViewerSpotMediaUrl(viewerItem) : null;
+
+    console.log("[Map→Spot] fetched related post", {
+      requestedId: relatedSpotId,
+      fetchedId: viewerItem?.id ?? null,
+      error: result.error,
+      media_url: viewerItem?.media_url ?? null,
+      image_url: viewerItem?.image_url ?? null,
+      video_url: viewerItem?.video_url ?? null,
+      media_type: viewerItem?.media_type ?? null,
+      thumbnail_url: viewerItem?.thumbnail_url ?? null,
+      normalizedMediaUrl: mediaUrl,
+    });
+
     setOpeningSpot(false);
 
-    if (!result.viewerItem) {
-      // Related Spot disappeared — hide the button silently next render.
+    if (!viewerItem) {
+      console.warn("[Map→Spot] related Spot unavailable", { relatedSpotId, error: result.error });
       setRelatedSpotId(null);
+      setError(result.error ?? t("spotShare.spotUnavailable"));
       return;
     }
 
+    if (!mediaUrl && !viewerItem.thumbnail_url && !viewerItem.video_cover_url) {
+      console.warn("[Map→Spot] related Spot has no media", { relatedSpotId, fetchedId: viewerItem.id });
+      setError(t("spotShare.spotUnavailable"));
+      return;
+    }
+
+    console.log("[Map→Spot] media load success", {
+      fetchedId: viewerItem.id,
+      normalizedMediaUrl: mediaUrl,
+      mediaType: viewerItem.media_type,
+    });
+
     if (postViewer) {
       // Overlay viewer keeps the Map mounted (zoom/position preserved on close).
-      postViewer.openPostViewer([result.viewerItem], {
-        initialSpotId: result.viewerItem.id,
-        initialMediaUrl: result.preview?.thumbnailUrl ?? getViewerSpotMediaUrl(result.viewerItem),
+      postViewer.openPostViewer([viewerItem], {
+        initialSpotId: viewerItem.id,
+        initialMediaUrl: result.preview?.thumbnailUrl ?? mediaUrl,
       });
       return;
     }
