@@ -5,13 +5,30 @@ import { Crosshair, Minus, Plus, Radio } from "lucide-react";
 import { useCreateMenu } from "@/components/CreateMenuProvider";
 import { useI18n } from "@/components/I18nProvider";
 import LiveMapUserSheet from "@/components/LiveMapUserSheet";
+import MapMarkClusterSheet from "@/components/MapMarkClusterSheet";
 import MapMarkCreateSheet from "@/components/MapMarkCreateSheet";
 import MapMarkDetailSheet from "@/components/MapMarkDetailSheet";
+import MapOverlapActionSheet from "@/components/MapOverlapActionSheet";
 import MapPlacesSearch from "@/components/MapPlacesSearch";
 import MapTapActionSheet, { type MapTapAction } from "@/components/MapTapActionSheet";
 import SpotMapPinSheet from "@/components/SpotMapPinSheet";
 import { openExternalMapsDirections } from "@/lib/externalMaps";
 import { DEFAULT_MAP_CENTER, DEFAULT_MAP_ZOOM, getMapLibreStyleUrl } from "@/lib/mapLibre";
+import {
+  buildMixedMapOverlapClusters,
+  buildSpiderfyLngLats,
+  MAP_MARKER_OVERLAP_THRESHOLD_PX,
+  shouldSpiderfyOverlapClusters,
+  type MapOverlapCluster,
+} from "@/lib/mapMarkerOverlap";
+import {
+  buildMapMarkClusters,
+  buildMapMarkSpiderfyLngLats,
+  MAP_MARK_SPEECH_BUBBLE_SVG,
+  mapMarkAvatarInitial,
+  shouldSpiderfyMapMarkClusters,
+  type MapMarkCluster,
+} from "@/lib/mapMarkMarkers";
 import {
   mapPlaceZoomForKind,
   type MapPlaceSearchResult,
@@ -201,6 +218,91 @@ function createSpotMarkerElement(pin: MapSpotPin, isSaved: boolean, animateIn = 
   return anchor;
 }
 
+function createCombinedOverlapMarkerElement(
+  clusterId: string,
+  cluster: MapOverlapCluster,
+  ariaLabel: string,
+  onSelect: (clusterId: string) => void
+) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "spot-map-overlap-marker spot-map-overlap-marker--appear";
+  button.dataset.overlapClusterId = clusterId;
+  button.setAttribute("aria-label", ariaLabel);
+
+  const ring = document.createElement("span");
+  ring.className = "spot-map-overlap-marker__ring";
+  ring.setAttribute("aria-hidden", "true");
+  button.appendChild(ring);
+
+  const primarySpot = cluster.spots[0] ?? null;
+  const primaryUser = cluster.users[0] ?? null;
+  const spotPreview = primarySpot ? getMapSpotPinPreviewUrl(primarySpot) : null;
+  const faceUrl = spotPreview || primaryUser?.avatar_url || null;
+
+  const face = document.createElement("span");
+  face.className = "spot-map-overlap-marker__face";
+
+  if (faceUrl) {
+    const image = document.createElement("img");
+    image.src = faceUrl;
+    image.alt = "";
+    image.loading = "lazy";
+    face.appendChild(image);
+  } else {
+    const fallback = document.createElement("span");
+    fallback.className = "spot-map-overlap-marker__face-fallback";
+    fallback.textContent = (primaryUser?.username || "S").charAt(0).toUpperCase();
+    face.appendChild(fallback);
+  }
+
+  button.appendChild(face);
+
+  if (primaryUser) {
+    const userBadge = document.createElement("span");
+    userBadge.className = "spot-map-overlap-marker__badge spot-map-overlap-marker__badge--user";
+    userBadge.setAttribute("aria-hidden", "true");
+
+    if (primaryUser.avatar_url) {
+      const badgeImage = document.createElement("img");
+      badgeImage.src = primaryUser.avatar_url;
+      badgeImage.alt = "";
+      userBadge.appendChild(badgeImage);
+    } else {
+      userBadge.textContent = primaryUser.username.charAt(0).toUpperCase();
+      userBadge.style.fontSize = "9px";
+      userBadge.style.fontWeight = "700";
+      userBadge.style.color = "#fff";
+    }
+
+    button.appendChild(userBadge);
+  }
+
+  if (primarySpot && (!spotPreview || faceUrl === primaryUser?.avatar_url)) {
+    const spotBadge = document.createElement("span");
+    spotBadge.className = "spot-map-overlap-marker__badge spot-map-overlap-marker__badge--spot";
+    spotBadge.setAttribute("aria-hidden", "true");
+    spotBadge.innerHTML = SPOT_PIN_SVG;
+    button.appendChild(spotBadge);
+  }
+
+  const total = cluster.users.length + cluster.spots.length;
+
+  if (total > 2) {
+    const count = document.createElement("span");
+    count.className = "spot-map-overlap-marker__count";
+    count.textContent = String(total);
+    button.appendChild(count);
+  }
+
+  button.addEventListener("click", (event) => {
+    event.stopPropagation();
+    onSelect(clusterId);
+  });
+
+  return button;
+}
+
 function updateSpotMarkerSavedState(anchor: HTMLElement, isSaved: boolean) {
   const button = anchor.querySelector(".spot-live-spot-marker");
   button?.classList.toggle("spot-live-spot-marker--saved", isSaved);
@@ -214,28 +316,95 @@ function createMapTapPinMarkerElement() {
   return root;
 }
 
-function createPublicMapMarkElement(mark: MapMark, onSelect: (mark: MapMark) => void) {
+function createPublicMapMarkElement(mark: MapMark, onSelect: (markId: string) => void) {
   const button = document.createElement("button");
   button.type = "button";
   button.className = "spot-map-public-mark";
-  button.setAttribute("aria-label", mark.text.slice(0, 80) || mark.place_name || "Map mark");
+  button.dataset.markId = mark.id;
+  button.setAttribute(
+    "aria-label",
+    mark.text.slice(0, 80) || mark.place_name || `@${mark.username}`
+  );
 
-  if (mark.photo_url) {
+  const avatar = document.createElement("span");
+  avatar.className = "spot-map-public-mark__avatar";
+
+  if (mark.avatar_url) {
     const image = document.createElement("img");
-    image.src = mark.photo_url;
+    image.src = mark.avatar_url;
     image.alt = "";
     image.loading = "lazy";
-    button.appendChild(image);
+    avatar.appendChild(image);
   } else {
-    const icon = document.createElement("span");
-    icon.className = "spot-map-public-mark__icon";
-    icon.innerHTML = SPOT_PIN_SVG;
-    button.appendChild(icon);
+    avatar.textContent = mapMarkAvatarInitial(mark.username);
   }
+
+  button.appendChild(avatar);
+
+  const badge = document.createElement("span");
+  badge.className = "spot-map-public-mark__badge";
+  badge.setAttribute("aria-hidden", "true");
+  badge.innerHTML = MAP_MARK_SPEECH_BUBBLE_SVG;
+  button.appendChild(badge);
 
   button.addEventListener("click", (event) => {
     event.stopPropagation();
-    onSelect(mark);
+    onSelect(mark.id);
+  });
+
+  return button;
+}
+
+function createPublicMapMarkClusterElement(
+  cluster: MapMarkCluster,
+  onSelect: (clusterId: string) => void
+) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "spot-map-public-mark-cluster";
+  button.dataset.markClusterId = cluster.id;
+  button.setAttribute("aria-label", `${cluster.marks.length} marks`);
+
+  const stack = document.createElement("span");
+  stack.className = "spot-map-public-mark-cluster__stack";
+
+  const previewMarks = cluster.marks.slice(0, 3);
+
+  previewMarks.forEach((mark, index) => {
+    const avatar = document.createElement("span");
+    avatar.className = "spot-map-public-mark-cluster__avatar";
+    avatar.style.left = `${index * 12}px`;
+    avatar.style.zIndex = String(previewMarks.length - index);
+
+    if (mark.avatar_url) {
+      const image = document.createElement("img");
+      image.src = mark.avatar_url;
+      image.alt = "";
+      image.loading = "lazy";
+      avatar.appendChild(image);
+    } else {
+      avatar.textContent = mapMarkAvatarInitial(mark.username);
+    }
+
+    stack.appendChild(avatar);
+  });
+
+  button.appendChild(stack);
+
+  const badge = document.createElement("span");
+  badge.className = "spot-map-public-mark-cluster__badge";
+  badge.setAttribute("aria-hidden", "true");
+  badge.innerHTML = MAP_MARK_SPEECH_BUBBLE_SVG;
+  button.appendChild(badge);
+
+  const count = document.createElement("span");
+  count.className = "spot-map-public-mark-cluster__count";
+  count.textContent = String(cluster.marks.length);
+  button.appendChild(count);
+
+  button.addEventListener("click", (event) => {
+    event.stopPropagation();
+    onSelect(cluster.id);
   });
 
   return button;
@@ -274,7 +443,13 @@ export default function SpotLiveMap({ userId, embedded = false }: SpotLiveMapPro
   const maplibreRef = useRef<typeof import("maplibre-gl") | null>(null);
   const liveMarkersRef = useRef<Map<string, import("maplibre-gl").Marker>>(new Map());
   const spotMarkersRef = useRef<Map<string, import("maplibre-gl").Marker>>(new Map());
+  const combinedOverlapMarkersRef = useRef<Map<string, import("maplibre-gl").Marker>>(new Map());
+  const spiderMarkersRef = useRef<Map<string, import("maplibre-gl").Marker>>(new Map());
   const publicMarkMarkersRef = useRef<Map<string, import("maplibre-gl").Marker>>(new Map());
+  const publicMarkClusterMarkersRef = useRef<Map<string, import("maplibre-gl").Marker>>(new Map());
+  const publicMarkSpiderMarkersRef = useRef<Map<string, import("maplibre-gl").Marker>>(new Map());
+  const mapMarksByIdRef = useRef<Map<string, MapMark>>(new Map());
+  const mapMarkClustersByIdRef = useRef<Map<string, MapMarkCluster>>(new Map());
   const seenSpotPinIdsRef = useRef<Set<string>>(new Set());
   const userMarkerRef = useRef<import("maplibre-gl").Marker | null>(null);
   const tapMarkerRef = useRef<import("maplibre-gl").Marker | null>(null);
@@ -287,6 +462,10 @@ export default function SpotLiveMap({ userId, embedded = false }: SpotLiveMapPro
   const latestCoordsRef = useRef<UserCoords | null>(null);
   const selectedPinRef = useRef<MapSpotPin | null>(null);
   const selectedLiveUserRef = useRef<LiveMapUser | null>(null);
+  const selectedMapMarkRef = useRef<MapMark | null>(null);
+  const markClusterSheetRef = useRef<MapMarkCluster | null>(null);
+  const overlapSheetRef = useRef<MapOverlapCluster | null>(null);
+  const overlapClustersByIdRef = useRef<Map<string, MapOverlapCluster>>(new Map());
   const handleMapTapRef = useRef<(latitude: number, longitude: number) => void>(() => {});
   const mapTapRequestRef = useRef(0);
 
@@ -298,11 +477,13 @@ export default function SpotLiveMap({ userId, embedded = false }: SpotLiveMapPro
   const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [mapReady, setMapReady] = useState(false);
+  const [markerLayoutTick, setMarkerLayoutTick] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [mapLoadError, setMapLoadError] = useState(false);
   const [liveError, setLiveError] = useState<string | null>(null);
   const [selectedPin, setSelectedPin] = useState<MapSpotPin | null>(null);
   const [selectedLiveUser, setSelectedLiveUser] = useState<LiveMapUser | null>(null);
+  const [overlapSheet, setOverlapSheet] = useState<MapOverlapCluster | null>(null);
   const [tapSave, setTapSave] = useState<{
     location: SpotGeoLocation;
     resolving: boolean;
@@ -310,6 +491,7 @@ export default function SpotLiveMap({ userId, embedded = false }: SpotLiveMapPro
   const [tapActionBusy, setTapActionBusy] = useState<MapTapAction | null>(null);
   const [mapMarks, setMapMarks] = useState<MapMark[]>([]);
   const [selectedMapMark, setSelectedMapMark] = useState<MapMark | null>(null);
+  const [markClusterSheet, setMarkClusterSheet] = useState<MapMarkCluster | null>(null);
   const [markCreateLocation, setMarkCreateLocation] = useState<{
     location: SpotGeoLocation;
     placeLabel: string;
@@ -334,6 +516,22 @@ export default function SpotLiveMap({ userId, embedded = false }: SpotLiveMapPro
     selectedLiveUserRef.current = selectedLiveUser;
   }, [selectedLiveUser]);
 
+  useEffect(() => {
+    selectedMapMarkRef.current = selectedMapMark;
+  }, [selectedMapMark]);
+
+  useEffect(() => {
+    markClusterSheetRef.current = markClusterSheet;
+  }, [markClusterSheet]);
+
+  useEffect(() => {
+    overlapSheetRef.current = overlapSheet;
+  }, [overlapSheet]);
+
+  const clearOverlapSheet = useCallback(() => {
+    setOverlapSheet(null);
+  }, []);
+
   const clearTapSave = useCallback(() => {
     setTapActionBusy(null);
     setTapSave(null);
@@ -355,6 +553,9 @@ export default function SpotLiveMap({ userId, embedded = false }: SpotLiveMapPro
 
       setSelectedPin(null);
       setSelectedLiveUser(null);
+      setOverlapSheet(null);
+      setSelectedMapMark(null);
+      setMarkClusterSheet(null);
       clearTapSave();
       clearPlaceSearchHighlight();
 
@@ -663,6 +864,21 @@ export default function SpotLiveMap({ userId, embedded = false }: SpotLiveMapPro
             return;
           }
 
+          if (overlapSheetRef.current) {
+            setOverlapSheet(null);
+            return;
+          }
+
+          if (selectedMapMarkRef.current) {
+            setSelectedMapMark(null);
+            return;
+          }
+
+          if (markClusterSheetRef.current) {
+            setMarkClusterSheet(null);
+            return;
+          }
+
           handleMapTapRef.current(event.lngLat.lat, event.lngLat.lng);
         });
 
@@ -702,8 +918,16 @@ export default function SpotLiveMap({ userId, embedded = false }: SpotLiveMapPro
       liveMarkersRef.current.clear();
       spotMarkersRef.current.forEach((marker) => marker.remove());
       spotMarkersRef.current.clear();
+      combinedOverlapMarkersRef.current.forEach((marker) => marker.remove());
+      combinedOverlapMarkersRef.current.clear();
+      spiderMarkersRef.current.forEach((marker) => marker.remove());
+      spiderMarkersRef.current.clear();
       publicMarkMarkersRef.current.forEach((marker) => marker.remove());
       publicMarkMarkersRef.current.clear();
+      publicMarkClusterMarkersRef.current.forEach((marker) => marker.remove());
+      publicMarkClusterMarkersRef.current.clear();
+      publicMarkSpiderMarkersRef.current.forEach((marker) => marker.remove());
+      publicMarkSpiderMarkersRef.current.clear();
       seenSpotPinIdsRef.current.clear();
       userMarkerRef.current?.remove();
       userMarkerRef.current = null;
@@ -943,6 +1167,7 @@ export default function SpotLiveMap({ userId, embedded = false }: SpotLiveMapPro
   }, [isLive, mapReady, userAvatarUrl, userCoords, userLabel]);
 
   const handleSelectLiveUser = useCallback((user: LiveMapUser) => {
+    setOverlapSheet(null);
     setSelectedLiveUser(user);
     setSelectedPin(null);
 
@@ -956,6 +1181,83 @@ export default function SpotLiveMap({ userId, embedded = false }: SpotLiveMapPro
     }
   }, []);
 
+  const handleSelectSpotPin = useCallback((pin: MapSpotPin) => {
+    setOverlapSheet(null);
+    setSelectedPin(pin);
+    setSelectedLiveUser(null);
+
+    const map = mapRef.current;
+    const lngLat = resolveSpotMapLngLat(pin);
+
+    if (map && lngLat) {
+      map.flyTo({
+        center: lngLat,
+        zoom: Math.max(map.getZoom(), 14),
+        essential: true,
+      });
+    }
+  }, []);
+
+  const handleSelectOverlapCluster = useCallback((cluster: MapOverlapCluster) => {
+    setSelectedPin(null);
+    setSelectedLiveUser(null);
+    clearTapSave();
+    setOverlapSheet(cluster);
+
+    const map = mapRef.current;
+    if (map) {
+      map.flyTo({
+        center: [cluster.longitude, cluster.latitude],
+        zoom: Math.max(map.getZoom(), 14),
+        essential: true,
+      });
+    }
+  }, [clearTapSave]);
+
+  const handleSelectOverlapClusterId = useCallback(
+    (clusterId: string) => {
+      const cluster = overlapClustersByIdRef.current.get(clusterId);
+
+      if (cluster) {
+        handleSelectOverlapCluster(cluster);
+      }
+    },
+    [handleSelectOverlapCluster]
+  );
+
+  useEffect(() => {
+    const map = mapRef.current;
+
+    if (!map || !mapReady) {
+      return;
+    }
+
+    let rafId = 0;
+
+    const bumpLayout = () => {
+      if (rafId) {
+        return;
+      }
+
+      rafId = window.requestAnimationFrame(() => {
+        rafId = 0;
+        setMarkerLayoutTick((tick) => tick + 1);
+      });
+    };
+
+    map.on("zoom", bumpLayout);
+    map.on("move", bumpLayout);
+
+    return () => {
+      if (rafId) {
+        window.cancelAnimationFrame(rafId);
+      }
+
+      map.off("zoom", bumpLayout);
+      map.off("move", bumpLayout);
+    };
+  }, [mapReady]);
+
   useEffect(() => {
     const map = mapRef.current;
     const maplibregl = maplibreRef.current;
@@ -964,14 +1266,110 @@ export default function SpotLiveMap({ userId, embedded = false }: SpotLiveMapPro
       return;
     }
 
-    const nextLiveIds = new Set<string>();
+    const liveForMap = onlineLiveUsers.filter((liveUser) => liveUser.user_id !== userId);
+    const { clusters, freeUsers, freeSpots } = buildMixedMapOverlapClusters(
+      map,
+      liveForMap,
+      pins,
+      MAP_MARKER_OVERLAP_THRESHOLD_PX
+    );
+    overlapClustersByIdRef.current = new Map(clusters.map((cluster) => [cluster.id, cluster]));
+    const spiderfy = shouldSpiderfyOverlapClusters(map.getZoom());
 
-    for (const liveUser of onlineLiveUsers) {
-      if (liveUser.user_id === userId) {
-        continue;
+    const nextLiveIds = new Set(freeUsers.map((user) => user.user_id));
+    const nextSpotIds = new Set(freeSpots.map((pin) => pin.id));
+    const nextCombinedIds = new Set<string>();
+    const nextSpiderIds = new Set<string>();
+
+    for (const cluster of clusters) {
+      if (spiderfy) {
+        const items: Array<
+          | { key: string; kind: "user"; user: LiveMapUser }
+          | { key: string; kind: "spot"; pin: MapSpotPin }
+        > = [
+          ...cluster.users.map((user) => ({
+            key: `user:${user.user_id}`,
+            kind: "user" as const,
+            user,
+          })),
+          ...cluster.spots.map((pin) => ({
+            key: `spot:${pin.id}`,
+            kind: "spot" as const,
+            pin,
+          })),
+        ];
+        const offsets = buildSpiderfyLngLats(map, cluster, items.length);
+
+        items.forEach((item, index) => {
+          const offset = offsets[index] ?? {
+            longitude: cluster.longitude,
+            latitude: cluster.latitude,
+          };
+          nextSpiderIds.add(item.key);
+          const existing = spiderMarkersRef.current.get(item.key);
+
+          if (existing) {
+            existing.setLngLat([offset.longitude, offset.latitude]);
+
+            if (item.kind === "spot") {
+              updateSpotMarkerSavedState(existing.getElement(), savedIds.has(item.pin.id));
+            }
+
+            return;
+          }
+
+          if (item.kind === "user") {
+            const element = createLiveUserMarkerElement(
+              item.user,
+              t("map.userIsLive", { username: item.user.username }),
+              handleSelectLiveUser
+            );
+            const marker = new maplibregl.Marker({ element, anchor: "center" })
+              .setLngLat([offset.longitude, offset.latitude])
+              .addTo(map);
+            spiderMarkersRef.current.set(item.key, marker);
+            return;
+          }
+
+          const animateIn = !seenSpotPinIdsRef.current.has(item.pin.id);
+          if (animateIn) {
+            seenSpotPinIdsRef.current.add(item.pin.id);
+          }
+
+          const element = createSpotMarkerElement(item.pin, savedIds.has(item.pin.id), animateIn);
+          element.addEventListener("click", (event) => {
+            event.stopPropagation();
+            handleSelectSpotPin(item.pin);
+          });
+
+          const marker = new maplibregl.Marker({ element, anchor: "center" })
+            .setLngLat([offset.longitude, offset.latitude])
+            .addTo(map);
+          spiderMarkersRef.current.set(item.key, marker);
+        });
+      } else {
+        nextCombinedIds.add(cluster.id);
+        const existing = combinedOverlapMarkersRef.current.get(cluster.id);
+
+        if (existing) {
+          existing.setLngLat([cluster.longitude, cluster.latitude]);
+          continue;
+        }
+
+        const element = createCombinedOverlapMarkerElement(
+          cluster.id,
+          cluster,
+          t("map.overlapCombinedLabel"),
+          handleSelectOverlapClusterId
+        );
+        const marker = new maplibregl.Marker({ element, anchor: "center" })
+          .setLngLat([cluster.longitude, cluster.latitude])
+          .addTo(map);
+        combinedOverlapMarkersRef.current.set(cluster.id, marker);
       }
+    }
 
-      nextLiveIds.add(liveUser.user_id);
+    for (const liveUser of freeUsers) {
       const markerKey = liveUser.user_id;
       const existing = liveMarkersRef.current.get(markerKey);
 
@@ -985,40 +1383,13 @@ export default function SpotLiveMap({ userId, embedded = false }: SpotLiveMapPro
         t("map.userIsLive", { username: liveUser.username }),
         handleSelectLiveUser
       );
-
       const marker = new maplibregl.Marker({ element, anchor: "center" })
         .setLngLat([liveUser.longitude, liveUser.latitude])
         .addTo(map);
-
       liveMarkersRef.current.set(markerKey, marker);
     }
 
-    liveMarkersRef.current.forEach((marker, userIdKey) => {
-      if (!nextLiveIds.has(userIdKey)) {
-        marker.remove();
-        liveMarkersRef.current.delete(userIdKey);
-      }
-    });
-  }, [handleSelectLiveUser, onlineLiveUsers, mapReady, t, userId]);
-
-  useEffect(() => {
-    const map = mapRef.current;
-    const maplibregl = maplibreRef.current;
-
-    if (!map || !maplibregl || !mapReady) {
-      return;
-    }
-
-    const nextPinIds = new Set(pins.map((pin) => pin.id));
-
-    spotMarkersRef.current.forEach((marker, pinId) => {
-      if (!nextPinIds.has(pinId)) {
-        marker.remove();
-        spotMarkersRef.current.delete(pinId);
-      }
-    });
-
-    for (const pin of pins) {
+    for (const pin of freeSpots) {
       const lngLat = resolveSpotMapLngLat(pin);
       if (!lngLat) {
         continue;
@@ -1039,25 +1410,56 @@ export default function SpotLiveMap({ userId, embedded = false }: SpotLiveMapPro
       }
 
       const element = createSpotMarkerElement(pin, isSaved, animateIn);
-
       element.addEventListener("click", (event) => {
         event.stopPropagation();
-        setSelectedPin(pin);
-        setSelectedLiveUser(null);
-        map.flyTo({
-          center: lngLat,
-          zoom: Math.max(map.getZoom(), 14),
-          essential: true,
-        });
+        handleSelectSpotPin(pin);
       });
 
       const marker = new maplibregl.Marker({ element, anchor: "center" })
         .setLngLat(lngLat)
         .addTo(map);
-
       spotMarkersRef.current.set(pin.id, marker);
     }
-  }, [mapReady, pins, savedIds]);
+
+    liveMarkersRef.current.forEach((marker, userIdKey) => {
+      if (!nextLiveIds.has(userIdKey)) {
+        marker.remove();
+        liveMarkersRef.current.delete(userIdKey);
+      }
+    });
+
+    spotMarkersRef.current.forEach((marker, pinId) => {
+      if (!nextSpotIds.has(pinId)) {
+        marker.remove();
+        spotMarkersRef.current.delete(pinId);
+      }
+    });
+
+    combinedOverlapMarkersRef.current.forEach((marker, clusterId) => {
+      if (!nextCombinedIds.has(clusterId)) {
+        marker.remove();
+        combinedOverlapMarkersRef.current.delete(clusterId);
+      }
+    });
+
+    spiderMarkersRef.current.forEach((marker, spiderId) => {
+      if (!nextSpiderIds.has(spiderId)) {
+        marker.remove();
+        spiderMarkersRef.current.delete(spiderId);
+      }
+    });
+  }, [
+    handleSelectLiveUser,
+    handleSelectOverlapClusterId,
+    handleSelectSpotPin,
+    mapReady,
+    markerLayoutTick,
+    onlineLiveUsers,
+    pins,
+    savedIds,
+    t,
+    userId,
+  ]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1107,38 +1509,131 @@ export default function SpotLiveMap({ userId, embedded = false }: SpotLiveMapPro
       return;
     }
 
-    const nextIds = new Set(mapMarks.map((mark) => mark.id));
+    mapMarksByIdRef.current = new Map(mapMarks.map((mark) => [mark.id, mark]));
 
-    publicMarkMarkersRef.current.forEach((marker, id) => {
-      if (!nextIds.has(id)) {
-        marker.remove();
-        publicMarkMarkersRef.current.delete(id);
+    const { clusters, freeMarks } = buildMapMarkClusters(map, mapMarks);
+    mapMarkClustersByIdRef.current = new Map(clusters.map((cluster) => [cluster.id, cluster]));
+    const spiderfy = shouldSpiderfyMapMarkClusters(map.getZoom());
+
+    const nextFreeIds = new Set(freeMarks.map((mark) => mark.id));
+    const nextClusterIds = new Set<string>();
+    const nextSpiderIds = new Set<string>();
+
+    const openMarkById = (markId: string) => {
+      const mark = mapMarksByIdRef.current.get(markId);
+
+      if (!mark) {
+        return;
       }
-    });
 
-    for (const mark of mapMarks) {
-      if (publicMarkMarkersRef.current.has(mark.id)) {
-        publicMarkMarkersRef.current.get(mark.id)!.setLngLat([mark.longitude, mark.latitude]);
+      setMarkClusterSheet(null);
+      setSelectedMapMark(mark);
+      setSelectedPin(null);
+      setSelectedLiveUser(null);
+      setOverlapSheet(null);
+      map.flyTo({
+        center: [mark.longitude, mark.latitude],
+        zoom: Math.max(map.getZoom(), 14),
+        essential: true,
+      });
+    };
+
+    const openMarkClusterById = (clusterId: string) => {
+      const cluster = mapMarkClustersByIdRef.current.get(clusterId);
+
+      if (!cluster) {
+        return;
+      }
+
+      setSelectedMapMark(null);
+      setSelectedPin(null);
+      setSelectedLiveUser(null);
+      setOverlapSheet(null);
+      setMarkClusterSheet(cluster);
+      map.flyTo({
+        center: [cluster.longitude, cluster.latitude],
+        zoom: Math.max(map.getZoom(), 14),
+        essential: true,
+      });
+    };
+
+    for (const cluster of clusters) {
+      if (spiderfy) {
+        const offsets = buildMapMarkSpiderfyLngLats(map, cluster, cluster.marks.length);
+
+        cluster.marks.forEach((mark, index) => {
+          const offset = offsets[index] ?? {
+            longitude: cluster.longitude,
+            latitude: cluster.latitude,
+          };
+          const spiderKey = mark.id;
+          nextSpiderIds.add(spiderKey);
+          const existing = publicMarkSpiderMarkersRef.current.get(spiderKey);
+
+          if (existing) {
+            existing.setLngLat([offset.longitude, offset.latitude]);
+            return;
+          }
+
+          const element = createPublicMapMarkElement(mark, openMarkById);
+          const marker = new maplibregl.Marker({ element, anchor: "center" })
+            .setLngLat([offset.longitude, offset.latitude])
+            .addTo(map);
+          publicMarkSpiderMarkersRef.current.set(spiderKey, marker);
+        });
+      } else {
+        nextClusterIds.add(cluster.id);
+        const existing = publicMarkClusterMarkersRef.current.get(cluster.id);
+
+        if (existing) {
+          existing.setLngLat([cluster.longitude, cluster.latitude]);
+          continue;
+        }
+
+        const element = createPublicMapMarkClusterElement(cluster, openMarkClusterById);
+        const marker = new maplibregl.Marker({ element, anchor: "center" })
+          .setLngLat([cluster.longitude, cluster.latitude])
+          .addTo(map);
+        publicMarkClusterMarkersRef.current.set(cluster.id, marker);
+      }
+    }
+
+    for (const mark of freeMarks) {
+      const existing = publicMarkMarkersRef.current.get(mark.id);
+
+      if (existing) {
+        existing.setLngLat([mark.longitude, mark.latitude]);
         continue;
       }
 
-      const element = createPublicMapMarkElement(mark, (selected) => {
-        setSelectedMapMark(selected);
-        setSelectedPin(null);
-        setSelectedLiveUser(null);
-        map.flyTo({
-          center: [selected.longitude, selected.latitude],
-          zoom: Math.max(map.getZoom(), 14),
-          essential: true,
-        });
-      });
-      const marker = new maplibregl.Marker({ element, anchor: "bottom" })
+      const element = createPublicMapMarkElement(mark, openMarkById);
+      const marker = new maplibregl.Marker({ element, anchor: "center" })
         .setLngLat([mark.longitude, mark.latitude])
         .addTo(map);
-
       publicMarkMarkersRef.current.set(mark.id, marker);
     }
-  }, [mapReady, mapMarks]);
+
+    publicMarkMarkersRef.current.forEach((marker, markId) => {
+      if (!nextFreeIds.has(markId)) {
+        marker.remove();
+        publicMarkMarkersRef.current.delete(markId);
+      }
+    });
+
+    publicMarkClusterMarkersRef.current.forEach((marker, clusterId) => {
+      if (!nextClusterIds.has(clusterId)) {
+        marker.remove();
+        publicMarkClusterMarkersRef.current.delete(clusterId);
+      }
+    });
+
+    publicMarkSpiderMarkersRef.current.forEach((marker, spiderId) => {
+      if (!nextSpiderIds.has(spiderId)) {
+        marker.remove();
+        publicMarkSpiderMarkersRef.current.delete(spiderId);
+      }
+    });
+  }, [mapReady, mapMarks, markerLayoutTick]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -1325,6 +1820,36 @@ export default function SpotLiveMap({ userId, embedded = false }: SpotLiveMapPro
         embedded={embedded}
         onClose={() => setSelectedLiveUser(null)}
       />
+      {overlapSheet ? (
+        <MapOverlapActionSheet
+          users={overlapSheet.users}
+          spots={overlapSheet.spots}
+          embedded={embedded}
+          onClose={clearOverlapSheet}
+          onOpenUser={(user) => {
+            clearOverlapSheet();
+            handleSelectLiveUser(user);
+          }}
+          onOpenSpot={(pin) => {
+            clearOverlapSheet();
+            handleSelectSpotPin(pin);
+          }}
+        />
+      ) : null}
+      {markClusterSheet ? (
+        <MapMarkClusterSheet
+          marks={markClusterSheet.marks}
+          embedded={embedded}
+          onClose={() => setMarkClusterSheet(null)}
+          onSelect={(mark) => {
+            setMarkClusterSheet(null);
+            setSelectedMapMark(mark);
+            setSelectedPin(null);
+            setSelectedLiveUser(null);
+            setOverlapSheet(null);
+          }}
+        />
+      ) : null}
       {selectedMapMark ? (
         <MapMarkDetailSheet
           mark={selectedMapMark}

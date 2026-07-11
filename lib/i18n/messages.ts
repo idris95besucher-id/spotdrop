@@ -231,6 +231,16 @@ export type CoreTranslationKey =
   | "map.placesSearchEmpty"
   | "map.placesSearching"
   | "map.placesSearchError"
+  | "map.overlapTitle"
+  | "map.overlapOpenUser"
+  | "map.overlapOpenSpot"
+  | "map.overlapUsersCount"
+  | "map.overlapSpotsCount"
+  | "map.overlapChooseUser"
+  | "map.overlapChooseSpot"
+  | "map.overlapCombinedLabel"
+  | "map.closeOverlap"
+  | "map.markClusterTitle"
   | "error.connection"
   | "error.loadUsers"
   | "error.loadFollowers"
@@ -475,6 +485,16 @@ const CORE_EN: CoreMessageTable = {
   "map.placesSearchEmpty": "No places found.",
   "map.placesSearching": "Searching…",
   "map.placesSearchError": "Place search is unavailable.",
+  "map.overlapTitle": "What's here",
+  "map.overlapOpenUser": "Open user",
+  "map.overlapOpenSpot": "Open Spot",
+  "map.overlapUsersCount": "{count} users",
+  "map.overlapSpotsCount": "{count} Spots",
+  "map.overlapChooseUser": "Choose a user",
+  "map.overlapChooseSpot": "Choose a Spot",
+  "map.overlapCombinedLabel": "Live user and Spot",
+  "map.closeOverlap": "Close",
+  "map.markClusterTitle": "{count} Marks here",
   "error.connection": "Connection problem. Please try again.",
   "error.loadUsers": "Unable to load users.",
   "error.loadFollowers": "Unable to load followers.",
@@ -717,6 +737,16 @@ const CORE_RU: CoreMessageTable = {
   "map.placesSearchEmpty": "Места не найдены.",
   "map.placesSearching": "Поиск…",
   "map.placesSearchError": "Поиск мест недоступен.",
+  "map.overlapTitle": "Что здесь",
+  "map.overlapOpenUser": "Открыть пользователя",
+  "map.overlapOpenSpot": "Открыть Spot",
+  "map.overlapUsersCount": "{count} пользователей",
+  "map.overlapSpotsCount": "{count} Spot",
+  "map.overlapChooseUser": "Выберите пользователя",
+  "map.overlapChooseSpot": "Выберите Spot",
+  "map.overlapCombinedLabel": "Онлайн-пользователь и Spot",
+  "map.closeOverlap": "Закрыть",
+  "map.markClusterTitle": "{count} меток здесь",
   "error.connection": "Проблема с подключением. Попробуйте ещё раз.",
   "error.loadUsers": "Не удалось загрузить пользователей.",
   "error.loadFollowers": "Не удалось загрузить подписчиков.",
@@ -959,6 +989,16 @@ const CORE_DE: CoreMessageTable = {
   "map.placesSearchEmpty": "Keine Orte gefunden.",
   "map.placesSearching": "Suche…",
   "map.placesSearchError": "Ortssuche ist nicht verfügbar.",
+  "map.overlapTitle": "Was ist hier",
+  "map.overlapOpenUser": "Benutzer öffnen",
+  "map.overlapOpenSpot": "Spot öffnen",
+  "map.overlapUsersCount": "{count} Benutzer",
+  "map.overlapSpotsCount": "{count} Spots",
+  "map.overlapChooseUser": "Benutzer wählen",
+  "map.overlapChooseSpot": "Spot wählen",
+  "map.overlapCombinedLabel": "Live-Benutzer und Spot",
+  "map.closeOverlap": "Schließen",
+  "map.markClusterTitle": "{count} Markierungen hier",
   "error.connection": "Verbindungsproblem. Bitte erneut versuchen.",
   "error.loadUsers": "Benutzer konnten nicht geladen werden.",
   "error.loadFollowers": "Follower konnten nicht geladen werden.",

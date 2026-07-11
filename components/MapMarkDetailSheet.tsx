@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { Loader2, MapPinned, Pencil, Trash2, UserRound, X } from "lucide-react";
+import { Loader2, MapPinned, Pencil, Trash2, X } from "lucide-react";
 import { useI18n } from "@/components/I18nProvider";
 import { usePostViewerOptional } from "@/components/PostViewerProvider";
 import {
@@ -11,6 +11,7 @@ import {
   updateMapMark,
   type MapMark,
 } from "@/lib/mapMarks";
+import { mapMarkAvatarInitial } from "@/lib/mapMarkMarkers";
 import { getViewerSpotMediaUrl } from "@/lib/postViewer";
 import { pickSpotGalleryPhoto } from "@/lib/pickMediaFromGallery";
 import { loadSpotMessagePreview } from "@/lib/spotMessagePreview";
@@ -250,11 +251,11 @@ export default function MapMarkDetailSheet({
       >
         <div className="flex items-start justify-between gap-3 border-b border-white/10 px-4 py-3">
           <Link href={profileHref} onClick={onClose} className="flex min-w-0 items-center gap-3">
-            <span className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full border border-cyan-400/35 bg-slate-800">
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full border border-cyan-400/35 bg-slate-800 text-sm font-bold text-white">
               {mark.avatar_url ? (
                 <img src={mark.avatar_url} alt="" className="h-full w-full object-cover" />
               ) : (
-                <UserRound className="h-5 w-5 text-slate-400" aria-hidden />
+                mapMarkAvatarInitial(mark.username)
               )}
             </span>
             <span className="min-w-0">
