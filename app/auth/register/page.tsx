@@ -1,16 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
 import AuthShell from "@/components/auth/AuthShell";
-import AuthMethodTabs, { type AuthMethod } from "@/components/auth/AuthMethodTabs";
 import EmailRegisterForm from "@/components/auth/EmailRegisterForm";
-import PhoneAuthForm from "@/components/auth/PhoneAuthForm";
 import { useI18n } from "@/components/I18nProvider";
 
 export default function RegisterPage() {
   const { t } = useI18n();
-  const [method, setMethod] = useState<AuthMethod>("email");
 
   return (
     <AuthShell
@@ -24,11 +20,7 @@ export default function RegisterPage() {
         </>
       }
     >
-      <AuthMethodTabs value={method} onChange={setMethod} />
-
-      <div className="mt-6">
-        {method === "email" ? <EmailRegisterForm /> : <PhoneAuthForm mode="register" />}
-      </div>
+      <EmailRegisterForm />
     </AuthShell>
   );
 }

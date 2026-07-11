@@ -10,15 +10,16 @@ import {
   authPrimaryButtonClass,
   authSecondaryButtonClass,
 } from "@/components/auth/authStyles";
-import {
-  AUTH_CONNECTION_ERROR_MESSAGE,
-  mapAuthError,
-  RESET_EMAIL_SENT_MESSAGE,
-} from "@/lib/authMessages";
-import { getPasswordResetRedirectUrl } from "@/lib/authPasswordReset";
-import { logAuthSessionError } from "@/lib/authSession";
+import { RESET_EMAIL_SENT_MESSAGE } from "@/lib/authMessages";
+import { getPasswordResetRedirectUrl, validatePasswordResetRedirectUrl } from "@/lib/authPasswordReset";
+import { formatAuthErrorMessage, logAuthSessionError } from "@/lib/authSession";
 import { localizeUserMessage } from "@/lib/i18n/localizeUserMessage";
-import { supabase } from "@/lib/supabaseClient";
+import {
+  getSupabaseConfigDiagnostics,
+  probeSupabaseAuthHealth,
+  supabase,
+  supabaseConfigError,
+} from "@/lib/supabaseClient";
 
 export default function EmailRecoveryForm() {
   const { t } = useI18n();
@@ -41,22 +42,71 @@ export default function EmailRecoveryForm() {
       return;
     }
 
+    const supabaseConfig = getSupabaseConfigDiagnostics();
+    const redirectTo = getPasswordResetRedirectUrl();
+    const redirectValidation = validatePasswordResetRedirectUrl(redirectTo);
+
+    console.log("[SpotDrop forgot-password] submit started", {
+      email: trimmedEmail,
+      redirectTo,
+      redirectValidation,
+      supabaseConfig,
+      windowOrigin: typeof window !== "undefined" ? window.location.origin : null,
+      online: typeof navigator !== "undefined" ? navigator.onLine : null,
+    });
+
+    if (supabaseConfigError) {
+      logAuthSessionError(supabaseConfigError, "forgot-password config");
+      setError(supabaseConfigError);
+      setLoading(false);
+      return;
+    }
+
+    if (!redirectValidation.valid) {
+      const redirectError = `Invalid password reset redirect URL: ${redirectValidation.reason}`;
+      console.error("[SpotDrop forgot-password] redirectTo validation failed", redirectValidation);
+      setError(redirectError);
+      setLoading(false);
+      return;
+    }
+
     try {
-      const { error: resetError } = await supabase.auth.resetPasswordForEmail(trimmedEmail, {
-        redirectTo: getPasswordResetRedirectUrl(),
+      const reachability = await probeSupabaseAuthHealth();
+      console.log("[SpotDrop forgot-password] Supabase reachability probe", reachability);
+
+      console.log("[SpotDrop forgot-password] calling supabase.auth.resetPasswordForEmail", {
+        email: trimmedEmail,
+        redirectTo,
+      });
+
+      const { data, error: resetError } = await supabase.auth.resetPasswordForEmail(trimmedEmail, {
+        redirectTo,
+      });
+
+      console.log("[SpotDrop forgot-password] resetPasswordForEmail returned", {
+        data,
+        error: resetError
+          ? {
+              message: resetError.message,
+              status: resetError.status,
+              name: resetError.name,
+              code: (resetError as { code?: string }).code ?? null,
+            }
+          : null,
       });
 
       if (resetError) {
-        logAuthSessionError(resetError);
-        setError(mapAuthError(resetError, AUTH_CONNECTION_ERROR_MESSAGE));
+        logAuthSessionError(resetError, "forgot-password resetPasswordForEmail");
+        setError(formatAuthErrorMessage(resetError));
         setLoading(false);
         return;
       }
 
       setSent(true);
     } catch (caught) {
-      logAuthSessionError(caught);
-      setError(AUTH_CONNECTION_ERROR_MESSAGE);
+      logAuthSessionError(caught, "forgot-password exception");
+      console.error("[SpotDrop forgot-password] unexpected exception", caught);
+      setError(formatAuthErrorMessage(caught));
     } finally {
       setLoading(false);
     }
@@ -93,7 +143,7 @@ export default function EmailRecoveryForm() {
       </label>
 
       {error ? (
-        <p className="text-sm text-red-400">{localizeUserMessage(t, error) ?? t("error.connection")}</p>
+        <p className="text-sm text-red-400">{localizeUserMessage(t, error) ?? error}</p>
       ) : null}
 
       <button type="submit" disabled={loading} className={authPrimaryButtonClass}>

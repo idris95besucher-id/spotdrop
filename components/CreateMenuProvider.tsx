@@ -15,6 +15,11 @@ import { useI18n } from "@/components/I18nProvider";
 import SpotDropSpotsIcon from "@/components/icons/SpotDropSpotsIcon";
 import CreateSpotForm from "@/components/CreateSpotForm";
 import CreatePostForm from "@/components/CreatePostForm";
+import {
+  DEFAULT_SPOT_CREATE_LAUNCH,
+  type SpotCreateLaunch,
+} from "@/lib/createSpotLaunch";
+import type { SpotGeoLocation } from "@/lib/spotLocation";
 import { getSafeAuthSession } from "@/lib/authSession";
 import { dispatchProfileContentRefresh } from "@/lib/profileContentRefresh";
 import { supabase } from "@/lib/supabaseClient";
@@ -23,6 +28,8 @@ type CreateFlow = "spot" | "post" | null;
 
 type CreateMenuContextValue = {
   openCreateMenu: () => void;
+  openLocationSpot: () => void;
+  openTextCardAtMapLocation: (location: SpotGeoLocation) => void;
 };
 
 const CreateMenuContext = createContext<CreateMenuContextValue | null>(null);
@@ -135,6 +142,7 @@ export default function CreateMenuProvider({ children }: { children: ReactNode }
   const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
   const [activeFlow, setActiveFlow] = useState<CreateFlow>(null);
+  const [spotLaunch, setSpotLaunch] = useState<SpotCreateLaunch>(DEFAULT_SPOT_CREATE_LAUNCH);
   const [session, setSession] = useState<Session | null>(null);
 
   useEffect(() => {
@@ -161,6 +169,7 @@ export default function CreateMenuProvider({ children }: { children: ReactNode }
   const closeAll = useCallback(() => {
     setMenuOpen(false);
     setActiveFlow(null);
+    setSpotLaunch(DEFAULT_SPOT_CREATE_LAUNCH);
   }, []);
 
   const openCreateMenu = useCallback(async () => {
@@ -186,8 +195,60 @@ export default function CreateMenuProvider({ children }: { children: ReactNode }
 
   const handleSelectFlow = useCallback((flow: Exclude<CreateFlow, null>) => {
     setMenuOpen(false);
+
+    if (flow === "spot") {
+      setSpotLaunch(DEFAULT_SPOT_CREATE_LAUNCH);
+    }
+
     setActiveFlow(flow);
   }, []);
+
+  const openLocationSpot = useCallback(async () => {
+    let activeSession = session;
+
+    if (!activeSession?.user) {
+      const result = await getSafeAuthSession();
+
+      if (result.session) {
+        setSession(result.session);
+        activeSession = result.session;
+      }
+    }
+
+    if (!activeSession?.user) {
+      router.push("/auth/login");
+      return;
+    }
+
+    setMenuOpen(false);
+    setSpotLaunch(DEFAULT_SPOT_CREATE_LAUNCH);
+    setActiveFlow("spot");
+  }, [router, session]);
+
+  const openTextCardAtMapLocation = useCallback(
+    async (location: SpotGeoLocation) => {
+      let activeSession = session;
+
+      if (!activeSession?.user) {
+        const result = await getSafeAuthSession();
+
+        if (result.session) {
+          setSession(result.session);
+          activeSession = result.session;
+        }
+      }
+
+      if (!activeSession?.user) {
+        router.push("/auth/login");
+        return;
+      }
+
+      setMenuOpen(false);
+      setSpotLaunch({ kind: "map-text-card", location });
+      setActiveFlow("spot");
+    },
+    [router, session]
+  );
 
   const handleContentCreated = useCallback(() => {
     dispatchProfileContentRefresh();
@@ -197,7 +258,9 @@ export default function CreateMenuProvider({ children }: { children: ReactNode }
   const userId = session?.user?.id;
 
   return (
-    <CreateMenuContext.Provider value={{ openCreateMenu }}>
+    <CreateMenuContext.Provider
+      value={{ openCreateMenu, openLocationSpot, openTextCardAtMapLocation }}
+    >
       {children}
 
       {menuOpen ? (
@@ -208,6 +271,7 @@ export default function CreateMenuProvider({ children }: { children: ReactNode }
         <CreateSpotForm
           userId={userId}
           isOpen
+          launch={spotLaunch}
           onClose={closeAll}
           onCreated={handleContentCreated}
         />
@@ -226,18 +290,18 @@ export default function CreateMenuProvider({ children }: { children: ReactNode }
 }
 
 export function CreateNavButton({ className = "" }: { className?: string }) {
-  const { openCreateMenu } = useCreateMenu();
+  const { openLocationSpot } = useCreateMenu();
   const { t } = useI18n();
 
   return (
     <button
       type="button"
-      onClick={openCreateMenu}
+      onClick={() => void openLocationSpot()}
       className={`group flex select-none touch-manipulation flex-col items-center justify-center gap-1 px-1 py-2 ${className}`}
-      aria-label={t("nav.create")}
+      aria-label={t("nav.saveLocation")}
     >
       <span className="pointer-events-none relative -top-2 flex h-[3.25rem] w-[3.25rem] select-none items-center justify-center rounded-full bg-primary text-[#050816] shadow-lg shadow-primary/25 ring-4 ring-[#0B1026] transition group-active:scale-95">
-        <Plus className="pointer-events-none h-7 w-7 select-none" strokeWidth={2.5} aria-hidden />
+        <SpotDropSpotsIcon className="pointer-events-none h-7 w-7 select-none" strokeWidth={2} aria-hidden />
       </span>
     </button>
   );

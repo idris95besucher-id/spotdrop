@@ -139,7 +139,7 @@ export function buildRoomHref(
   citySlug: string,
   options?: BuildRoomHrefOptions
 ) {
-  const base = `/rooms/${countrySlug}/${citySlug}`;
+  const base = `/visit/${countrySlug}/${citySlug}`;
 
   if (options?.from === ROOM_FROM_MESSAGES) {
     return `${base}?from=${ROOM_FROM_MESSAGES}`;
@@ -210,7 +210,7 @@ export function resolveRoomBackHref(input: {
     return input.sessionReturnHref ?? ROOM_RETURN_HREF_CHATS;
   }
 
-  return `/rooms/${input.countrySlug}`;
+  return `/visit/${input.countrySlug}`;
 }
 
 export async function upsertRoomMembershipOnMessage(

@@ -10,6 +10,8 @@ import { localizeUserMessage } from "@/lib/i18n/localizeUserMessage";
 import { publicProfileUsername } from "@/lib/publicProfile";
 import { loadSpotMessagePreview, type SpotMessagePreview } from "@/lib/spotMessagePreview";
 import type { ViewerPostListItem } from "@/lib/postViewer";
+import { isSpotLocationCardPost } from "@/lib/spotLocationCard";
+import ChatLocationCardPreview from "@/components/ChatLocationCardPreview";
 
 type DirectMessageSpotCardProps = {
   postId: string;
@@ -121,6 +123,39 @@ export default function DirectMessageSpotCard({
     );
   }
 
+  const isLocationCard = viewerItem ? isSpotLocationCardPost(viewerItem) : false;
+
+  if (isLocationCard) {
+    return (
+      <div className={`max-w-[85%] ${isOwnMessage ? "rounded-br-md" : "rounded-bl-md"}`}>
+        <ChatLocationCardPreview
+          imageUrl={preview.thumbnailUrl ?? ""}
+          title={preview.spotName}
+          locationLabel={preview.locationLabel}
+          onPress={() => void openSpot()}
+          disabled={opening}
+        />
+
+        <div className="px-1 pb-1">
+          {error ? (
+            <p className="mt-1 text-xs text-red-300">{localizeUserMessage(t, error) ?? error}</p>
+          ) : null}
+
+          <DmMessageStatus
+            message={{
+              sender_id: senderId,
+              created_at: createdAt,
+              read_at: readAt,
+            }}
+            currentUserId={currentUserId}
+            isOwnMessage={isOwnMessage}
+            className="pt-1"
+          />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       className={`max-w-[85%] overflow-hidden rounded-[22px] shadow-md shadow-black/20 ${
@@ -168,24 +203,8 @@ export default function DirectMessageSpotCard({
       </button>
 
       <div className="px-4 pb-3">
-        <button
-          type="button"
-          disabled={opening}
-          onClick={() => void openSpot()}
-          className="w-full rounded-xl bg-primary px-3 py-2.5 text-xs font-semibold text-[#050816] transition hover:brightness-110 disabled:opacity-60"
-        >
-          {opening ? (
-            <span className="inline-flex items-center gap-2">
-              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
-              {t("spotShare.opening")}
-            </span>
-          ) : (
-            t("spotShare.openSpot")
-          )}
-        </button>
-
         {error ? (
-          <p className="mt-2 text-xs text-red-300">{localizeUserMessage(t, error) ?? error}</p>
+          <p className="mb-2 text-xs text-red-300">{localizeUserMessage(t, error) ?? error}</p>
         ) : null}
 
         <DmMessageStatus

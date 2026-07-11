@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { FolderPlus, Globe2, Lock, UserPlus, Users } from "lucide-react";
+import { Bookmark, FolderPlus, Globe2, Lock, UserPlus, Users } from "lucide-react";
 import CollectionCardCover, { isMySpotsCollectionName } from "@/components/CollectionCardCover";
 import { useI18n } from "@/components/I18nProvider";
 import {
@@ -163,9 +163,9 @@ export default function ProfileCollectionsTab({ userId, viewerId, isOwner }: Pro
         </div>
       ) : null}
 
-      {error ? (
+      {error && (showCreate || collections.length > 0) ? (
         <p className="rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-200">
-          {localizeError(t, error) ?? error}
+          {localizeError(t, error) ?? t("profile.unableToLoad")}
         </p>
       ) : null}
 
@@ -176,9 +176,10 @@ export default function ProfileCollectionsTab({ userId, viewerId, isOwner }: Pro
           ))}
         </div>
       ) : collections.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-white/10 bg-[#050816] px-4 py-10 text-center">
-          <p className="text-sm font-medium text-white">{t("collections.emptyTitle")}</p>
-          <p className="mt-1.5 text-xs text-muted">
+        <div className="profile-header-enter flex min-h-[36vh] flex-col items-center justify-center px-8 text-center">
+          <Bookmark className="h-9 w-9 text-slate-500" strokeWidth={1.5} aria-hidden />
+          <p className="mt-4 text-[15px] font-semibold text-white">{t("collections.emptyTitle")}</p>
+          <p className="mt-1.5 max-w-[16rem] text-[13px] leading-relaxed text-muted">
             {isOwner ? t("collections.emptyOwner") : t("collections.emptyViewer")}
           </p>
         </div>

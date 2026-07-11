@@ -7,6 +7,7 @@ import type { FormEvent } from "react";
 import { Loader2, MessageCircle, Send, UserRound } from "lucide-react";
 import { useI18n } from "@/components/I18nProvider";
 import { addPostComment, loadPostComments, loadPostCommentsCount, type PostCommentRow } from "@/lib/postComments";
+import { postIdForQuery } from "@/lib/postIds";
 import { loadSpotPublicStats } from "@/lib/spotRanking";
 import { localizeUserMessage } from "@/lib/i18n/localizeUserMessage";
 import { formatPostTime } from "@/lib/posts";
@@ -24,7 +25,15 @@ type PostCommentsSectionProps = {
   onDrawerClose?: () => void;
   onCountChange?: (count: number) => void;
   uniqueCommentersCount?: boolean;
+  /** When set, skip the mount-time count query (feed/viewer already have the count). */
+  initialCommentCount?: number;
+  skipInitialCountFetch?: boolean;
+  /** Raise above fullscreen overlays such as the gallery viewer. */
+  elevatedOverlay?: boolean;
 };
+
+const DRAWER_SPRING_MS = 320;
+const DRAWER_SPRING_EASING = "cubic-bezier(0.32, 0.72, 0, 1)";
 
 function ShimmerBlock({ className }: { className: string }) {
   return (
@@ -71,6 +80,9 @@ export default function PostCommentsSection({
   onDrawerClose,
   onCountChange,
   uniqueCommentersCount = false,
+  initialCommentCount,
+  skipInitialCountFetch = false,
+  elevatedOverlay = false,
 }: PostCommentsSectionProps) {
   const { t } = useI18n();
   const [comments, setComments] = useState<PostCommentRow[]>([]);
@@ -83,6 +95,8 @@ export default function PostCommentsSection({
   const [posting, setPosting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [currentUserProfile, setCurrentUserProfile] = useState<{ username: string; avatar_url: string | null } | null>(null);
+  const [drawerPresent, setDrawerPresent] = useState(false);
+  const [drawerVisible, setDrawerVisible] = useState(false);
   const commentsEndRef = useRef<HTMLLIElement>(null);
   const commentInputRef = useRef<HTMLTextAreaElement>(null);
   const [portalMounted, setPortalMounted] = useState(false);
@@ -99,6 +113,12 @@ export default function PostCommentsSection({
         setLoadingCount(false);
         setExpanded(false);
         setHasLoadedComments(false);
+        return;
+      }
+
+      if (skipInitialCountFetch && initialCommentCount != null) {
+        setCommentCount(initialCommentCount);
+        setLoadingCount(false);
         return;
       }
 
@@ -120,7 +140,7 @@ export default function PostCommentsSection({
     };
 
     void loadCount();
-  }, [postId, disabled, uniqueCommentersCount]);
+  }, [postId, disabled, uniqueCommentersCount, initialCommentCount, skipInitialCountFetch]);
 
   useEffect(() => {
     onCountChange?.(commentCount);
@@ -207,9 +227,33 @@ export default function PostCommentsSection({
     setLoadingComments(false);
   };
 
-  const commentsVisible = mode === "drawer" ? drawerOpen : expanded;
+  const commentsVisible = mode === "drawer" ? drawerPresent : expanded;
 
-  useBottomSheetScrollLock(mode === "drawer" && drawerOpen);
+  useEffect(() => {
+    if (mode !== "drawer") {
+      return;
+    }
+
+    if (drawerOpen) {
+      setDrawerPresent(true);
+      const frame = window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => setDrawerVisible(true));
+      });
+
+      return () => {
+        window.cancelAnimationFrame(frame);
+      };
+    }
+
+    setDrawerVisible(false);
+    const timeout = window.setTimeout(() => setDrawerPresent(false), DRAWER_SPRING_MS);
+
+    return () => {
+      window.clearTimeout(timeout);
+    };
+  }, [drawerOpen, mode]);
+
+  useBottomSheetScrollLock(mode === "drawer" && drawerPresent);
 
   useEffect(() => {
     if (mode !== "drawer" || !drawerOpen || disabled) {
@@ -219,6 +263,55 @@ export default function PostCommentsSection({
     setExpanded(true);
     void loadComments(true);
   }, [drawerOpen, postId, disabled, mode]);
+
+  useEffect(() => {
+    if (mode !== "drawer" || !drawerOpen || disabled || !postId) {
+      return;
+    }
+
+    const channel = supabase
+      .channel(`post_comments_live_${postId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "post_comments",
+          filter: `post_id=eq.${postIdForQuery(postId)}`,
+        },
+        () => {
+          void loadComments(true);
+        }
+      )
+      .on(
+        "postgres_changes",
+        {
+          event: "DELETE",
+          schema: "public",
+          table: "post_comments",
+          filter: `post_id=eq.${postIdForQuery(postId)}`,
+        },
+        (payload) => {
+          const deletedId = (payload.old as { id?: number })?.id;
+
+          if (deletedId == null) {
+            void loadComments(true);
+            return;
+          }
+
+          setComments((current) => current.filter((comment) => comment.id !== deletedId));
+
+          if (!uniqueCommentersCount) {
+            setCommentCount((current) => Math.max(0, current - 1));
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [disabled, drawerOpen, mode, postId, uniqueCommentersCount]);
 
   const handleToggleComments = () => {
     setExpanded((current) => {
@@ -377,21 +470,32 @@ export default function PostCommentsSection({
   );
 
   if (mode === "drawer") {
-    if (!drawerOpen) {
+    if (!drawerPresent) {
       return null;
     }
 
+    const overlayClassName = elevatedOverlay
+      ? "fixed inset-0 z-[210] flex items-end justify-center overscroll-none sm:items-center sm:p-4"
+      : bottomSheetLayout.overlay;
+
     const drawer = (
-      <div className={bottomSheetLayout.overlay}>
+      <div className={overlayClassName}>
         <button
           type="button"
-          className={bottomSheetLayout.backdrop}
+          className={`${bottomSheetLayout.backdrop} transition-opacity duration-300 ${
+            drawerVisible ? "opacity-100" : "opacity-0"
+          }`}
+          style={{ transitionTimingFunction: DRAWER_SPRING_EASING }}
           aria-label={t("common.close")}
           onClick={onDrawerClose}
         />
         <section
           data-bottom-sheet-panel
           className={bottomSheetLayout.panel}
+          style={{
+            transform: drawerVisible ? "translateY(0)" : "translateY(100%)",
+            transition: `transform ${DRAWER_SPRING_MS}ms ${DRAWER_SPRING_EASING}`,
+          }}
           onClick={(event) => event.stopPropagation()}
         >
           <div className="flex shrink-0 items-center justify-between border-b border-white/10 px-4 py-3">

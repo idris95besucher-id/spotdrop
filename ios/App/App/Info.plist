@@ -30,6 +30,8 @@
 	<string>SpotDrop uses your location to tag where your Spots were created.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>SpotDrop uses your microphone to record Spots with sound.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>SpotDrop needs access to your Photo Library to add photos and videos to your Spots.</string>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>

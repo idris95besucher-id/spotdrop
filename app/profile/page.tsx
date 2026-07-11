@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import { Menu } from "lucide-react";
+import ProfileGalleryAvatarLink from "@/components/profile/ProfileGalleryAvatarLink";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ChangeEvent } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { useRouter } from "next/navigation";
 import { getSafeAuthSession } from "@/lib/authSession";
@@ -12,24 +12,30 @@ import type { FollowProfile } from "@/lib/follows";
 import { loadFollowConnections } from "@/lib/follows";
 import { publicProfileUsername } from "@/lib/publicProfile";
 import { ensureProfileRow } from "@/lib/profile";
-import { uploadAvatarImage } from "@/lib/profileMedia";
 import { supabase } from "@/lib/supabaseClient";
 import {
   formatProfileLocationLineLocalized,
   resolveProfileLocation,
   type ResolvedProfileLocation,
 } from "@/lib/profileLocation";
-import ProfileAvatarActions from "@/components/ProfileAvatarActions";
+import ProfileCollectionsTab from "@/components/ProfileCollectionsTab";
 import ProfileMenuSheet from "@/components/ProfileMenuSheet";
 import ShareProfileSheet from "@/components/ShareProfileSheet";
-import ProfileCollectionsTab from "@/components/ProfileCollectionsTab";
-import { ProfileContentTabBar, ProfileContentGridPanel, type ProfileContentTab } from "@/components/ProfileContentTabs";
+import {
+  ProfileContentGridPanel,
+  ProfileContentTabBar,
+  type ProfileContentTab,
+} from "@/components/ProfileContentTabs";
 import ProfileAppHeader from "@/components/profile/ProfileAppHeader";
 import Shell from "@/components/Shell";
 import { useI18n } from "@/components/I18nProvider";
 import { localizeError } from "@/lib/i18n/localizeError";
 import { loadOwnProfileContent, type ProfileContentPost } from "@/lib/profileContent";
-import { PROFILE_CONTENT_REFRESH_EVENT } from "@/lib/profileContentRefresh";
+import {
+  loadProfileGalleryVisibility,
+  type ProfileGalleryVisibility,
+} from "@/lib/profileGalleryVisibility";
+import { PROFILE_CONTENT_REFRESH_EVENT, PROFILE_META_REFRESH_EVENT } from "@/lib/profileContentRefresh";
 import { postIdsEqual } from "@/lib/postIds";
 import { buildProfileMenuItems } from "@/lib/profileMenuItems";
 
@@ -65,15 +71,15 @@ export default function ProfilePage() {
   const [loadingConnections, setLoadingConnections] = useState(true);
   const [loadingPosts, setLoadingPosts] = useState(true);
   const [activeProfileSection, setActiveProfileSection] = useState<"posts" | "followers" | "friends" | null>("posts");
-  const [activeContentTab, setActiveContentTab] = useState<ProfileContentTab>("spots");
+  const [activeContentTab, setActiveContentTab] = useState<Exclude<ProfileContentTab, "posts">>("spots");
   const [connectionsError, setConnectionsError] = useState<string | null>(null);
   const [postsError, setPostsError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loadAttempt, setLoadAttempt] = useState(0);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
-  const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [shareProfileOpen, setShareProfileOpen] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const [galleryVisibility, setGalleryVisibility] = useState<ProfileGalleryVisibility>("everyone");
   const successTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const showSuccessMessage = useCallback((message: string) => {
@@ -83,6 +89,16 @@ export default function ProfilePage() {
 
     setSuccessMessage(message);
     successTimeoutRef.current = setTimeout(() => setSuccessMessage(null), 2000);
+  }, []);
+
+  useEffect(() => {
+    const tab = window.sessionStorage.getItem("spotdrop:profile-tab");
+
+    if (tab === "collections") {
+      window.sessionStorage.removeItem("spotdrop:profile-tab");
+      setActiveProfileSection("posts");
+      setActiveContentTab("collections");
+    }
   }, []);
 
   useEffect(() => {
@@ -172,6 +188,12 @@ export default function ProfilePage() {
 
         setProfile(ensuredProfile.profile);
         setLoading(false);
+
+        void loadProfileGalleryVisibility(session.user.id).then((visibility) => {
+          if (!cancelled) {
+            setGalleryVisibility(visibility);
+          }
+        });
 
         void resolveProfileLocation(ensuredProfile.profile).then((nextLocation) => {
           if (!cancelled) {
@@ -297,48 +319,35 @@ export default function ProfilePage() {
     };
   }, [refreshProfileContent]);
 
-  const handleAvatarUpload = async (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
+  useEffect(() => {
+    const handleMetaRefresh = () => {
+      void (async () => {
+        const { session: activeSession } = await getSafeAuthSession();
 
-    if (!file) {
-      return;
-    }
+        if (!activeSession?.user) {
+          return;
+        }
 
-    if (!session?.user?.id) {
-      setError(t("profile.signInToUpload"));
-      event.target.value = "";
-      return;
-    }
+        const { data } = await supabase
+          .from("profiles")
+          .select("avatar_url")
+          .eq("id", activeSession.user.id)
+          .maybeSingle();
 
-    setUploadingAvatar(true);
-    setError(null);
+        if (data) {
+          setProfile((current) =>
+            current ? { ...current, avatar_url: data.avatar_url ?? null } : current
+          );
+        }
+      })();
+    };
 
-    try {
-      const publicUrl = await uploadAvatarImage(session.user.id, file);
-      const { error: updateError } = await supabase
-        .from("profiles")
-        .update({ avatar_url: publicUrl })
-        .eq("id", session.user.id);
+    window.addEventListener(PROFILE_META_REFRESH_EVENT, handleMetaRefresh);
 
-      if (updateError) {
-        throw new Error(updateError.message || t("profile.unableToSavePhoto"));
-      }
-
-      setProfile((currentProfile) =>
-        currentProfile ? { ...currentProfile, avatar_url: publicUrl } : { avatar_url: publicUrl }
-      );
-      showSuccessMessage(t("profile.photoUpdated"));
-    } catch (uploadError) {
-      setError(
-        uploadError instanceof Error
-          ? localizeError(t, uploadError.message) ?? t("profile.unableToUploadPhoto")
-          : t("profile.unableToUploadPhoto")
-      );
-    } finally {
-      setUploadingAvatar(false);
-      event.target.value = "";
-    }
-  };
+    return () => {
+      window.removeEventListener(PROFILE_META_REFRESH_EVENT, handleMetaRefresh);
+    };
+  }, []);
 
   const handleSignOut = useCallback(async () => {
     markIntentionalSignOut();
@@ -347,6 +356,7 @@ export default function ProfilePage() {
   }, [router]);
 
   const handleOpenCollections = useCallback(() => {
+    setProfileMenuOpen(false);
     setActiveProfileSection("posts");
     setActiveContentTab("collections");
   }, []);
@@ -390,73 +400,96 @@ export default function ProfilePage() {
         </div>
       ) : null}
 
-      {/* ① Identity — always visible, never scrolls */}
-      <div className="shrink-0 mx-auto w-full min-w-0 max-w-lg px-4 pt-2 pb-2">
+      {/* Single scroll surface: header collapses; Posts/Saved tabs stay sticky. */}
+      <div
+        data-mobile-main-scroll=""
+        className="flex-1 min-h-0 w-full min-w-0 max-w-full overflow-x-hidden overflow-y-auto overscroll-y-contain touch-pan-y [-webkit-overflow-scrolling:touch]"
+      >
+      <div className="profile-header-enter mx-auto w-full min-w-0 max-w-lg px-4 pt-2 pb-2">
         <section className="text-center">
           <div className="flex flex-col items-center gap-0.5">
             {session?.user && !loading ? (
-              <ProfileAvatarActions
-                compact
-                userId={session.user.id}
-                avatarUrl={profile?.avatar_url}
-                uploadingAvatar={uploadingAvatar}
-                onAvatarUpload={handleAvatarUpload}
-                onStoryCreated={() => showSuccessMessage(t("profile.storyShared"))}
-              />
+              <div className="profile-header-avatar">
+                <ProfileGalleryAvatarLink
+                  avatarUrl={profile?.avatar_url}
+                  ownerUserId={session.user.id}
+                  viewerUserId={session.user.id}
+                  visibility={galleryVisibility}
+                />
+              </div>
             ) : (
-              <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-full border border-primary/20 bg-card shadow-lg shadow-primary/10" />
+              <div className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-full border border-primary/20 bg-card shadow-lg shadow-primary/10" />
             )}
 
             {!loading && profile?.username ? (
-              <h1 className="max-w-full truncate text-base font-semibold text-white">
+              <h1 className="profile-header-rise max-w-full truncate text-base font-semibold text-white">
                 {publicProfileUsername(profile.username)}
               </h1>
             ) : null}
 
             {session?.user && !loading && !error ? (
-              <div className="flex items-center justify-center gap-5">
+              <div className="profile-header-rise-delay mt-2 grid w-full grid-cols-3 items-center">
                 <button
                   type="button"
-                  onClick={() => {
-                    setActiveProfileSection("posts");
-                    setActiveContentTab("spots");
-                  }}
-                  className={`flex min-w-[3rem] flex-col items-center gap-0 transition ${
-                    activeProfileSection === "posts" ? "text-white" : "text-muted hover:text-white"
-                  }`}
+                  onClick={() => setActiveProfileSection("posts")}
+                  className="flex flex-col items-center justify-center gap-0.5 py-1 transition active:opacity-70"
                 >
-                  <span className="text-sm font-semibold tabular-nums text-white">{spotPostsCount}</span>
-                  <span className="text-[11px]">{t("profile.spots")}</span>
+                  <span className="text-[17px] font-bold leading-none tabular-nums text-white">
+                    {spotPostsCount}
+                  </span>
+                  <span
+                    className={`text-[12px] leading-none ${
+                      activeProfileSection === "posts" ? "text-slate-300" : "text-muted"
+                    }`}
+                  >
+                    {t("profile.posts")}
+                  </span>
                 </button>
                 <button
                   type="button"
                   onClick={() => setActiveProfileSection("followers")}
-                  className={`flex min-w-[3rem] flex-col items-center gap-0 transition ${
-                    activeProfileSection === "followers" ? "text-white" : "text-muted hover:text-white"
-                  }`}
+                  className="flex flex-col items-center justify-center gap-0.5 py-1 transition active:opacity-70"
                 >
-                  <span className="text-sm font-semibold tabular-nums text-white">{followersCount}</span>
-                  <span className="text-[11px]">{t("profile.followers")}</span>
+                  <span className="text-[17px] font-bold leading-none tabular-nums text-white">
+                    {followersCount}
+                  </span>
+                  <span
+                    className={`text-[12px] leading-none ${
+                      activeProfileSection === "followers" ? "text-slate-300" : "text-muted"
+                    }`}
+                  >
+                    {t("profile.followers")}
+                  </span>
                 </button>
                 <button
                   type="button"
                   onClick={() => setActiveProfileSection("friends")}
-                  className={`flex min-w-[3rem] flex-col items-center gap-0 transition ${
-                    activeProfileSection === "friends" ? "text-white" : "text-muted hover:text-white"
-                  }`}
+                  className="flex flex-col items-center justify-center gap-0.5 py-1 transition active:opacity-70"
                 >
-                  <span className="text-sm font-semibold tabular-nums text-white">{friendsCount}</span>
-                  <span className="text-[11px]">{t("profile.friends")}</span>
+                  <span className="text-[17px] font-bold leading-none tabular-nums text-white">
+                    {friendsCount}
+                  </span>
+                  <span
+                    className={`text-[12px] leading-none ${
+                      activeProfileSection === "friends" ? "text-slate-300" : "text-muted"
+                    }`}
+                  >
+                    {t("profile.friends")}
+                  </span>
                 </button>
               </div>
             ) : null}
 
             {profile?.bio ? (
-              <p className="max-w-sm line-clamp-1 text-[11px] leading-snug text-slate-400">{profile.bio}</p>
+              <p className="profile-header-rise-delay max-w-sm line-clamp-1 text-[11px] leading-snug text-slate-400">
+                {profile.bio}
+              </p>
             ) : null}
 
             {locationLine ? (
-              <p className="max-w-sm truncate text-[11px] text-slate-400">{locationLine}</p>
+              <p className="profile-header-rise-delay max-w-sm truncate text-[11px] text-slate-400">
+                {locationLine}
+              </p>
             ) : null}
 
             {loading ? (
@@ -484,7 +517,7 @@ export default function ProfilePage() {
                 </Link>
               </div>
             ) : (
-              <div className="flex flex-wrap items-center justify-center gap-1.5">
+              <div className="profile-header-rise-delay-2 flex flex-wrap items-center justify-center gap-1.5">
                 <Link
                   href="/profile/edit"
                   className="inline-flex shrink-0 items-center justify-center rounded-full border border-white/15 px-3 py-1 text-[11px] font-medium text-slate-200 transition hover:border-white/25 hover:bg-white/5 hover:text-white"
@@ -504,11 +537,6 @@ export default function ProfilePage() {
         </section>
       </div>
 
-      {/* ② Scrollable area — connections or (sticky tabs + grid). Only this part scrolls. */}
-      <div
-        data-mobile-main-scroll=""
-        className="flex-1 min-h-0 w-full min-w-0 max-w-full overflow-x-hidden overflow-y-auto touch-pan-y [-webkit-overflow-scrolling:touch]"
-      >
         {session?.user && activeProfileSection && activeProfileSection !== "posts" ? (
           <section className="mt-3 space-y-2 px-4">
             {loadingConnections ? (
@@ -577,8 +605,7 @@ export default function ProfilePage() {
                 </button>
               </div>
             ) : null}
-            {/* Tab bar is sticky within the scroll container — no overflow-hidden ancestor between them */}
-            <div className="sticky top-0 z-10 bg-[#050816]">
+            <div className="sticky top-0 z-20 border-b border-white/5 bg-[#050816]/95 backdrop-blur-md supports-[backdrop-filter]:bg-[#050816]/80">
               <ProfileContentTabBar
                 compact
                 activeTab={activeContentTab}
@@ -590,9 +617,8 @@ export default function ProfilePage() {
               activeTab={activeContentTab}
               personalPosts={personalPosts}
               spotPosts={spotPosts}
-              loading={loadingPosts}
-              emptyPostsMessage={t("profile.noPostsYet")}
-              emptySpotsMessage={t("profile.noPublicSpotsYet")}
+              loading={loadingPosts && activeContentTab === "spots"}
+              emptySpotsMessage={t("profile.noPostsYet")}
               viewerUserId={session.user.id}
               onPostDeleted={handlePostDeleted}
               viewerAuthor={

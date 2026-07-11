@@ -9,6 +9,13 @@ import {
 import { MAX_DIRECT_UPLOAD_BYTES } from "@/lib/spotUploadTiming";
 import { exportVideoFile } from "@/lib/videoExport";
 import { getVideoDurationSeconds, MAX_TRIM_CLIP_SECONDS } from "@/lib/videoTrim";
+import { logVideoQuality, probeVideoFile } from "@/lib/videoQualityDiagnostics";
+
+export type PreparedPublishMedia = {
+  file: File;
+  /** True when video should play muted in the viewer (no audio / user removed sound). */
+  audioMuted: boolean;
+};
 
 function resolveSourceDuration(item: MediaEditorItem) {
   if (item.sourceDuration > 0) {
@@ -23,44 +30,100 @@ function resolveSourceDuration(item: MediaEditorItem) {
 }
 
 function shouldReuseOriginalVideoFile(item: MediaEditorItem, sourceDuration: number) {
+  if (!item.keepSound) {
+    return false;
+  }
+
   if (!videoPublishNeedsExport(item, sourceDuration)) {
     return true;
   }
 
-  // iOS/Capacitor: upload native MP4 directly — no re-encode in WKWebView.
   if (isIosSafari() || isCapacitorNative()) {
     return true;
   }
 
-  // Under 50 MB: upload original unless desktop trim export is the only option.
-  // Trim on desktop web still requires export; size alone does not force re-encode.
   if (item.file.size <= MAX_DIRECT_UPLOAD_BYTES) {
     return false;
   }
 
-  // Over 50 MB without a trim/export path — upload original (no compressor available).
   console.log("[UPLOAD] export skipped (file > 50MB, no compressor — upload original)", {
     fileSizeMb: item.file.size / (1024 * 1024),
   });
   return true;
 }
 
-export async function prepareMediaFileForPublish(item: MediaEditorItem): Promise<File> {
-  if (item.mediaType !== "video") {
-    return item.file;
+async function exportMutedVideoForPublish(
+  item: MediaEditorItem,
+  trimStart: number,
+  trimEnd: number
+): Promise<PreparedPublishMedia> {
+  try {
+    const exported = await exportVideoFile(item.file, {
+      startSeconds: trimStart,
+      endSeconds: trimEnd,
+      mute: true,
+    });
+
+    return {
+      file: exported,
+      audioMuted: true,
+    };
+  } catch (error) {
+    console.warn("[UPLOAD] muted video export failed — marking audio_muted metadata", error);
+
+    return {
+      file: item.file,
+      audioMuted: true,
+    };
   }
+}
+
+export async function prepareMediaFileForPublish(item: MediaEditorItem): Promise<PreparedPublishMedia> {
+  if (item.mediaType !== "video") {
+    return { file: item.file, audioMuted: false };
+  }
+
+  const sourceProbe = await probeVideoFile(item.file);
+  logVideoQuality("publish source", {
+    ...sourceProbe,
+    exportedResolution:
+      sourceProbe.width && sourceProbe.height
+        ? `${sourceProbe.width}x${sourceProbe.height}`
+        : null,
+    keepSound: item.keepSound,
+  });
 
   let sourceDuration = resolveSourceDuration(item);
 
   if (sourceDuration <= 0) {
-    sourceDuration = await getVideoDurationSeconds(item.file);
+    sourceDuration = await getVideoDurationSeconds(item.file).catch(() => 0);
   }
 
   const trimEnd = getResolvedTrimEnd(item, sourceDuration);
   const trimStart = item.trimStart;
   const clipDuration = getClipDurationSeconds(item, sourceDuration);
 
+  if (!item.keepSound) {
+    if (clipDuration <= 0.05 && item.file.size > 0 && (isIosSafari() || isCapacitorNative())) {
+      return { file: item.file, audioMuted: true };
+    }
+
+    if (clipDuration <= 0.05) {
+      throw new Error("Choose a valid clip before publishing.");
+    }
+
+    return exportMutedVideoForPublish(item, trimStart, trimEnd);
+  }
+
   if (clipDuration <= 0.05) {
+    if (item.trimConfirmed && item.file.size > 0 && (isIosSafari() || isCapacitorNative())) {
+      console.log("[UPLOAD] gallery video duration unknown — uploading full file", {
+        fileSizeMb: Math.round((item.file.size / (1024 * 1024)) * 100) / 100,
+        fileType: item.file.type || "(unknown)",
+      });
+      return { file: item.file, audioMuted: false };
+    }
+
     throw new Error("Choose a valid clip before publishing.");
   }
 
@@ -77,7 +140,18 @@ export async function prepareMediaFileForPublish(item: MediaEditorItem): Promise
       trimEnd,
       clipDuration,
     });
-    return item.file;
+    logVideoQuality("publish export skipped", {
+      ...sourceProbe,
+      reEncoded: false,
+      exportedMimeType: item.file.type || null,
+      exportedResolution:
+        sourceProbe.width && sourceProbe.height
+          ? `${sourceProbe.width}x${sourceProbe.height}`
+          : null,
+      exportedBitrateMbps: sourceProbe.estimatedBitrateMbps,
+      finalUploadSizeBytes: item.file.size,
+    });
+    return { file: item.file, audioMuted: false };
   }
 
   console.log("[UPLOAD] export required (desktop trim re-encode)", {
@@ -88,9 +162,25 @@ export async function prepareMediaFileForPublish(item: MediaEditorItem): Promise
     clipDuration,
   });
 
-  return exportVideoFile(item.file, {
+  const exported = await exportVideoFile(item.file, {
     startSeconds: trimStart,
     endSeconds: trimEnd,
     mute: false,
   });
+
+  const exportProbe = await probeVideoFile(exported);
+  logVideoQuality("publish export complete", {
+    ...sourceProbe,
+    ...exportProbe,
+    reEncoded: exported !== item.file,
+    exportedResolution:
+      exportProbe.width && exportProbe.height
+        ? `${exportProbe.width}x${exportProbe.height}`
+        : null,
+    exportedBitrateMbps: exportProbe.estimatedBitrateMbps,
+    exportedMimeType: exported.type || null,
+    finalUploadSizeBytes: exported.size,
+  });
+
+  return { file: exported, audioMuted: false };
 }

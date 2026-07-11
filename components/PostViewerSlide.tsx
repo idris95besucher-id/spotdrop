@@ -9,11 +9,13 @@ import PostCommentsSection from "@/components/PostCommentsSection";
 import PostDetailActionRail from "@/components/PostDetailActionRail";
 import SaveToCollectionSheet from "@/components/SaveToCollectionSheet";
 import SendSpotSheet from "@/components/SendSpotSheet";
-import PostReelMedia from "@/components/PostReelMedia";
+import PostReelMedia, { type ReelMediaPreload } from "@/components/PostReelMedia";
+import SpotMediaCarousel, { type SpotCarouselSlide } from "@/components/SpotMediaCarousel";
+import SpotViewerCarouselIndicator from "@/components/SpotViewerCarouselIndicator";
 import GuidePlaceCard from "@/components/GuidePlaceCard";
+import LocationCardViewerFrame from "@/components/LocationCardViewerFrame";
 import SpotLocationSummary from "@/components/SpotLocationSummary";
 import { deleteOwnedSpot } from "@/lib/deleteContent";
-import { getSafeAuthSession } from "@/lib/authSession";
 import { isDemoPostId, postIdsEqual } from "@/lib/postIds";
 import {
   findDemoPost,
@@ -23,15 +25,19 @@ import {
 } from "@/lib/postDetail";
 import { loadPostReactions, type PostReactionState } from "@/lib/postReactions";
 import { formatPostTime } from "@/lib/posts";
+import { loadPostMediaCarouselItems } from "@/lib/postMediaItems";
 import { getReelMediaSources } from "@/lib/postViewerMedia";
 import { publicProfileUsername } from "@/lib/publicProfile";
 import { normalizeGuidePlace } from "@/lib/guidePlaces";
 import { isSpotContent, shouldShowSpotLocation } from "@/lib/spotLocationDisplay";
+import { getSpotCaption } from "@/lib/spotCaption";
+import { isSpotLocationCardPost, getSpotLocationCardViewerTitle, probeImageAspectRatio } from "@/lib/spotLocationCard";
 import { normalizeSpotPublicStats, type SpotPublicStats } from "@/lib/spotRanking";
 import { SPOT_STATS_UPDATED_EVENT, dispatchSpotStatsUpdated, type SpotStatsUpdatedDetail } from "@/lib/spotStatsEvents";
 import { seeSpotLocation } from "@/lib/seeSpotLocation";
 import { loadSpotCollectionSaveState } from "@/lib/collections";
 import { getViewerSpotMediaUrl, type ViewerPostListItem } from "@/lib/postViewer";
+import { perfLog, perfSince } from "@/lib/perfLog";
 import { useI18n } from "@/components/I18nProvider";
 import { logSpotLoadUiFailure } from "@/lib/spotLoadDiagnostics";
 import {
@@ -65,6 +71,9 @@ type PostViewerSlideProps = {
   userId: string | null;
   onItemDeleted?: (postId: string) => void;
   onActiveMediaLoadingChange?: (loading: boolean) => void;
+  onCarouselGestureStateChange?: (
+    state: { itemCount: number; activeIndex: number } | null
+  ) => void;
 };
 
 function previewToPost(item: ViewerPostListItem): PostDetailRow {
@@ -99,8 +108,9 @@ export default function PostViewerSlide({
   userId,
   onItemDeleted,
   onActiveMediaLoadingChange,
+  onCarouselGestureStateChange,
 }: PostViewerSlideProps) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const [post, setPost] = useState<PostDetailRow>(() => previewToPost(item));
   const [detailLoadPhase, setDetailLoadPhase] = useState<SpotLoadPhase>("loading");
   const [detailError, setDetailError] = useState<string | null>(null);
@@ -115,11 +125,14 @@ export default function PostViewerSlide({
   const [spotStats, setSpotStats] = useState<SpotPublicStats>(() =>
     normalizeSpotPublicStats(item)
   );
+  const [carouselSlides, setCarouselSlides] = useState<SpotCarouselSlide[]>([]);
+  const [carouselActiveIndex, setCarouselActiveIndex] = useState(0);
   const [commentsOpen, setCommentsOpen] = useState(false);
   const [saveSheetOpen, setSaveSheetOpen] = useState(false);
   const [sendSpotSheetOpen, setSendSpotSheetOpen] = useState(false);
   const [savedCollectionIds, setSavedCollectionIds] = useState<string[]>([]);
   const [saveStateLoading, setSaveStateLoading] = useState(false);
+  const [mediaAspectRatio, setMediaAspectRatio] = useState<number | null>(null);
   const isSpot = isSpotContent({
     content_kind: post.content_kind,
     spot_latitude: post.spot_latitude,
@@ -144,13 +157,15 @@ export default function PostViewerSlide({
   }, [item.id, item.media_url, item.thumbnail_url, item.video_url, item.image_url, item.comments_count, item.visited_count, item.saved_count, item.collection_save_count]);
 
   useEffect(() => {
-    if (!isActive && !shouldPreloadMedia) {
+    if (!isActive) {
       return;
     }
 
     let cancelled = false;
     let loadSettled = false;
     const hadPreviewMedia = itemHasPreviewMedia(item);
+    const mountAt = typeof performance !== "undefined" ? performance.now() : Date.now();
+    perfLog("spot slide active", { postId: item.id, slideIndex });
 
     const finalTimeoutId = window.setTimeout(() => {
       if (cancelled || loadSettled || hadPreviewMedia || itemHasPreviewMedia(item)) {
@@ -213,6 +228,7 @@ export default function PostViewerSlide({
         setIsDemo(result.isDemo);
         setDetailLoadPhase("loaded");
         setDetailError(null);
+        perfSince(mountAt, "spot first data received", { postId: item.id });
         if (result.post.content_kind === "spot") {
           const stats = normalizeSpotPublicStats(result.post);
           setSpotStats(stats);
@@ -243,7 +259,7 @@ export default function PostViewerSlide({
       cancelled = true;
       window.clearTimeout(finalTimeoutId);
     };
-  }, [item.id, isActive, shouldPreloadMedia]);
+  }, [item.id, isActive]);
 
   useEffect(() => {
     if (!isActive || isDemo || isDemoPostId(item.id)) {
@@ -255,20 +271,9 @@ export default function PostViewerSlide({
     const loadEngagement = async () => {
       setReactionsLoading(true);
       setReactionsError(null);
-
-      const sessionResult = await getSafeAuthSession();
-
-      if (cancelled) {
-        return;
-      }
-
-      if (sessionResult.error) {
-        setAuthHint(sessionResult.error);
-      }
-
       setAuthResolved(true);
 
-      const reactionsResult = await loadPostReactions(item.id, sessionResult.session?.user?.id ?? null);
+      const reactionsResult = await loadPostReactions(item.id, userId);
 
       if (cancelled) {
         return;
@@ -277,6 +282,7 @@ export default function PostViewerSlide({
       setReactions(reactionsResult.data);
       setReactionsError(reactionsResult.error);
       setReactionsLoading(false);
+      perfLog("spot interaction ready", { postId: item.id });
     };
 
     void loadEngagement();
@@ -284,7 +290,7 @@ export default function PostViewerSlide({
     return () => {
       cancelled = true;
     };
-  }, [isActive, isDemo, item.id]);
+  }, [isActive, isDemo, item.id, userId]);
 
   useEffect(() => {
     const handleStatsUpdated = (event: Event) => {
@@ -353,13 +359,88 @@ export default function PostViewerSlide({
     };
   }, [isActive, isSpot, item.id, userId]);
 
+  useEffect(() => {
+    if (!isActive && !shouldPreloadMedia) {
+      return;
+    }
+
+    let cancelled = false;
+
+    void loadPostMediaCarouselItems(item.id).then((items) => {
+      if (cancelled) {
+        return;
+      }
+
+      if (items.length <= 1) {
+        setCarouselSlides([]);
+        setCarouselActiveIndex(0);
+        return;
+      }
+
+      setCarouselActiveIndex(0);
+      setCarouselSlides(
+        items.map((entry) => ({
+          id: entry.id,
+          mediaUrl: entry.media_url,
+          mediaType: entry.media_type,
+          posterUrl: entry.video_cover_url,
+          audioMuted: entry.audio_muted,
+        }))
+      );
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isActive, item.id, shouldPreloadMedia]);
+
   const spotSources = getReelMediaSources(post);
   const mediaUrl = spotSources.mediaUrl;
   const mediaType = spotSources.mediaType;
   const posterUrl = spotSources.posterUrl ?? post.thumbnail_url ?? null;
+
+  useEffect(() => {
+    if (!mediaUrl || mediaType !== "image") {
+      setMediaAspectRatio(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    void probeImageAspectRatio(mediaUrl).then((ratio) => {
+      if (!cancelled) {
+        setMediaAspectRatio(ratio);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [mediaUrl, mediaType]);
+
   const mediaRenderKey = `${item.id}-${mediaUrl ?? ""}-${posterUrl ?? ""}`;
-  const shouldLoadMedia = isActive || shouldPreloadMedia;
-  const hasSpotMedia = Boolean((mediaUrl && mediaType) || posterUrl);
+  const mediaPreload: ReelMediaPreload = isActive ? "active" : shouldPreloadMedia ? "adjacent" : "none";
+  const shouldLoadMedia = mediaPreload !== "none";
+  const hasCarousel = carouselSlides.length > 1;
+  const hasSpotMedia = Boolean(hasCarousel || (mediaUrl && mediaType) || posterUrl);
+
+  useEffect(() => {
+    if (!onCarouselGestureStateChange || !isActive) {
+      return;
+    }
+
+    onCarouselGestureStateChange(
+      hasCarousel
+        ? { itemCount: carouselSlides.length, activeIndex: carouselActiveIndex }
+        : null
+    );
+  }, [
+    carouselActiveIndex,
+    carouselSlides.length,
+    hasCarousel,
+    isActive,
+    onCarouselGestureStateChange,
+  ]);
   const showMediaLayer = hasSpotMedia;
   const detailStillLoading = detailLoadPhase === "loading";
   const showDetailLoading = !hasSpotMedia && detailStillLoading;
@@ -377,6 +458,13 @@ export default function PostViewerSlide({
     spot_latitude: post.spot_latitude,
     spot_longitude: post.spot_longitude,
   });
+  const isLocationCard = isSpotLocationCardPost(post, {
+    carouselItemCount: carouselSlides.length,
+    mediaAspectRatio,
+  });
+  const showSpotLocationInViewer = showSpotLocation;
+  const viewerCaption = getSpotCaption(post.content);
+  const viewerTitle = isLocationCard ? getSpotLocationCardViewerTitle(post, locale) : null;
   const isOwnPost = Boolean(userId && post.user_id === userId && !isDemo);
   const isOwnSpot = isSpot && isOwnPost;
   const engagementDisabled = isDemo;
@@ -443,7 +531,7 @@ export default function PostViewerSlide({
       data-spot-viewer-slide
       data-slide-index={slideIndex}
       data-spot-id={item.id}
-      className="relative h-full min-h-[100svh] w-full shrink-0 snap-start snap-always bg-black"
+      className="relative h-full min-h-[100svh] w-full shrink-0 snap-start snap-always bg-slate-950"
       aria-label={`Post by ${authorUsername}`}
     >
       {guidePlace && !mediaUrl && !posterUrl ? (
@@ -451,6 +539,32 @@ export default function PostViewerSlide({
           <div className="w-full max-w-md">
             <GuidePlaceCard place={guidePlace} postId={post.id} />
           </div>
+        </div>
+      ) : showMediaLayer && isLocationCard && (mediaUrl || posterUrl) ? (
+        <LocationCardViewerFrame>
+          <PostReelMedia
+            key={mediaRenderKey}
+            mediaUrl={mediaUrl ?? posterUrl!}
+            mediaType={mediaType ?? "image"}
+            posterUrl={posterUrl}
+            isActive={isActive}
+            shouldLoad={shouldLoadMedia}
+            mediaPreload={mediaPreload}
+            audioMuted={Boolean(post.audio_muted)}
+            alt={viewerCaption ?? viewerTitle ?? spotTitle ?? ""}
+            onLoadingChange={isActive ? onActiveMediaLoadingChange : undefined}
+          />
+        </LocationCardViewerFrame>
+      ) : showMediaLayer && hasCarousel ? (
+        <div data-spot-viewer-media className="absolute inset-0">
+          <SpotMediaCarousel
+            slides={carouselSlides}
+            isActive={isActive}
+            activeIndex={carouselActiveIndex}
+            onActiveIndexChange={setCarouselActiveIndex}
+            viewerPlayback
+            className="h-full w-full"
+          />
         </div>
       ) : showMediaLayer && mediaUrl && mediaType ? (
         <div data-spot-viewer-media>
@@ -461,7 +575,9 @@ export default function PostViewerSlide({
             posterUrl={posterUrl}
             isActive={isActive}
             shouldLoad={shouldLoadMedia}
-            alt={spotTitle ?? post.content ?? ""}
+            mediaPreload={mediaPreload}
+            audioMuted={Boolean(post.audio_muted)}
+            alt={viewerCaption ?? viewerTitle ?? spotTitle ?? ""}
             onLoadingChange={isActive ? onActiveMediaLoadingChange : undefined}
           />
         </div>
@@ -474,7 +590,8 @@ export default function PostViewerSlide({
             posterUrl={posterUrl}
             isActive={isActive}
             shouldLoad={shouldLoadMedia}
-            alt={spotTitle ?? post.content ?? ""}
+            mediaPreload={mediaPreload}
+            alt={viewerCaption ?? viewerTitle ?? spotTitle ?? ""}
             onLoadingChange={isActive ? onActiveMediaLoadingChange : undefined}
           />
         </div>
@@ -524,7 +641,15 @@ export default function PostViewerSlide({
       ) : null}
 
       <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 bg-gradient-to-t from-black/95 via-black/60 to-transparent px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-28 pr-16">
-        <div className="pointer-events-auto space-y-2">
+        <div className="pointer-events-auto relative space-y-2">
+          {!isLocationCard && hasCarousel ? (
+            <SpotViewerCarouselIndicator
+              slides={carouselSlides}
+              activeIndex={carouselActiveIndex}
+              showSwipeHint={isActive}
+              onSelectIndex={setCarouselActiveIndex}
+            />
+          ) : null}
           {postAuthor ? (
             <Link href={`/user?id=${post.user_id}`} className="inline-flex max-w-full items-center gap-2">
               <div className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/15 bg-slate-900">
@@ -534,13 +659,23 @@ export default function PostViewerSlide({
                   <UserRound className="h-4 w-4 text-slate-400" strokeWidth={1.5} aria-hidden />
                 )}
               </div>
-              <span className="truncate text-sm font-semibold text-white">{authorUsername}</span>
+              <span className="truncate text-sm font-semibold text-white">
+                {authorUsername}
+              </span>
             </Link>
           ) : null}
 
-          {spotTitle ? <p className="text-sm font-semibold text-white">{spotTitle}</p> : null}
+          {viewerTitle ? (
+            <p className="text-sm font-semibold text-white">
+              {viewerTitle}
+            </p>
+          ) : null}
 
-          {showSpotLocation ? (
+          {viewerCaption ? (
+            <p className="whitespace-pre-wrap text-[15px] leading-relaxed text-white">{viewerCaption}</p>
+          ) : null}
+
+          {showSpotLocationInViewer ? (
             <SpotLocationSummary
               className="text-xs"
               currentVisitedCount={spotStats.visited_count}
@@ -558,58 +693,51 @@ export default function PostViewerSlide({
             />
           ) : null}
 
-          {post.content ? (
-            <p className="line-clamp-4 whitespace-pre-wrap text-sm leading-relaxed text-slate-100">{post.content}</p>
-          ) : null}
-
-          <time className="block text-[11px] text-slate-400" dateTime={post.created_at}>
+          <time
+            className="block text-xs text-slate-500"
+            dateTime={post.created_at}
+          >
             {formatPostTime(post.created_at)}
           </time>
 
-          {isDemo ? (
+          {!isLocationCard && isDemo ? (
             <p className="text-xs text-slate-500">Guide preview — reactions are read-only.</p>
-          ) : authHint ? (
+          ) : !isLocationCard && authHint ? (
             <p className="text-xs text-amber-200/90">{authHint}</p>
           ) : null}
 
-          {reactionsError ? <p className="text-xs text-red-300">{reactionsError}</p> : null}
+          {!isLocationCard && reactionsError ? <p className="text-xs text-red-300">{reactionsError}</p> : null}
         </div>
       </div>
 
       <div
         className="pointer-events-auto absolute bottom-28 right-2 z-30"
         onClick={(event) => event.stopPropagation()}
-        onTouchStart={(event) => event.stopPropagation()}
-        onTouchEnd={(event) => event.stopPropagation()}
       >
-        {reactionsLoading ? (
-          <div className="h-40 w-12 animate-pulse rounded-full bg-white/10" />
-        ) : (
-          <PostDetailActionRail
-            postId={post.id}
-            userId={userId}
-            reactions={reactions}
-            commentCount={commentCount}
-            shareUrl={shareUrl}
-            disabled={engagementDisabled}
-            variant={isSpot ? "spot" : "default"}
-            isSpotSaved={isSpotSaved}
-            savedCount={spotStats.saved_count}
-            visitedCount={spotStats.visited_count}
-            savePending={saveStateLoading && isSpot}
-            onRequireAuth={handleRequireAuth}
-            onCommentClick={() => setCommentsOpen(true)}
-            onSaveClick={handleOpenSaveSheet}
-            onVisitedClick={isSpot && showSpotLocation ? handleOpenSpotLocation : undefined}
-            onSendSpotClick={
-              isSpot
-                ? () => {
-                    setSendSpotSheetOpen(true);
-                  }
-                : undefined
-            }
-          />
-        )}
+        <PostDetailActionRail
+          postId={post.id}
+          userId={userId}
+          reactions={reactions}
+          commentCount={commentCount}
+          shareUrl={shareUrl}
+          disabled={engagementDisabled}
+          variant={isSpot ? "spot" : "default"}
+          isSpotSaved={isSpotSaved}
+          savedCount={spotStats.saved_count}
+          visitedCount={spotStats.visited_count}
+          savePending={saveStateLoading && isSpot}
+          onRequireAuth={handleRequireAuth}
+          onCommentClick={() => setCommentsOpen(true)}
+          onSaveClick={handleOpenSaveSheet}
+          onVisitedClick={isSpot && showSpotLocation ? handleOpenSpotLocation : undefined}
+          onSendSpotClick={
+            isSpot
+              ? () => {
+                  setSendSpotSheetOpen(true);
+                }
+              : undefined
+          }
+        />
       </div>
 
       {guidePlace && mediaUrl ? (
@@ -621,16 +749,18 @@ export default function PostViewerSlide({
         </div>
       ) : null}
 
-      {!engagementDisabled ? (
+      {isActive && !engagementDisabled ? (
         <PostCommentsSection
           postId={post.id}
           userId={userId}
           disabled={engagementDisabled}
           onRequireAuth={handleRequireAuth}
           mode="drawer"
-          drawerOpen={commentsOpen && isActive}
+          drawerOpen={commentsOpen}
           onDrawerClose={() => setCommentsOpen(false)}
           uniqueCommentersCount={isSpot}
+          initialCommentCount={commentCount}
+          skipInitialCountFetch
           onCountChange={(count) => {
             setCommentCount(count);
             if (isSpot) {

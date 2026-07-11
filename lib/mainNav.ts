@@ -1,6 +1,7 @@
 import { isChatThreadRoute } from "@/lib/chatThreadRoutes";
 import { isAuthRoute as isAuthRoutePath } from "@/lib/authRoutes";
 import { MOBILE_BOTTOM_NAV_PADDING, MOBILE_SAFE_AREA_TOP } from "@/lib/mobileLayout";
+import { parseVisitTab } from "@/lib/visitTabs";
 
 import type { TranslationKey } from "@/lib/i18n/messages";
 
@@ -10,14 +11,17 @@ export type MainNavItem = {
   shortLabelKey?: TranslationKey;
 };
 
-/** Left side of bottom nav: Visit | Search | [+] | Messages | Profile */
+/** Left side: Search | Following | Visit */
 export const MAIN_NAV_LEFT: MainNavItem[] = [
-  { href: "/visit", labelKey: "nav.visit" },
   { href: "/search", labelKey: "nav.search" },
+  { href: "/friends", labelKey: "nav.friends" },
+  { href: "/visit", labelKey: "nav.visit" },
 ];
 
+/** Right side: Messages | Map | Profile */
 export const MAIN_NAV_RIGHT: MainNavItem[] = [
   { href: "/chats", labelKey: "nav.myChats", shortLabelKey: "nav.messages" },
+  { href: "/visit?tab=map", labelKey: "nav.map" },
   { href: "/profile", labelKey: "nav.myProfile", shortLabelKey: "nav.myProfile" },
 ];
 
@@ -25,6 +29,52 @@ export const MAIN_NAV_ITEMS: MainNavItem[] = [...MAIN_NAV_LEFT, ...MAIN_NAV_RIGH
 
 function normalizeNavPathname(pathname: string) {
   return pathname.replace(/\/+$/, "") || "/";
+}
+
+function visitTabFromSearchParams(searchParams?: URLSearchParams | null) {
+  return parseVisitTab(searchParams?.get("tab") ?? null);
+}
+
+/** Visit hub — explore, nearby, and room routes (not the map tab). */
+export function isVisitNavRoute(pathname: string | null, searchParams?: URLSearchParams | null) {
+  if (!pathname) {
+    return false;
+  }
+
+  const normalized = normalizeNavPathname(pathname);
+
+  if (normalized === "/rooms" || normalized.startsWith("/rooms/")) {
+    return true;
+  }
+
+  if (normalized === "/map" || normalized === "/bern") {
+    return false;
+  }
+
+  if (normalized !== "/visit" && !normalized.startsWith("/visit/")) {
+    return false;
+  }
+
+  return visitTabFromSearchParams(searchParams) !== "map";
+}
+
+/** Live map tab within Visit. */
+export function isMapNavRoute(pathname: string | null, searchParams?: URLSearchParams | null) {
+  if (!pathname) {
+    return false;
+  }
+
+  const normalized = normalizeNavPathname(pathname);
+
+  if (normalized === "/map" || normalized === "/bern") {
+    return true;
+  }
+
+  if (normalized !== "/visit" && !normalized.startsWith("/visit/")) {
+    return false;
+  }
+
+  return visitTabFromSearchParams(searchParams) === "map";
 }
 
 /** Inbox + DM thread routes that should highlight the Messages tab. */
@@ -37,6 +87,7 @@ export function isMessagesNavRoute(pathname: string | null) {
 
   return (
     normalized === "/chats" ||
+    normalized.startsWith("/chats/") ||
     normalized === "/chat" ||
     normalized.startsWith("/chat/") ||
     normalized === "/dm" ||
@@ -46,13 +97,25 @@ export function isMessagesNavRoute(pathname: string | null) {
   );
 }
 
-export function isMainNavActive(pathname: string | null, href: string) {
+export function isMainNavActive(
+  pathname: string | null,
+  href: string,
+  searchParams?: URLSearchParams | null
+) {
   if (!pathname) {
     return false;
   }
 
   if (href === "/chats") {
     return isMessagesNavRoute(pathname);
+  }
+
+  if (href === "/visit") {
+    return isVisitNavRoute(pathname, searchParams);
+  }
+
+  if (href === "/visit?tab=map") {
+    return isMapNavRoute(pathname, searchParams);
   }
 
   if (href === "/profile") {
@@ -63,17 +126,12 @@ export function isMainNavActive(pathname: string | null, href: string) {
     return pathname === "/settings" || pathname.startsWith("/settings/");
   }
 
-  if (href === "/visit") {
-    return (
-      pathname === "/visit" ||
-      pathname.startsWith("/visit/") ||
-      pathname === "/rooms" ||
-      pathname.startsWith("/rooms/")
-    );
-  }
-
   if (href === "/search") {
     return pathname === "/search" || pathname.startsWith("/search/");
+  }
+
+  if (href === "/friends") {
+    return pathname === "/friends" || pathname.startsWith("/friends/");
   }
 
   return pathname === href || pathname.startsWith(`${href}/`);

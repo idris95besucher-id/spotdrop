@@ -76,8 +76,8 @@ export default function SpotLocationSummary({
     <div
       className={`relative z-30 flex max-w-full items-center gap-2 pointer-events-auto ${className}`}
     >
-      <div className="inline-flex min-w-0 items-center gap-1.5 text-xs font-medium text-slate-200/90">
-        <MapPin className="h-3.5 w-3.5 shrink-0 text-accent" strokeWidth={1.75} aria-hidden />
+      <div className="inline-flex min-w-0 items-center gap-1.5 text-xs font-medium text-cyan-300/90">
+        <MapPin className="h-3.5 w-3.5 shrink-0 text-cyan-400" strokeWidth={1.75} aria-hidden />
         <span className="truncate">{shortLabel ?? t("spotEditor.addLocation")}</span>
       </div>
       <button

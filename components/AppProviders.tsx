@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { Suspense, useEffect, useState, type ReactNode } from "react";
 import { AuthSessionProvider } from "@/components/AuthSessionProvider";
 import ChatNotificationsProvider from "@/components/ChatNotificationsProvider";
 import CreateMenuProvider from "@/components/CreateMenuProvider";
@@ -67,7 +67,9 @@ export default function AppProviders({ children }: { children: ReactNode }) {
             <SpotLocationModalProvider>
               <PostViewerProvider>
                 <div className={MOBILE_APP_ROOT_CLASS}>{children}</div>
-                <MobileBottomNav />
+                <Suspense fallback={null}>
+                  <MobileBottomNav />
+                </Suspense>
                 <PwaInstallBanner />
               </PostViewerProvider>
             </SpotLocationModalProvider>

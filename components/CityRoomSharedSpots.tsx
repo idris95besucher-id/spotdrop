@@ -8,7 +8,7 @@ import PostCardMedia from "@/components/PostCardMedia";
 import PostMediaLink from "@/components/PostMediaLink";
 import { useI18n } from "@/components/I18nProvider";
 import { localizeCityName } from "@/lib/i18n/localizeGeo";
-import SpotLocationSummary from "@/components/SpotLocationSummary";
+import SpotPostMeta from "@/components/SpotPostMeta";
 import SpotCommentsSheet from "@/components/SpotCommentsSheet";
 import SpotStatsBar from "@/components/SpotStatsBar";
 import { getSafeAuthSession } from "@/lib/authSession";
@@ -22,7 +22,6 @@ import {
 import { feedRowsToViewerItems } from "@/lib/postViewer";
 import { getPostMedia } from "@/lib/posts";
 import { publicProfileUsername } from "@/lib/publicProfile";
-import { shouldShowSpotLocation } from "@/lib/spotLocationDisplay";
 import { SPOT_STATS_UPDATED_EVENT, dispatchSpotStatsUpdated, type SpotStatsUpdatedDetail } from "@/lib/spotStatsEvents";
 
 type CityRoomSharedSpotsProps = {
@@ -149,7 +148,9 @@ export default function CityRoomSharedSpots({ room }: CityRoomSharedSpotsProps) 
               const username = publicProfileUsername(spot.profiles?.username);
               const placeLabel = getSharedSpotPlaceLabel(spot, locale);
               const clickedSpot = viewerItems[index];
-              const showLocation = shouldShowSpotLocation({
+              const locationFields = {
+                id: spot.id,
+                user_id: spot.user_id,
                 content_kind: spot.content_kind,
                 spot_name: spot.spot_name,
                 spot_address: spot.spot_address,
@@ -157,7 +158,7 @@ export default function CityRoomSharedSpots({ room }: CityRoomSharedSpotsProps) 
                 spot_country: spot.spot_country,
                 spot_latitude: spot.spot_latitude,
                 spot_longitude: spot.spot_longitude,
-              });
+              };
 
               return (
                 <article
@@ -212,22 +213,7 @@ export default function CityRoomSharedSpots({ room }: CityRoomSharedSpotsProps) 
                       stats={getFeedSpotPublicStats(spot)}
                       onCommentsClick={() => setCommentsPostId(spot.id)}
                     />
-                    {showLocation ? (
-                      <SpotLocationSummary
-                        className="text-xs"
-                        location={{
-                          id: spot.id,
-                          user_id: spot.user_id,
-                          content_kind: spot.content_kind,
-                          spot_name: spot.spot_name,
-                          spot_address: spot.spot_address,
-                          spot_city: spot.spot_city,
-                          spot_country: spot.spot_country,
-                          spot_latitude: spot.spot_latitude,
-                          spot_longitude: spot.spot_longitude,
-                        }}
-                      />
-                    ) : null}
+                    <SpotPostMeta content={spot.content} location={locationFields} createdAt={spot.created_at} />
                   </div>
                 </article>
               );

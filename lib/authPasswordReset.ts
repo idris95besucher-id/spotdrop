@@ -24,8 +24,55 @@ export const PASSWORD_RESET_REDIRECT_URL =
   process.env.NEXT_PUBLIC_PASSWORD_RESET_REDIRECT_URL ??
   "https://spotdrop-five.vercel.app/auth/reset-password";
 
+function isNativeOrLocalOrigin(origin: string) {
+  return (
+    origin.startsWith("capacitor://") ||
+    origin.startsWith("ionic://") ||
+    origin.includes("localhost") ||
+    origin === "null"
+  );
+}
+
 export function getPasswordResetRedirectUrl() {
+  const envRedirect = process.env.NEXT_PUBLIC_PASSWORD_RESET_REDIRECT_URL?.trim();
+
+  if (envRedirect) {
+    return envRedirect;
+  }
+
+  if (typeof window !== "undefined") {
+    const origin = window.location.origin;
+
+    if (origin && !isNativeOrLocalOrigin(origin)) {
+      return `${origin.replace(/\/$/, "")}/auth/reset-password`;
+    }
+  }
+
   return PASSWORD_RESET_REDIRECT_URL;
+}
+
+export function validatePasswordResetRedirectUrl(url: string) {
+  try {
+    const parsed = new URL(url);
+
+    if (parsed.protocol !== "https:") {
+      return {
+        valid: false as const,
+        reason: `redirectTo must use https (got ${parsed.protocol})`,
+      };
+    }
+
+    if (!parsed.pathname.includes("reset-password")) {
+      return {
+        valid: false as const,
+        reason: "redirectTo path should include /auth/reset-password",
+      };
+    }
+
+    return { valid: true as const, url: parsed.toString() };
+  } catch {
+    return { valid: false as const, reason: "redirectTo is not a valid URL" };
+  }
 }
 
 export function markPasswordRecoveryPending() {

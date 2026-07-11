@@ -37,8 +37,9 @@ export type ProfileContentPost = {
 };
 
 export type ProfileContentBuckets = {
+  /** Profile Gallery only: personal photos/videos (never public Spots). */
   personal: ProfileContentPost[];
-  /** Public discovery spots only (for profile Spots tab). */
+  /** Public discovery spots only (profile Spots tab + Search/Explore/Map). */
   spotPosts: ProfileContentPost[];
   error: string | null;
 };
@@ -77,7 +78,7 @@ function hasSpotCoordinates(row: ProfileContentPost) {
   );
 }
 
-/** Posts tab: explicit post or legacy rows without content_kind (unless geo spot). */
+/** Personal post rows (not Spots / stories). */
 export function isProfilePost(row: ProfileContentPost) {
   if (isStoryKind(row.content_kind)) {
     return false;
@@ -94,6 +95,35 @@ export function isProfilePost(row: ProfileContentPost) {
   }
 
   return kind !== "spot" && kind !== "story";
+}
+
+function hasGalleryMedia(row: ProfileContentPost) {
+  const hasVideo = Boolean(row.video_url?.trim()) || row.media_type === "video";
+  const hasImage = Boolean(
+    row.image_url?.trim() || row.media_url?.trim() || row.thumbnail_url?.trim() || row.video_cover_url?.trim()
+  );
+
+  return hasVideo || hasImage;
+}
+
+/**
+ * Profile Gallery items: personal photos and videos only.
+ * Never public Spots, text cards, or anything shown in Search / Explore / Map.
+ */
+export function isProfileGalleryItem(row: ProfileContentPost) {
+  if (isStoryKind(row.content_kind)) {
+    return false;
+  }
+
+  if (isExplorePublishedSpot(row) || isProfileSpot(row)) {
+    return false;
+  }
+
+  if (!isProfilePost(row)) {
+    return false;
+  }
+
+  return hasGalleryMedia(row);
 }
 
 /**
@@ -131,19 +161,15 @@ export function splitProfilePosts(rows: ProfileContentPost[]) {
       continue;
     }
 
-    if (isProfileSpot(row)) {
-      if (isExplorePublishedSpot(row)) {
-        spotPosts.push(row);
-      }
+    if (isExplorePublishedSpot(row)) {
+      spotPosts.push(row);
       continue;
     }
 
-    if (isProfilePost(row)) {
+    // Gallery: personal photos/videos only (never Spots or text cards).
+    if (isProfileGalleryItem(row)) {
       personal.push(row);
-      continue;
     }
-
-    personal.push(row);
   }
 
   return { personal, spotPosts };

@@ -1,4 +1,11 @@
+import { SPOT_LOCATION_CARD_MARKER } from "@/lib/spotLocationCard";
 import { loadExplorePublicCollections } from "@/lib/collections";
+import { loadPostCarouselMediaSummaries } from "@/lib/postMediaItems";
+import {
+  filterSearchExploreGridPosts,
+  probeLegacyGeneratedLocationCardImage,
+  shouldProbeLegacyTextCard,
+} from "@/lib/searchExploreGrid";
 import type { PostMediaFields } from "@/lib/posts";
 import { isExplorePublishedSpot } from "@/lib/publishedToSpots";
 import { isMissingSpotRankingColumns, normalizeSpotPublicStats, type SpotPublicStats } from "@/lib/spotRanking";
@@ -247,6 +254,43 @@ function filterFeedSpots(rows: FeedSpotRow[], logContext?: string) {
   return kept;
 }
 
+async function filterSearchExploreSpots(rows: FeedSpotRow[]) {
+  const base = filterFeedSpots(rows, "search-explore");
+  const carouselByPostId = await loadPostCarouselMediaSummaries(base.map((post) => post.id));
+  const markedFiltered = filterSearchExploreGridPosts(base, carouselByPostId);
+
+  const kept: FeedSpotRow[] = [];
+  let legacyGeneratedCards = 0;
+
+  for (const post of markedFiltered) {
+    const carousel = carouselByPostId.get(post.id);
+
+    if (!shouldProbeLegacyTextCard(post, carousel)) {
+      kept.push(post);
+      continue;
+    }
+
+    const mediaUrl = post.media_url?.trim() || post.image_url?.trim() || null;
+    const isGeneratedCard = await probeLegacyGeneratedLocationCardImage(mediaUrl);
+
+    if (isGeneratedCard) {
+      legacyGeneratedCards += 1;
+      continue;
+    }
+
+    kept.push(post);
+  }
+
+  if (legacyGeneratedCards > 0) {
+    console.log("[Search grid] filtered text cards", {
+      legacyGeneratedCards,
+      afterLegacyProbe: kept.length,
+    });
+  }
+
+  return kept;
+}
+
 /** Merge incoming feed rows without dropping existing posts (stable Search grid). */
 export function mergeFeedSpotPosts(existing: FeedSpotRow[], incoming: FeedSpotRow[]) {
   if (existing.length === 0) {
@@ -282,9 +326,9 @@ export function mergeFeedSpotPosts(existing: FeedSpotRow[], incoming: FeedSpotRo
 
 async function querySpotFeed(
   select: string,
-  options: { limit?: number; offset?: number; rankByScore?: boolean } = {}
+  options: { limit?: number; offset?: number; rankByScore?: boolean; searchExplore?: boolean } = {}
 ) {
-  const { limit = 60, offset = 0, rankByScore = true } = options;
+  const { limit = 60, offset = 0, rankByScore = true, searchExplore = false } = options;
 
   let query = supabase
     .from("posts")
@@ -294,6 +338,10 @@ async function querySpotFeed(
     .eq("published_to_spots", true)
     .eq("profiles.is_private", false)
     .eq("profiles.is_demo", false);
+
+  if (searchExplore) {
+    query = query.not("content", "ilike", `%${SPOT_LOCATION_CARD_MARKER}%`);
+  }
 
   if (rankByScore) {
     query = query.order("spot_rank_score", { ascending: false });
@@ -333,19 +381,39 @@ async function loadSpotFeedPage(
 ): Promise<{ posts: FeedSpotRow[]; error: string | null; hasMore: boolean; fetchedCount: number }> {
   const { rankByScore = true, logContext } = options;
   let useRankByScore = rankByScore;
-  let result = await querySpotFeed(FEED_SPOT_SELECT, { limit, offset, rankByScore: useRankByScore });
+  let result = await querySpotFeed(FEED_SPOT_SELECT, {
+    limit,
+    offset,
+    rankByScore: useRankByScore,
+    searchExplore: logContext === "search-explore",
+  });
 
   if (result.error && isMissingSpotRankingColumns(result.error)) {
     useRankByScore = false;
-    result = await querySpotFeed(FEED_SPOT_SELECT, { limit, offset, rankByScore: false });
+    result = await querySpotFeed(FEED_SPOT_SELECT, {
+      limit,
+      offset,
+      rankByScore: false,
+      searchExplore: logContext === "search-explore",
+    });
   }
 
   if (isMissingSpotColumns(result.error)) {
-    result = await querySpotFeed(FEED_SPOT_SELECT_NO_THUMBNAIL, { limit, offset, rankByScore: useRankByScore });
+    result = await querySpotFeed(FEED_SPOT_SELECT_NO_THUMBNAIL, {
+      limit,
+      offset,
+      rankByScore: useRankByScore,
+      searchExplore: logContext === "search-explore",
+    });
   }
 
   if (isMissingVideoCoverColumn(result.error)) {
-    result = await querySpotFeed(FEED_SPOT_SELECT_NO_THUMBNAIL, { limit, offset, rankByScore: useRankByScore });
+    result = await querySpotFeed(FEED_SPOT_SELECT_NO_THUMBNAIL, {
+      limit,
+      offset,
+      rankByScore: useRankByScore,
+      searchExplore: logContext === "search-explore",
+    });
   }
 
   if (result.error) {
@@ -359,7 +427,10 @@ async function loadSpotFeedPage(
   }
 
   const mapped = rawRows.map((row) => mapFeedSpotRow(row as unknown as Record<string, unknown>));
-  const posts = filterFeedSpots(mapped, logContext);
+  const posts =
+    logContext === "search-explore"
+      ? await filterSearchExploreSpots(mapped)
+      : filterFeedSpots(mapped, logContext);
 
   return {
     posts,
@@ -373,7 +444,43 @@ export async function loadExploreSpotPostsPage(
   offset = 0,
   limit = EXPLORE_PAGE_SIZE
 ): Promise<{ posts: FeedSpotRow[]; error: string | null; hasMore: boolean; fetchedCount: number }> {
-  return loadSpotFeedPage(offset, limit, { rankByScore: false, logContext: "search-explore" });
+  const visible: FeedSpotRow[] = [];
+  let dbOffset = offset;
+  let fetchedCount = 0;
+  let hasMore = true;
+  let error: string | null = null;
+
+  for (let batch = 0; batch < 4 && visible.length < limit && hasMore; batch += 1) {
+    const result = await loadSpotFeedPage(dbOffset, limit, {
+      rankByScore: false,
+      logContext: "search-explore",
+    });
+
+    if (result.error) {
+      error = result.error;
+      break;
+    }
+
+    visible.push(...result.posts);
+    fetchedCount += result.fetchedCount;
+    dbOffset += result.fetchedCount;
+    hasMore = result.hasMore;
+
+    if (result.fetchedCount === 0) {
+      break;
+    }
+  }
+
+  if (error && visible.length === 0) {
+    return { posts: [], error, hasMore: false, fetchedCount };
+  }
+
+  return {
+    posts: visible.slice(0, limit),
+    error: null,
+    hasMore: hasMore || visible.length > limit,
+    fetchedCount,
+  };
 }
 
 export async function loadFeedPosts(): Promise<{
@@ -382,4 +489,89 @@ export async function loadFeedPosts(): Promise<{
 }> {
   const result = await loadSpotFeedPage(0, 60);
   return { posts: result.posts, error: result.error };
+}
+
+function filterFollowingFeedPosts(rows: FeedSpotRow[]) {
+  return rows.filter((post) => {
+    if (post.content_kind === "story") {
+      return false;
+    }
+
+    if (!isRealUserProfile(post.profiles)) {
+      return false;
+    }
+
+    if (isFeedSpotPost(post)) {
+      return isExplorePublishedSpot(post);
+    }
+
+    const kind = post.content_kind?.trim();
+
+    if (kind === "spot") {
+      return false;
+    }
+
+    return true;
+  });
+}
+
+async function queryFollowingFeedPosts(followingIds: string[], select: string) {
+  return supabase
+    .from("posts")
+    .select(select)
+    .in("user_id", followingIds)
+    .eq("visibility", "public")
+    .neq("content_kind", "story")
+    .order("created_at", { ascending: false })
+    .limit(80);
+}
+
+export async function loadFollowingFeed(viewerId: string | null | undefined): Promise<{
+  posts: FeedSpotRow[];
+  error: string | null;
+}> {
+  if (!viewerId) {
+    return { posts: [], error: null };
+  }
+
+  const { data: followingRows, error: followsError } = await supabase
+    .from("follows")
+    .select("following_id")
+    .eq("follower_id", viewerId);
+
+  if (followsError) {
+    logExactLoadError(followsError);
+    return { posts: [], error: followsError.message || "Unable to load friends feed." };
+  }
+
+  const followingIds = [...new Set((followingRows ?? []).map((row) => String(row.following_id)).filter(Boolean))];
+
+  if (followingIds.length === 0) {
+    return { posts: [], error: null };
+  }
+
+  let select = FEED_SPOT_SELECT;
+  let queryResult = await queryFollowingFeedPosts(followingIds, select);
+
+  if (queryResult.error && isMissingSpotColumns(queryResult.error)) {
+    select = FEED_SPOT_SELECT_NO_THUMBNAIL;
+    queryResult = await queryFollowingFeedPosts(followingIds, select);
+  }
+
+  if (isMissingVideoCoverColumn(queryResult.error)) {
+    select = FEED_SPOT_SELECT_NO_THUMBNAIL;
+    queryResult = await queryFollowingFeedPosts(followingIds, select);
+  }
+
+  if (queryResult.error) {
+    logExactLoadError(queryResult.error);
+    return { posts: [], error: queryResult.error.message || "Unable to load friends feed." };
+  }
+
+  const mapped = (queryResult.data ?? []).map((row) => mapFeedSpotRow(row as unknown as Record<string, unknown>));
+
+  return {
+    posts: filterFollowingFeedPosts(mapped),
+    error: null,
+  };
 }

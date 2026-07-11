@@ -15,6 +15,7 @@ type CityRoomChatComposerProps = {
   inputDisabled?: boolean;
   placeholder?: string;
   footer?: ReactNode;
+  preview?: ReactNode;
   textareaRef?: RefObject<HTMLTextAreaElement | null>;
 };
 
@@ -28,6 +29,7 @@ export default function CityRoomChatComposer({
   inputDisabled = false,
   placeholder,
   footer = null,
+  preview = null,
   textareaRef,
 }: CityRoomChatComposerProps) {
   const { t } = useI18n();
@@ -45,6 +47,8 @@ export default function CityRoomChatComposer({
       style={{ paddingBottom: chatComposerBottomPadding(isKeyboardOpen) }}
     >
       {displayError ? <p className="mb-2 text-xs text-red-300">{displayError}</p> : null}
+
+      {preview ? <div className="mb-3">{preview}</div> : null}
 
       <div className="flex items-end gap-2">
         <textarea

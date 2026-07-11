@@ -9,6 +9,10 @@ type SpotCommentsSheetProps = {
   isOpen: boolean;
   onClose: () => void;
   onCountChange?: (count: number) => void;
+  /** Render above fullscreen overlays (e.g. gallery viewer at z-200). */
+  elevated?: boolean;
+  initialCommentCount?: number;
+  skipInitialCountFetch?: boolean;
 };
 
 export default function SpotCommentsSheet({
@@ -17,10 +21,13 @@ export default function SpotCommentsSheet({
   isOpen,
   onClose,
   onCountChange,
+  elevated = false,
+  initialCommentCount,
+  skipInitialCountFetch = false,
 }: SpotCommentsSheetProps) {
   const router = useRouter();
 
-  if (!isOpen || !postId) {
+  if (!postId) {
     return null;
   }
 
@@ -29,10 +36,13 @@ export default function SpotCommentsSheet({
       postId={postId}
       userId={userId}
       mode="drawer"
-      drawerOpen
+      drawerOpen={isOpen}
       onDrawerClose={onClose}
       onCountChange={onCountChange}
       onRequireAuth={() => router.push("/auth/login")}
+      elevatedOverlay={elevated}
+      initialCommentCount={initialCommentCount}
+      skipInitialCountFetch={skipInitialCountFetch}
     />
   );
 }

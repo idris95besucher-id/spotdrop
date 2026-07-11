@@ -181,7 +181,12 @@ export default function CollectionPage({ collectionIdOverride }: { collectionIdO
                           viewerItems={viewerItems}
                           clickedSpot={viewerItems[index]}
                         >
-                          <PostCardMedia post={spot} className="h-full w-full" />
+                          <PostCardMedia
+                            post={spot}
+                            postId={spot.id}
+                            gridPreview
+                            className="h-full w-full"
+                          />
                         </PostMediaLink>
                       ) : (
                         <PostMediaLink

@@ -2,11 +2,24 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Crosshair, Minus, Plus, Radio } from "lucide-react";
+import { useCreateMenu } from "@/components/CreateMenuProvider";
 import { useI18n } from "@/components/I18nProvider";
 import LiveMapUserSheet from "@/components/LiveMapUserSheet";
+import MapMarkCreateSheet from "@/components/MapMarkCreateSheet";
+import MapMarkDetailSheet from "@/components/MapMarkDetailSheet";
+import MapPlacesSearch from "@/components/MapPlacesSearch";
+import MapTapActionSheet, { type MapTapAction } from "@/components/MapTapActionSheet";
 import SpotMapPinSheet from "@/components/SpotMapPinSheet";
+import { openExternalMapsDirections } from "@/lib/externalMaps";
 import { DEFAULT_MAP_CENTER, DEFAULT_MAP_ZOOM, getMapLibreStyleUrl } from "@/lib/mapLibre";
+import {
+  mapPlaceZoomForKind,
+  type MapPlaceSearchResult,
+} from "@/lib/mapPlacesSearch";
+import { loadMapMarks, type MapMark } from "@/lib/mapMarks";
+import { MAP_SPOT_PUBLISHED_EVENT } from "@/lib/mapSpotEvents";
 import { getMapSpotPinPreviewUrl, getMapSpotPinTitle, resolveSpotMapLngLat } from "@/lib/mapSpotPin";
+import { spotLocationFromCoordinates, type SpotGeoLocation } from "@/lib/spotLocation";
 import { loadNearbyMapSpotPins, loadSavedMapSpotPinIds, type MapSpotPin } from "@/lib/spots";
 import { supabase } from "@/lib/supabaseClient";
 import { publicProfileUsername } from "@/lib/publicProfile";
@@ -36,7 +49,75 @@ type UserCoords = {
 };
 
 const LIVE_USERS_REFRESH_MS = 30_000;
+const PLACE_BOUNDARY_SOURCE = "map-place-boundary";
+const PLACE_BOUNDARY_FILL = "map-place-boundary-fill";
+const PLACE_BOUNDARY_LINE = "map-place-boundary-line";
 const SPOT_PIN_SVG = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21.5s-5.4-4.85-5.4-9.85a5.4 5.4 0 1 1 10.8 0c0 5-5.4 9.85-5.4 9.85z"/><circle cx="12" cy="11.35" r="2.1"/><circle cx="12" cy="11.35" r="0.85" fill="currentColor" stroke="none"/></svg>`;
+
+function clearMapPlaceHighlight(
+  map: import("maplibre-gl").Map | null,
+  searchMarker: import("maplibre-gl").Marker | null
+) {
+  if (map) {
+    if (map.getLayer(PLACE_BOUNDARY_FILL)) {
+      map.removeLayer(PLACE_BOUNDARY_FILL);
+    }
+
+    if (map.getLayer(PLACE_BOUNDARY_LINE)) {
+      map.removeLayer(PLACE_BOUNDARY_LINE);
+    }
+
+    if (map.getSource(PLACE_BOUNDARY_SOURCE)) {
+      map.removeSource(PLACE_BOUNDARY_SOURCE);
+    }
+  }
+
+  searchMarker?.remove();
+}
+
+function showMapPlaceBoundary(map: import("maplibre-gl").Map, geometry: GeoJSON.Geometry) {
+  if (map.getLayer(PLACE_BOUNDARY_FILL)) {
+    map.removeLayer(PLACE_BOUNDARY_FILL);
+  }
+
+  if (map.getLayer(PLACE_BOUNDARY_LINE)) {
+    map.removeLayer(PLACE_BOUNDARY_LINE);
+  }
+
+  if (map.getSource(PLACE_BOUNDARY_SOURCE)) {
+    map.removeSource(PLACE_BOUNDARY_SOURCE);
+  }
+
+  map.addSource(PLACE_BOUNDARY_SOURCE, {
+    type: "geojson",
+    data: {
+      type: "Feature",
+      properties: {},
+      geometry,
+    },
+  });
+
+  map.addLayer({
+    id: PLACE_BOUNDARY_FILL,
+    type: "fill",
+    source: PLACE_BOUNDARY_SOURCE,
+    paint: {
+      "fill-color": "#22d3ee",
+      "fill-opacity": 0.14,
+    },
+  });
+
+  map.addLayer({
+    id: PLACE_BOUNDARY_LINE,
+    type: "line",
+    source: PLACE_BOUNDARY_SOURCE,
+    paint: {
+      "line-color": "#22d3ee",
+      "line-width": 2,
+      "line-opacity": 0.9,
+    },
+  });
+}
 
 function createUserMarkerElement(avatarUrl: string | null, label: string, isSelf = false) {
   const root = document.createElement("div");
@@ -125,6 +206,41 @@ function updateSpotMarkerSavedState(anchor: HTMLElement, isSaved: boolean) {
   button?.classList.toggle("spot-live-spot-marker--saved", isSaved);
 }
 
+function createMapTapPinMarkerElement() {
+  const root = document.createElement("div");
+  root.className = "spot-map-tap-pin-marker";
+  root.setAttribute("aria-hidden", "true");
+  root.innerHTML = SPOT_PIN_SVG;
+  return root;
+}
+
+function createPublicMapMarkElement(mark: MapMark, onSelect: (mark: MapMark) => void) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "spot-map-public-mark";
+  button.setAttribute("aria-label", mark.text.slice(0, 80) || mark.place_name || "Map mark");
+
+  if (mark.photo_url) {
+    const image = document.createElement("img");
+    image.src = mark.photo_url;
+    image.alt = "";
+    image.loading = "lazy";
+    button.appendChild(image);
+  } else {
+    const icon = document.createElement("span");
+    icon.className = "spot-map-public-mark__icon";
+    icon.innerHTML = SPOT_PIN_SVG;
+    button.appendChild(icon);
+  }
+
+  button.addEventListener("click", (event) => {
+    event.stopPropagation();
+    onSelect(mark);
+  });
+
+  return button;
+}
+
 function formatLiveLocationError(t: (key: TranslationKey) => string, error: string | null) {
   if (!error) {
     return null;
@@ -151,20 +267,28 @@ function formatLiveLocationError(t: (key: TranslationKey) => string, error: stri
 
 export default function SpotLiveMap({ userId, embedded = false }: SpotLiveMapProps) {
   const { t } = useI18n();
+  const { openTextCardAtMapLocation } = useCreateMenu();
   const { presenceOnlineIds, freshnessTick } = usePresenceOnlineIds();
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<import("maplibre-gl").Map | null>(null);
   const maplibreRef = useRef<typeof import("maplibre-gl") | null>(null);
   const liveMarkersRef = useRef<Map<string, import("maplibre-gl").Marker>>(new Map());
   const spotMarkersRef = useRef<Map<string, import("maplibre-gl").Marker>>(new Map());
+  const publicMarkMarkersRef = useRef<Map<string, import("maplibre-gl").Marker>>(new Map());
   const seenSpotPinIdsRef = useRef<Set<string>>(new Set());
   const userMarkerRef = useRef<import("maplibre-gl").Marker | null>(null);
+  const tapMarkerRef = useRef<import("maplibre-gl").Marker | null>(null);
+  const searchMarkerRef = useRef<import("maplibre-gl").Marker | null>(null);
   const watchIdRef = useRef<number | null>(null);
   const pushIntervalRef = useRef<number | null>(null);
   const centeredOnUserRef = useRef(false);
   const isLiveRef = useRef(false);
   const livePushSessionRef = useRef(0);
   const latestCoordsRef = useRef<UserCoords | null>(null);
+  const selectedPinRef = useRef<MapSpotPin | null>(null);
+  const selectedLiveUserRef = useRef<LiveMapUser | null>(null);
+  const handleMapTapRef = useRef<(latitude: number, longitude: number) => void>(() => {});
+  const mapTapRequestRef = useRef(0);
 
   const [userCoords, setUserCoords] = useState<UserCoords | null>(null);
   const [userAvatarUrl, setUserAvatarUrl] = useState<string | null>(null);
@@ -179,6 +303,17 @@ export default function SpotLiveMap({ userId, embedded = false }: SpotLiveMapPro
   const [liveError, setLiveError] = useState<string | null>(null);
   const [selectedPin, setSelectedPin] = useState<MapSpotPin | null>(null);
   const [selectedLiveUser, setSelectedLiveUser] = useState<LiveMapUser | null>(null);
+  const [tapSave, setTapSave] = useState<{
+    location: SpotGeoLocation;
+    resolving: boolean;
+  } | null>(null);
+  const [tapActionBusy, setTapActionBusy] = useState<MapTapAction | null>(null);
+  const [mapMarks, setMapMarks] = useState<MapMark[]>([]);
+  const [selectedMapMark, setSelectedMapMark] = useState<MapMark | null>(null);
+  const [markCreateLocation, setMarkCreateLocation] = useState<{
+    location: SpotGeoLocation;
+    placeLabel: string;
+  } | null>(null);
   const [locating, setLocating] = useState(false);
   const [isLive, setIsLive] = useState(false);
   const [goingLive, setGoingLive] = useState(false);
@@ -190,6 +325,164 @@ export default function SpotLiveMap({ userId, embedded = false }: SpotLiveMapPro
   );
 
   const mapStyle = getMapLibreStyleUrl();
+
+  useEffect(() => {
+    selectedPinRef.current = selectedPin;
+  }, [selectedPin]);
+
+  useEffect(() => {
+    selectedLiveUserRef.current = selectedLiveUser;
+  }, [selectedLiveUser]);
+
+  const clearTapSave = useCallback(() => {
+    setTapActionBusy(null);
+    setTapSave(null);
+  }, []);
+
+  const clearPlaceSearchHighlight = useCallback(() => {
+    clearMapPlaceHighlight(mapRef.current, searchMarkerRef.current);
+    searchMarkerRef.current = null;
+  }, []);
+
+  const handleSelectPlace = useCallback(
+    (place: MapPlaceSearchResult) => {
+      const map = mapRef.current;
+      const maplibregl = maplibreRef.current;
+
+      if (!map || !maplibregl) {
+        return;
+      }
+
+      setSelectedPin(null);
+      setSelectedLiveUser(null);
+      clearTapSave();
+      clearPlaceSearchHighlight();
+
+      const isArea = place.kind === "city" || place.kind === "country";
+      const hasBoundary = Boolean(place.geometry);
+      const hasBounds = Boolean(place.bounds);
+
+      if (isArea && hasBoundary && place.geometry) {
+        showMapPlaceBoundary(map, place.geometry);
+      }
+
+      if (isArea && hasBounds && place.bounds) {
+        const [west, south, east, north] = place.bounds;
+        map.fitBounds(
+          [
+            [west, south],
+            [east, north],
+          ],
+          {
+            padding: { top: 96, bottom: 140, left: 40, right: 40 },
+            duration: 1100,
+            essential: true,
+            maxZoom: place.kind === "country" ? 7 : 13.5,
+          }
+        );
+        return;
+      }
+
+      if (isArea && hasBoundary && place.geometry) {
+        map.flyTo({
+          center: [place.longitude, place.latitude],
+          zoom: mapPlaceZoomForKind(place.kind),
+          duration: 1100,
+          essential: true,
+        });
+        return;
+      }
+
+      const element = createMapTapPinMarkerElement();
+      searchMarkerRef.current = new maplibregl.Marker({ element, anchor: "bottom" })
+        .setLngLat([place.longitude, place.latitude])
+        .addTo(map);
+
+      map.flyTo({
+        center: [place.longitude, place.latitude],
+        zoom: mapPlaceZoomForKind(place.kind),
+        duration: 1100,
+        essential: true,
+      });
+    },
+    [clearPlaceSearchHighlight, clearTapSave]
+  );
+
+  const handleMapTap = useCallback(async (latitude: number, longitude: number) => {
+    const requestId = mapTapRequestRef.current + 1;
+    mapTapRequestRef.current = requestId;
+
+    clearPlaceSearchHighlight();
+
+    const preliminary: SpotGeoLocation = {
+      latitude,
+      longitude,
+      address: null,
+      city: null,
+      country: null,
+    };
+
+    setTapSave({ location: preliminary, resolving: true });
+
+    const resolved = await spotLocationFromCoordinates(latitude, longitude);
+
+    if (mapTapRequestRef.current !== requestId) {
+      return;
+    }
+
+    setTapSave({ location: resolved, resolving: false });
+  }, [clearPlaceSearchHighlight]);
+
+  useEffect(() => {
+    handleMapTapRef.current = handleMapTap;
+  }, [handleMapTap]);
+
+  const handleTapAction = useCallback(
+    async (action: MapTapAction) => {
+      if (!tapSave) {
+        return;
+      }
+
+      if (action === "cancel") {
+        clearTapSave();
+        return;
+      }
+
+      if (tapSave.resolving || tapActionBusy) {
+        return;
+      }
+
+      const location = tapSave.location;
+      const placeLabel =
+        location.address?.trim() ||
+        [location.city, location.country].filter(Boolean).join(", ") ||
+        t("map.selectedLocation");
+
+      if (action === "directions") {
+        clearTapSave();
+        openExternalMapsDirections(location.latitude, location.longitude, placeLabel);
+        return;
+      }
+
+      if (!userId) {
+        setLiveError(t("map.error.notLoggedIn"));
+        clearTapSave();
+        return;
+      }
+
+      if (action === "text-card") {
+        clearTapSave();
+        await openTextCardAtMapLocation(location);
+        return;
+      }
+
+      if (action === "mark") {
+        clearTapSave();
+        setMarkCreateLocation({ location, placeLabel });
+      }
+    },
+    [clearTapSave, openTextCardAtMapLocation, t, tapActionBusy, tapSave, userId]
+  );
 
   useEffect(() => {
     isLiveRef.current = isLive;
@@ -349,10 +642,51 @@ export default function SpotLiveMap({ userId, embedded = false }: SpotLiveMapPro
           setMapReady(true);
         });
         map.on("error", () => setMapLoadError(true));
-        map.on("click", () => {
-          setSelectedPin(null);
-          setSelectedLiveUser(null);
+
+        let longPressTimer: number | null = null;
+
+        const clearLongPressTimer = () => {
+          if (longPressTimer !== null) {
+            window.clearTimeout(longPressTimer);
+            longPressTimer = null;
+          }
+        };
+
+        map.on("click", (event) => {
+          if (selectedPinRef.current) {
+            setSelectedPin(null);
+            return;
+          }
+
+          if (selectedLiveUserRef.current) {
+            setSelectedLiveUser(null);
+            return;
+          }
+
+          handleMapTapRef.current(event.lngLat.lat, event.lngLat.lng);
         });
+
+        map.on("contextmenu", (event) => {
+          event.preventDefault();
+          handleMapTapRef.current(event.lngLat.lat, event.lngLat.lng);
+        });
+
+        map.on("touchstart", (event) => {
+          if (event.originalEvent.touches.length !== 1) {
+            return;
+          }
+
+          const { lat, lng } = event.lngLat;
+          clearLongPressTimer();
+          longPressTimer = window.setTimeout(() => {
+            longPressTimer = null;
+            handleMapTapRef.current(lat, lng);
+          }, 550);
+        });
+
+        map.on("touchend", clearLongPressTimer);
+        map.on("touchmove", clearLongPressTimer);
+        map.on("touchcancel", clearLongPressTimer);
 
         mapRef.current = map;
       } catch {
@@ -368,9 +702,13 @@ export default function SpotLiveMap({ userId, embedded = false }: SpotLiveMapPro
       liveMarkersRef.current.clear();
       spotMarkersRef.current.forEach((marker) => marker.remove());
       spotMarkersRef.current.clear();
+      publicMarkMarkersRef.current.forEach((marker) => marker.remove());
+      publicMarkMarkersRef.current.clear();
       seenSpotPinIdsRef.current.clear();
       userMarkerRef.current?.remove();
       userMarkerRef.current = null;
+      tapMarkerRef.current?.remove();
+      tapMarkerRef.current = null;
       mapRef.current?.remove();
       mapRef.current = null;
       setMapReady(false);
@@ -721,6 +1059,114 @@ export default function SpotLiveMap({ userId, embedded = false }: SpotLiveMapPro
     }
   }, [mapReady, pins, savedIds]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    void loadMapMarks().then((result) => {
+      if (cancelled) {
+        return;
+      }
+
+      setMapMarks(result.marks);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    const refreshPinsAround = async () => {
+      const center = userCoords ?? {
+        latitude: DEFAULT_MAP_CENTER[1],
+        longitude: DEFAULT_MAP_CENTER[0],
+      };
+      const spotsResult = await loadNearbyMapSpotPins(center.latitude, center.longitude);
+
+      if (!spotsResult.error) {
+        setPins(spotsResult.pins);
+      }
+    };
+
+    const onPublished = () => {
+      void refreshPinsAround();
+    };
+
+    window.addEventListener(MAP_SPOT_PUBLISHED_EVENT, onPublished);
+
+    return () => {
+      window.removeEventListener(MAP_SPOT_PUBLISHED_EVENT, onPublished);
+    };
+  }, [userCoords]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    const maplibregl = maplibreRef.current;
+
+    if (!map || !maplibregl || !mapReady) {
+      return;
+    }
+
+    const nextIds = new Set(mapMarks.map((mark) => mark.id));
+
+    publicMarkMarkersRef.current.forEach((marker, id) => {
+      if (!nextIds.has(id)) {
+        marker.remove();
+        publicMarkMarkersRef.current.delete(id);
+      }
+    });
+
+    for (const mark of mapMarks) {
+      if (publicMarkMarkersRef.current.has(mark.id)) {
+        publicMarkMarkersRef.current.get(mark.id)!.setLngLat([mark.longitude, mark.latitude]);
+        continue;
+      }
+
+      const element = createPublicMapMarkElement(mark, (selected) => {
+        setSelectedMapMark(selected);
+        setSelectedPin(null);
+        setSelectedLiveUser(null);
+        map.flyTo({
+          center: [selected.longitude, selected.latitude],
+          zoom: Math.max(map.getZoom(), 14),
+          essential: true,
+        });
+      });
+      const marker = new maplibregl.Marker({ element, anchor: "bottom" })
+        .setLngLat([mark.longitude, mark.latitude])
+        .addTo(map);
+
+      publicMarkMarkersRef.current.set(mark.id, marker);
+    }
+  }, [mapReady, mapMarks]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    const maplibregl = maplibreRef.current;
+
+    if (!map || !maplibregl || !mapReady) {
+      return;
+    }
+
+    if (!tapSave) {
+      tapMarkerRef.current?.remove();
+      tapMarkerRef.current = null;
+      return;
+    }
+
+    const lngLat: [number, number] = [tapSave.location.longitude, tapSave.location.latitude];
+
+    if (tapMarkerRef.current) {
+      tapMarkerRef.current.setLngLat(lngLat);
+      return;
+    }
+
+    const element = createMapTapPinMarkerElement();
+    tapMarkerRef.current = new maplibregl.Marker({ element, anchor: "bottom" })
+      .setLngLat(lngLat)
+      .addTo(map);
+  }, [mapReady, tapSave]);
+
   const liveCount = onlineLiveUsers.length;
 
   const handleLocateMe = useCallback(() => {
@@ -774,60 +1220,66 @@ export default function SpotLiveMap({ userId, embedded = false }: SpotLiveMapPro
       ) : null}
 
       {mapLoadError ? (
-        <div className="absolute inset-x-4 top-[max(0.75rem,env(safe-area-inset-top))] z-20 rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-2 text-sm text-red-200">
+        <div className="absolute inset-x-4 top-[max(7.5rem,calc(env(safe-area-inset-top)+6.5rem))] z-30 rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-2 text-sm text-red-200">
           {t("map.couldNotLoadMap")}
         </div>
       ) : null}
 
       {error ? (
-        <div className="absolute inset-x-4 top-[max(0.75rem,env(safe-area-inset-top))] z-20 rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-2 text-sm text-red-200">
+        <div className="absolute inset-x-4 top-[max(7.5rem,calc(env(safe-area-inset-top)+6.5rem))] z-30 rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-2 text-sm text-red-200">
           {localizeError(t, error) ?? error}
         </div>
       ) : null}
 
       {liveError ? (
-        <div className="absolute inset-x-4 top-[max(3.5rem,calc(env(safe-area-inset-top)+2.5rem))] z-20 rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-2 text-sm text-amber-100">
+        <div className="absolute inset-x-4 top-[max(7.5rem,calc(env(safe-area-inset-top)+6.5rem))] z-30 rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-2 text-sm text-amber-100">
           {liveError}
         </div>
       ) : null}
 
       {liveSuccess ? (
-        <div className="absolute inset-x-4 top-[max(3.5rem,calc(env(safe-area-inset-top)+2.5rem))] z-20 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-2 text-sm text-emerald-100">
+        <div className="absolute inset-x-4 top-[max(7.5rem,calc(env(safe-area-inset-top)+6.5rem))] z-30 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-2 text-sm text-emerald-100">
           {liveSuccess}
         </div>
       ) : null}
 
-      <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex items-start justify-between p-4 pt-[max(0.75rem,env(safe-area-inset-top))]">
-        <div className="pointer-events-auto rounded-full border border-white/12 bg-[#0B1026]/88 px-4 py-2 text-xs font-semibold text-white shadow-lg backdrop-blur-md">
-          {liveCount > 0 ? t("map.onlineNearby", { count: liveCount }) : t("map.nobodyOnline")}
+      <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex flex-col gap-3 p-4 pt-[max(0.75rem,env(safe-area-inset-top))]">
+        <div className="flex w-full items-start gap-2">
+          <div className="min-w-0 flex-1">
+            <MapPlacesSearch onSelectPlace={handleSelectPlace} disabled={!mapReady || mapLoadError} />
+          </div>
+
+          <div className="pointer-events-auto flex shrink-0 flex-col gap-2">
+            <button
+              type="button"
+              onClick={handleLocateMe}
+              className="flex h-11 w-11 items-center justify-center rounded-full bg-[#0B1026]/88 text-white shadow-lg ring-1 ring-white/12 backdrop-blur-md transition hover:bg-[#121a33] disabled:opacity-60"
+              aria-label={t("map.centerLocation")}
+              disabled={locating}
+            >
+              <Crosshair className={`h-5 w-5 ${locating ? "animate-pulse" : ""}`} aria-hidden />
+            </button>
+            <button
+              type="button"
+              onClick={handleZoomIn}
+              className="flex h-11 w-11 items-center justify-center rounded-full bg-[#0B1026]/88 text-white shadow-lg ring-1 ring-white/12 backdrop-blur-md transition hover:bg-[#121a33]"
+              aria-label={t("map.zoomIn")}
+            >
+              <Plus className="h-5 w-5" aria-hidden />
+            </button>
+            <button
+              type="button"
+              onClick={handleZoomOut}
+              className="flex h-11 w-11 items-center justify-center rounded-full bg-[#0B1026]/88 text-white shadow-lg ring-1 ring-white/12 backdrop-blur-md transition hover:bg-[#121a33]"
+              aria-label={t("map.zoomOut")}
+            >
+              <Minus className="h-5 w-5" aria-hidden />
+            </button>
+          </div>
         </div>
 
-        <div className="pointer-events-auto flex flex-col gap-2">
-          <button
-            type="button"
-            onClick={handleLocateMe}
-            className="flex h-11 w-11 items-center justify-center rounded-full bg-[#0B1026]/88 text-white shadow-lg ring-1 ring-white/12 backdrop-blur-md transition hover:bg-[#121a33] disabled:opacity-60"
-            aria-label={t("map.centerLocation")}
-            disabled={locating}
-          >
-            <Crosshair className={`h-5 w-5 ${locating ? "animate-pulse" : ""}`} aria-hidden />
-          </button>
-          <button
-            type="button"
-            onClick={handleZoomIn}
-            className="flex h-11 w-11 items-center justify-center rounded-full bg-[#0B1026]/88 text-white shadow-lg ring-1 ring-white/12 backdrop-blur-md transition hover:bg-[#121a33]"
-            aria-label={t("map.zoomIn")}
-          >
-            <Plus className="h-5 w-5" aria-hidden />
-          </button>
-          <button
-            type="button"
-            onClick={handleZoomOut}
-            className="flex h-11 w-11 items-center justify-center rounded-full bg-[#0B1026]/88 text-white shadow-lg ring-1 ring-white/12 backdrop-blur-md transition hover:bg-[#121a33]"
-            aria-label={t("map.zoomOut")}
-          >
-            <Minus className="h-5 w-5" aria-hidden />
-          </button>
+        <div className="pointer-events-auto self-start rounded-full border border-white/12 bg-[#0B1026]/88 px-4 py-2 text-xs font-semibold text-white shadow-lg backdrop-blur-md">
+          {liveCount > 0 ? t("map.onlineNearby", { count: liveCount }) : t("map.nobodyOnline")}
         </div>
       </div>
 
@@ -863,8 +1315,55 @@ export default function SpotLiveMap({ userId, embedded = false }: SpotLiveMapPro
         )}
       </div>
 
-      <SpotMapPinSheet pin={selectedPin} onClose={() => setSelectedPin(null)} />
+      <SpotMapPinSheet
+        pin={selectedPin}
+        embedded={embedded}
+        onClose={() => setSelectedPin(null)}
+      />
       <LiveMapUserSheet user={selectedLiveUser} onClose={() => setSelectedLiveUser(null)} />
+      {selectedMapMark ? (
+        <MapMarkDetailSheet
+          mark={selectedMapMark}
+          viewerId={userId}
+          embedded={embedded}
+          onClose={() => setSelectedMapMark(null)}
+          onUpdated={(mark) => {
+            setSelectedMapMark(mark);
+            setMapMarks((current) => current.map((item) => (item.id === mark.id ? mark : item)));
+          }}
+          onDeleted={(markId) => {
+            setSelectedMapMark(null);
+            setMapMarks((current) => current.filter((item) => item.id !== markId));
+          }}
+        />
+      ) : null}
+      {markCreateLocation && userId ? (
+        <MapMarkCreateSheet
+          location={markCreateLocation.location}
+          placeLabel={markCreateLocation.placeLabel}
+          userId={userId}
+          embedded={embedded}
+          onClose={() => setMarkCreateLocation(null)}
+          onPublished={(mark) => {
+            setMarkCreateLocation(null);
+            setMapMarks((current) => [mark, ...current.filter((item) => item.id !== mark.id)]);
+            setLiveSuccess(t("map.markPublished"));
+            setSelectedMapMark(mark);
+          }}
+        />
+      ) : null}
+      {tapSave ? (
+        <MapTapActionSheet
+          location={tapSave.location}
+          resolving={tapSave.resolving}
+          embedded={embedded}
+          busyAction={tapActionBusy}
+          onClose={clearTapSave}
+          onAction={(action) => {
+            void handleTapAction(action);
+          }}
+        />
+      ) : null}
     </div>
   );
 }

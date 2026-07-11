@@ -1,25 +1,24 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { UserRound } from "lucide-react";
 import SpotDropSpotsIcon from "@/components/icons/SpotDropSpotsIcon";
-import OwnContentMenu from "@/components/OwnContentMenu";
 import { getSafeAuthSession } from "@/lib/authSession";
-import { deleteOwnedSpot } from "@/lib/deleteContent";
 import { normalizePostId, postIdsEqual } from "@/lib/postIds";
 import { SPOT_DELETED_EVENT, type SpotDeletedDetail } from "@/lib/spotDeletedEvents";
-import SpotLocationSummary from "@/components/SpotLocationSummary";
 import SpotStatsBar from "@/components/SpotStatsBar";
+import SpotPostMeta from "@/components/SpotPostMeta";
 import SpotCommentsSheet from "@/components/SpotCommentsSheet";
 import ExploreCollectionCard from "@/components/ExploreCollectionCard";
 import ExploreNearbyCard from "@/components/ExploreNearbyCard";
-import { formatFeedSpotTitle, getFeedSpotPublicStats, loadExploreFeed, type FeedSpotRow } from "@/lib/feed";
+import { getFeedSpotPublicStats, loadExploreFeed, type FeedSpotRow } from "@/lib/feed";
 import type { CollectionWithMeta } from "@/lib/collections";
 import { feedRowsToViewerItems } from "@/lib/postViewer";
 import { shouldShowSpotLocation } from "@/lib/spotLocationDisplay";
+import { getSpotCaption } from "@/lib/spotCaption";
 import { SPOT_STATS_UPDATED_EVENT, dispatchSpotStatsUpdated, type SpotStatsUpdatedDetail } from "@/lib/spotStatsEvents";
-import { formatPostTime, getPostMedia } from "@/lib/posts";
+import { getPostMedia } from "@/lib/posts";
 import PostCardMedia from "@/components/PostCardMedia";
 import PostMediaLink from "@/components/PostMediaLink";
 import Shell from "@/components/Shell";
@@ -36,7 +35,7 @@ export default function FeedPage() {
   const [viewerId, setViewerId] = useState<string | null>(null);
   const [commentsPostId, setCommentsPostId] = useState<string | null>(null);
 
-  const viewerItems = feedRowsToViewerItems(posts);
+  const viewerItems = useMemo(() => feedRowsToViewerItems(posts), [posts]);
 
   useEffect(() => {
     void getSafeAuthSession().then(({ session }) => {
@@ -170,10 +169,11 @@ export default function FeedPage() {
             {posts.map((post, postIndex) => {
               const { mediaUrl } = getPostMedia(post);
               const username = post.profiles.username || t("common.user");
-              const spotTitle = formatFeedSpotTitle(post);
               const placeJoin = post.discovery_places;
               const placeName = Array.isArray(placeJoin) ? placeJoin[0]?.name : placeJoin?.name;
-              const showLocation = shouldShowSpotLocation({
+              const locationFields = {
+                id: post.id,
+                user_id: post.user_id,
                 content_kind: post.content_kind,
                 spot_name: post.spot_name,
                 spot_address: post.spot_address,
@@ -182,8 +182,11 @@ export default function FeedPage() {
                 spot_latitude: post.spot_latitude,
                 spot_longitude: post.spot_longitude,
                 placeName: placeName ?? null,
-              });
-              const caption = post.content?.trim();
+              };
+              const showMeta =
+                getSpotCaption(post.content) ||
+                shouldShowSpotLocation(locationFields) ||
+                post.created_at;
 
               return (
                 <article
@@ -204,24 +207,8 @@ export default function FeedPage() {
                       </div>
                       <div className="min-w-0 flex-1 text-left">
                         <p className="truncate text-sm font-semibold text-white">{username}</p>
-                        <time className="text-xs text-slate-500" dateTime={post.created_at}>
-                          {formatPostTime(post.created_at)}
-                        </time>
                       </div>
                     </Link>
-                    {viewerId === post.user_id ? (
-                      <OwnContentMenu
-                        triggerClassName="bg-black/50 backdrop-blur-sm"
-                        deleteMenuLabel={t("content.deleteSpot")}
-                        onDelete={() => deleteOwnedSpot(String(post.id), viewerId)}
-                        confirmTitle={t("content.deleteSpotTitle")}
-                        confirmBody={t("content.deleteSpotBody")}
-                        deletedToast={t("content.spotDeleted")}
-                        onDeleted={() =>
-                          setPosts((current) => current.filter((item) => !postIdsEqual(item.id, post.id)))
-                        }
-                      />
-                    ) : null}
                   </header>
 
                   {mediaUrl ? (
@@ -249,30 +236,13 @@ export default function FeedPage() {
                     />
                   </div>
 
-                  {(spotTitle || showLocation || caption) ? (
-                    <div className="space-y-1.5 px-4 py-3">
-                      {spotTitle ? (
-                        <p className="text-sm font-semibold text-white">{spotTitle}</p>
-                      ) : null}
-                      {showLocation ? (
-                        <SpotLocationSummary
-                          location={{
-                            id: post.id,
-                            user_id: post.user_id,
-                            content_kind: post.content_kind,
-                            spot_name: post.spot_name,
-                            spot_address: post.spot_address,
-                            spot_city: post.spot_city,
-                            spot_country: post.spot_country,
-                            spot_latitude: post.spot_latitude,
-                            spot_longitude: post.spot_longitude,
-                            placeName: placeName ?? null,
-                          }}
-                        />
-                      ) : null}
-                      {caption ? (
-                        <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-300">{caption}</p>
-                      ) : null}
+                  {showMeta ? (
+                    <div className="px-4 py-3">
+                      <SpotPostMeta
+                        content={post.content}
+                        location={locationFields}
+                        createdAt={post.created_at}
+                      />
                     </div>
                   ) : null}
                 </article>

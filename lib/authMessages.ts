@@ -1,7 +1,4 @@
 export const INVALID_CREDENTIALS_MESSAGE = "Email or password is incorrect.";
-export const INVALID_OTP_MESSAGE = "Invalid verification code.";
-export const PHONE_LOGIN_UNAVAILABLE_MESSAGE = "Phone login is not available yet.";
-export const PHONE_RECOVERY_UNAVAILABLE_MESSAGE = "Phone recovery is not available yet.";
 export const SESSION_EXPIRED_MESSAGE = "Session expired. Please log in again.";
 export const AUTH_CONNECTION_ERROR_MESSAGE = "Connection problem. Please try again.";
 export const SAME_PASSWORD_MESSAGE =
@@ -126,27 +123,6 @@ export function mapAuthError(error: unknown, fallback = AUTH_CONNECTION_ERROR_ME
     (message.includes("function") && message.includes("does not exist"))
   ) {
     return "Sign in with your email address for now.";
-  }
-
-  if (
-    message.includes("phone provider") ||
-    message.includes("phone auth") ||
-    message.includes("sms provider") ||
-    message.includes("otp disabled") ||
-    message.includes("phone signups") ||
-    (message.includes("phone") && message.includes("not enabled"))
-  ) {
-    return PHONE_LOGIN_UNAVAILABLE_MESSAGE;
-  }
-
-  if (
-    message.includes("invalid otp") ||
-    message.includes("token has expired") ||
-    message.includes("otp_expired") ||
-    message.includes("invalid verification") ||
-    message.includes("invalid code")
-  ) {
-    return INVALID_OTP_MESSAGE;
   }
 
   return fallback;

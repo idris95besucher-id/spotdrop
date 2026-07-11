@@ -1,14 +1,14 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import Shell from "@/components/Shell";
-import VisitTabs from "@/components/VisitTabs";
+import ProfileAppHeader from "@/components/profile/ProfileAppHeader";
 import VisitExplorePanel from "@/components/visit/VisitExplorePanel";
 import VisitMapPanel from "@/components/visit/VisitMapPanel";
 import VisitNearbyPanel from "@/components/visit/VisitNearbyPanel";
 import { useI18n } from "@/components/I18nProvider";
-import { parseVisitTab, type VisitTab, visitTabHref } from "@/lib/visitTabs";
+import { parseVisitTab, type VisitTab } from "@/lib/visitTabs";
 
 function VisitPageFallback() {
   const { t } = useI18n();
@@ -21,7 +21,6 @@ function VisitPageFallback() {
 }
 
 function VisitPageContent() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const tabParam = searchParams.get("tab");
   const [activeTab, setActiveTab] = useState<VisitTab>(() => parseVisitTab(tabParam));
@@ -30,26 +29,24 @@ function VisitPageContent() {
     setActiveTab(parseVisitTab(tabParam));
   }, [tabParam]);
 
-  const handleTabChange = useCallback(
-    (tab: VisitTab) => {
-      setActiveTab(tab);
-      router.replace(visitTabHref(tab), { scroll: false });
-    },
-    [router]
-  );
+  const isMapTab = activeTab === "map";
 
   return (
-    <Shell showHeader={false} immersive>
+    <Shell
+      showHeader={false}
+      immersive
+      topBar={
+        isMapTab ? undefined : <ProfileAppHeader />
+      }
+    >
       <div className="flex h-full min-h-0 select-none touch-manipulation flex-col">
-        <VisitTabs activeTab={activeTab} onTabChange={handleTabChange} />
-
         <div className="min-h-0 flex-1 overflow-hidden">
-          {activeTab === "explore" ? (
-            <VisitExplorePanel />
+          {isMapTab ? (
+            <VisitMapPanel />
           ) : activeTab === "nearby" ? (
             <VisitNearbyPanel />
           ) : (
-            <VisitMapPanel />
+            <VisitExplorePanel />
           )}
         </div>
       </div>

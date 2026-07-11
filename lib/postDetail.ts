@@ -2,9 +2,16 @@ import { isGuideAccountProfile } from "@/lib/guideAccounts";
 import { CLIENT_DEMO_FEED_POSTS } from "@/lib/demoFeed";
 import type { GuidePlace } from "@/lib/guidePlaces";
 import type { PostMediaFields } from "@/lib/posts";
+import { POST_AUTHOR_PROFILES_FKEY } from "@/lib/posts";
 import type { I18nLocale } from "@/lib/i18n/locales";
 import { formatSpotLocationDisplay } from "@/lib/spotLocationDisplay";
 import { isDemoPostId, normalizePostId, postIdForQuery } from "@/lib/postIds";
+import {
+  getCachedPostDetail,
+  getPostDetailInFlight,
+  setCachedPostDetail,
+  setPostDetailInFlight,
+} from "@/lib/postDetailCache";
 import { logExactLoadError, userFacingSupabaseListError } from "@/lib/safeLoad";
 import {
   logSpotLoadQueryResult,
@@ -75,14 +82,68 @@ export function findDemoPost(postId: string): PostDetailRow | null {
   };
 }
 
-async function isGuideAccountUserId(userId: string) {
-  const { data, error } = await supabase.from("profiles").select("username, name").eq("id", userId).maybeSingle();
+const POST_DETAIL_SELECT = `id, user_id, content, created_at, updated_at, visibility, image_url, video_url, video_cover_url, thumbnail_url, media_url, media_type, content_kind, spot_name, spot_address, spot_city, spot_country, spot_latitude, spot_longitude, visited_count, comments_count, collection_save_count, guide_places(title, location_name, canton, city, description, opening_hours, price_info, official_url, read_more_text, media_url, media_type, source_url), ${POST_AUTHOR_PROFILES_FKEY}(username, avatar_url)`;
 
-  if (error || !data) {
+const POST_DETAIL_SELECT_NO_RANKING = POST_DETAIL_SELECT.replace(
+  ", visited_count, comments_count, collection_save_count",
+  ""
+);
+
+function isMissingSpotRankingInSelect(error: { code?: string; message?: string } | null) {
+  if (!error) {
     return false;
   }
 
-  return isGuideAccountProfile(data);
+  const message = error.message?.toLowerCase() ?? "";
+
+  return (
+    error.code === "42703" &&
+    (message.includes("visited_count") ||
+      message.includes("comments_count") ||
+      message.includes("collection_save_count"))
+  );
+}
+
+function isMissingGuidePlacesJoin(error: { code?: string; message?: string } | null) {
+  if (!error) {
+    return false;
+  }
+
+  const message = error.message?.toLowerCase() ?? "";
+
+  return error.code === "42703" || message.includes("guide_places");
+}
+
+function mapPostDetailRow(row: Record<string, unknown>, normalizedId: string): PostDetailRow {
+  const profileJoin = row.profiles as PostDetailRow["profiles"] | PostDetailRow["profiles"][] | null | undefined;
+  const profile = Array.isArray(profileJoin) ? profileJoin[0] : profileJoin;
+
+  return {
+    ...(row as PostDetailRow),
+    id: normalizePostId(row.id) ?? normalizedId,
+    profiles: profile ?? null,
+    guide_places: row.guide_places as PostDetailRow["guide_places"],
+  };
+}
+
+async function queryPostDetail(queryId: string, normalizedId: string) {
+  let result = await supabase.from("posts").select(POST_DETAIL_SELECT).eq("id", queryId).maybeSingle();
+
+  if (result.error && isMissingSpotRankingInSelect(result.error)) {
+    result = await supabase.from("posts").select(POST_DETAIL_SELECT_NO_RANKING).eq("id", queryId).maybeSingle();
+  }
+
+  if (result.error && isMissingGuidePlacesJoin(result.error)) {
+    result = await supabase
+      .from("posts")
+      .select(
+        `id, user_id, content, created_at, updated_at, visibility, image_url, video_url, video_cover_url, thumbnail_url, media_url, media_type, content_kind, spot_name, spot_address, spot_city, spot_country, spot_latitude, spot_longitude, ${POST_AUTHOR_PROFILES_FKEY}(username, avatar_url)`
+      )
+      .eq("id", queryId)
+      .maybeSingle();
+  }
+
+  return result;
 }
 
 export async function loadPostDetail(postId: string): Promise<{
@@ -100,62 +161,92 @@ export async function loadPostDetail(postId: string): Promise<{
     return { post: null, error: "Post not found.", isDemo: false };
   }
 
-  if (isDemoPostId(normalizedId)) {
-    const demoPost = findDemoPost(normalizedId);
-    return {
-      post: demoPost,
-      error: demoPost ? null : "Post not found.",
-      isDemo: true,
-    };
+  const cached = getCachedPostDetail(normalizedId);
+
+  if (cached) {
+    return cached;
   }
 
-  try {
-    const queryId = postIdForQuery(normalizedId);
-    logSpotLoadQueryStart("loadPostDetail", normalizedId, queryId);
+  const inFlight = getPostDetailInFlight(normalizedId);
 
-    const { data, error } = await supabase.from("posts").select("*").eq("id", queryId).single();
+  if (inFlight) {
+    return inFlight;
+  }
 
-    logSpotLoadQueryResult({
-      context: "loadPostDetail",
-      receivedSpotId: normalizedId,
-      queryId,
-      data: data as PostDetailRow | null,
-      error,
-      select: "posts *",
-    });
+  const loadPromise = (async (): Promise<{
+    post: PostDetailRow | null;
+    error: string | null;
+    isDemo: boolean;
+  }> => {
+    if (isDemoPostId(normalizedId)) {
+      const demoPost = findDemoPost(normalizedId);
+      const result = {
+        post: demoPost,
+        error: demoPost ? null : "Post not found.",
+        isDemo: true,
+      };
 
-    if (error) {
+      if (demoPost) {
+        setCachedPostDetail(normalizedId, demoPost, true);
+      }
+
+      return result;
+    }
+
+    try {
+      const queryId = postIdForQuery(normalizedId);
+      logSpotLoadQueryStart("loadPostDetail", normalizedId, queryId);
+
+      const { data, error } = await queryPostDetail(String(queryId), normalizedId);
+
+      logSpotLoadQueryResult({
+        context: "loadPostDetail",
+        receivedSpotId: normalizedId,
+        queryId,
+        data: data as PostDetailRow | null,
+        error,
+        select: POST_DETAIL_SELECT,
+      });
+
+      if (error) {
+        logExactLoadError(error);
+        return { post: null, error: userFacingSupabaseListError(error) ?? "Unable to load this post.", isDemo: false };
+      }
+
+      if (!data) {
+        logSpotLoadUiFailure("loadPostDetail", "no row after successful query", {
+          receivedSpotId: normalizedId,
+          queryId,
+        });
+        return { post: null, error: "Post not found.", isDemo: false };
+      }
+
+      const row = mapPostDetailRow(data as Record<string, unknown>, normalizedId);
+
+      if (isGuideAccountProfile(row.profiles ?? {})) {
+        logSpotLoadUiFailure("loadPostDetail", "post author is guide account — hidden", {
+          receivedSpotId: normalizedId,
+          queryId,
+          userId: row.user_id,
+        });
+        return { post: null, error: "Post not found.", isDemo: false };
+      }
+
+      setCachedPostDetail(normalizedId, row, false);
+
+      return {
+        post: row,
+        error: null,
+        isDemo: false,
+      };
+    } catch (error) {
       logExactLoadError(error);
-      return { post: null, error: userFacingSupabaseListError(error) ?? "Unable to load this post.", isDemo: false };
+      const message = error instanceof Error ? error.message : "Unable to load this post.";
+      return { post: null, error: message, isDemo: false };
     }
+  })();
 
-    if (!data) {
-      logSpotLoadUiFailure("loadPostDetail", "no row after successful query", {
-        receivedSpotId: normalizedId,
-        queryId,
-      });
-      return { post: null, error: "Post not found.", isDemo: false };
-    }
+  setPostDetailInFlight(normalizedId, loadPromise);
 
-    const row = data as PostDetailRow & { id: string | number };
-
-    if (await isGuideAccountUserId(String(row.user_id))) {
-      logSpotLoadUiFailure("loadPostDetail", "post author is guide account — hidden", {
-        receivedSpotId: normalizedId,
-        queryId,
-        userId: row.user_id,
-      });
-      return { post: null, error: "Post not found.", isDemo: false };
-    }
-
-    return {
-      post: { ...row, id: normalizePostId(row.id) ?? normalizedId },
-      error: null,
-      isDemo: false,
-    };
-  } catch (error) {
-    logExactLoadError(error);
-    const message = error instanceof Error ? error.message : "Unable to load this post.";
-    return { post: null, error: message, isDemo: false };
-  }
+  return loadPromise;
 }

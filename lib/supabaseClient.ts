@@ -26,3 +26,43 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     persistSession: true,
   },
 });
+
+export function getSupabaseConfigDiagnostics() {
+  return {
+    hasUrl: Boolean(supabaseUrl),
+    hasAnonKey: Boolean(supabaseAnonKey),
+    url: supabaseUrl || null,
+    urlPreview: supabaseUrl ? `${supabaseUrl.slice(0, 32)}…` : null,
+    anonKeyPreview: supabaseAnonKey ? `${supabaseAnonKey.slice(0, 12)}…` : null,
+    hasPlaceholderUrl,
+    configError: supabaseConfigError,
+  };
+}
+
+/** Lightweight reachability check for debugging native clients (iOS/Capacitor). */
+export async function probeSupabaseAuthHealth() {
+  if (!supabaseUrl) {
+    return { ok: false as const, error: "NEXT_PUBLIC_SUPABASE_URL is missing" };
+  }
+
+  const healthUrl = `${supabaseUrl.replace(/\/$/, "")}/auth/v1/health`;
+
+  try {
+    const response = await fetch(healthUrl, { method: "GET" });
+    const body = await response.text();
+
+    return {
+      ok: response.ok,
+      status: response.status,
+      body,
+      healthUrl,
+      error: response.ok ? null : body || `HTTP ${response.status}`,
+    };
+  } catch (caught) {
+    return {
+      ok: false as const,
+      healthUrl,
+      error: caught instanceof Error ? caught.message : String(caught),
+    };
+  }
+}

@@ -1,13 +1,42 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { X } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import PostViewerSlide from "@/components/PostViewerSlide";
-import { getSafeAuthSession } from "@/lib/authSession";
+import { useAuthSession } from "@/components/AuthSessionProvider";
+import { useI18n } from "@/components/I18nProvider";
 import { findViewerIndexForSpot, type ViewerPostListItem } from "@/lib/postViewer";
+import { warmPostDetailCache } from "@/lib/postDetailCache";
+import { perfMark } from "@/lib/perfLog";
 import { isBottomSheetScrollLocked } from "@/lib/bottomSheetScrollLock";
-import { getReelMediaSources, preloadReelMediaSources } from "@/lib/postViewerMedia";
+import {
+  cleanupReelVideoPreloads,
+  getReelMediaSources,
+  pauseAllPreloadedReelVideos,
+  preloadReelMediaSources,
+  preloadReelVideo,
+  releasePreloadedReelVideo,
+} from "@/lib/postViewerMedia";
+import {
+  notifySpotFullscreenViewerClosed,
+  notifySpotFullscreenViewerOpened,
+  pauseAllGridVideoPreviews,
+} from "@/lib/gridVideoPreviewControl";
+import { logVideoPlaybackDebug } from "@/lib/videoPlaybackDebug";
+import {
+  useSpotViewerDismissGesture,
+  type SpotViewerCarouselGestureState,
+} from "@/lib/useSpotViewerDismissGesture";
+import { useHorizontalSwipeClose } from "@/lib/useHorizontalSwipeClose";
+import {
+  VERTICAL_POST_CHANGE_LOCK_MS,
+  VERTICAL_POST_SPRING_EASING,
+  VERTICAL_POST_SPRING_MS,
+  applyVerticalPostEdgeResistance,
+  getVerticalPostSlideOffsetPx,
+  resolveVerticalPostDragEnd,
+} from "@/lib/verticalPostViewerNavigation";
 
 type VerticalPostViewerProps = {
   items: ViewerPostListItem[];
@@ -16,18 +45,11 @@ type VerticalPostViewerProps = {
   initialMediaUrl?: string | null;
   onClose: () => void;
   onItemDeleted?: (postId: string) => void;
+  /** Search grid only — reuse profile-feed swipe-right close. */
+  enableHorizontalSwipeClose?: boolean;
 };
 
 const OPEN_SWIPE_LOCK_MS = 600;
-const CHANGE_SWIPE_LOCK_MS = 500;
-const SWIPE_THRESHOLD_PX = 100;
-const VERTICAL_SWIPE_START_PX = 12;
-
-type TouchStart = {
-  x: number;
-  y: number;
-  time: number;
-};
 
 export default function VerticalPostViewer({
   items,
@@ -36,11 +58,23 @@ export default function VerticalPostViewer({
   initialMediaUrl = null,
   onClose,
   onItemDeleted,
+  enableHorizontalSwipeClose = false,
 }: VerticalPostViewerProps) {
+  const { t } = useI18n();
   const viewportRef = useRef<HTMLDivElement>(null);
+  const screenRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const [gestureHost, setGestureHost] = useState<HTMLElement | null>(null);
   const swipeLockedUntilRef = useRef(0);
-  const touchStartRef = useRef<TouchStart | null>(null);
-  const trackingVerticalSwipeRef = useRef(false);
+  const swipeCloseClosingRef = useRef(false);
+  const carouselGestureStateRef = useRef<SpotViewerCarouselGestureState | null>(null);
+  const viewportHeightRef = useRef(0);
+  const dragOffsetRef = useRef(0);
+  const activeIndexRef = useRef(0);
+  const slideElsRef = useRef(new Map<number, HTMLDivElement>());
+  const dragRafRef = useRef<number | null>(null);
+  const pendingDragOffsetRef = useRef<number | null>(null);
+  const commitTimerRef = useRef<number | null>(null);
 
   const openedIndex = useMemo(
     () => findViewerIndexForSpot(items, initialSpotId, initialMediaUrl),
@@ -50,46 +84,357 @@ export default function VerticalPostViewer({
   const [activeIndex, setActiveIndex] = useState(openedIndex);
   const [dragOffsetPx, setDragOffsetPx] = useState(0);
   const [slideTransitionEnabled, setSlideTransitionEnabled] = useState(false);
-  const [userId, setUserId] = useState<string | null>(null);
+  const [navigationLocked, setNavigationLocked] = useState(false);
   const [mounted, setMounted] = useState(() => typeof document !== "undefined");
+
+  activeIndexRef.current = activeIndex;
 
   const lockSwipes = useCallback((durationMs: number) => {
     swipeLockedUntilRef.current = Date.now() + durationMs;
   }, []);
 
-  const isSwipeLocked = useCallback(() => Date.now() < swipeLockedUntilRef.current, []);
+  const isSwipeLocked = useCallback(
+    () =>
+      navigationLocked ||
+      Date.now() < swipeLockedUntilRef.current ||
+      swipeCloseClosingRef.current,
+    [navigationLocked]
+  );
 
-  const goToIndex = useCallback(
-    (nextIndex: number) => {
-      setActiveIndex((current) => {
-        const clamped = Math.min(Math.max(0, nextIndex), items.length - 1);
+  const measureViewportHeight = useCallback(() => {
+    const measured = viewportRef.current?.clientHeight ?? window.innerHeight;
+    viewportHeightRef.current = measured > 0 ? measured : window.innerHeight;
+    return viewportHeightRef.current;
+  }, []);
 
-        if (clamped === current) {
-          return current;
-        }
+  const clearCommitTimer = useCallback(() => {
+    if (commitTimerRef.current !== null) {
+      window.clearTimeout(commitTimerRef.current);
+      commitTimerRef.current = null;
+    }
+  }, []);
 
-        lockSwipes(CHANGE_SWIPE_LOCK_MS);
-        return clamped;
+  const clearDragRaf = useCallback(() => {
+    if (dragRafRef.current !== null) {
+      window.cancelAnimationFrame(dragRafRef.current);
+      dragRafRef.current = null;
+    }
+
+    pendingDragOffsetRef.current = null;
+  }, []);
+
+  const paintSlideTransforms = useCallback(
+    (nextActiveIndex: number, nextDragOffsetPx: number, withTransition: boolean) => {
+      const viewportHeightPx = viewportHeightRef.current || measureViewportHeight();
+      const transition = withTransition
+        ? `transform ${VERTICAL_POST_SPRING_MS}ms ${VERTICAL_POST_SPRING_EASING}`
+        : "none";
+
+      slideElsRef.current.forEach((element, slideIndex) => {
+        const offsetPx = getVerticalPostSlideOffsetPx(
+          slideIndex,
+          nextActiveIndex,
+          nextDragOffsetPx,
+          viewportHeightPx
+        );
+        element.style.transition = transition;
+        element.style.transform = `translate3d(0, ${offsetPx}px, 0)`;
       });
     },
-    [items.length, lockSwipes]
+    [measureViewportHeight]
   );
+
+  const finishAfterSpring = useCallback(
+    (callback: () => void) => {
+      clearCommitTimer();
+      commitTimerRef.current = window.setTimeout(callback, VERTICAL_POST_SPRING_MS + 24);
+    },
+    [clearCommitTimer]
+  );
+
+  const commitSlideTransition = useCallback(
+    (targetOffsetPx: number, nextIndex: number) => {
+      clearDragRaf();
+      setNavigationLocked(true);
+      setSlideTransitionEnabled(true);
+      dragOffsetRef.current = targetOffsetPx;
+      setDragOffsetPx(targetOffsetPx);
+      paintSlideTransforms(activeIndexRef.current, targetOffsetPx, true);
+      lockSwipes(VERTICAL_POST_CHANGE_LOCK_MS);
+
+      finishAfterSpring(() => {
+        // Swap index with transition off in the same frame to avoid mid-post flicker.
+        setSlideTransitionEnabled(false);
+        dragOffsetRef.current = 0;
+        setDragOffsetPx(0);
+        activeIndexRef.current = nextIndex;
+        setActiveIndex(nextIndex);
+        paintSlideTransforms(nextIndex, 0, false);
+        setNavigationLocked(false);
+      });
+    },
+    [clearDragRaf, finishAfterSpring, lockSwipes, paintSlideTransforms]
+  );
+
+  const snapBackToCurrent = useCallback(() => {
+    clearDragRaf();
+    setSlideTransitionEnabled(true);
+    dragOffsetRef.current = 0;
+    setDragOffsetPx(0);
+    paintSlideTransforms(activeIndexRef.current, 0, true);
+
+    finishAfterSpring(() => {
+      setSlideTransitionEnabled(false);
+      paintSlideTransforms(activeIndexRef.current, 0, false);
+      setNavigationLocked(false);
+    });
+  }, [clearDragRaf, finishAfterSpring, paintSlideTransforms]);
+
+  const handleVerticalDrag = useCallback(
+    (deltaY: number) => {
+      if (navigationLocked) {
+        return;
+      }
+
+      const offset = applyVerticalPostEdgeResistance(
+        deltaY,
+        activeIndexRef.current,
+        items.length
+      );
+      dragOffsetRef.current = offset;
+      pendingDragOffsetRef.current = offset;
+
+      if (dragRafRef.current !== null) {
+        return;
+      }
+
+      dragRafRef.current = window.requestAnimationFrame(() => {
+        dragRafRef.current = null;
+        const nextOffset = pendingDragOffsetRef.current;
+
+        if (nextOffset == null) {
+          return;
+        }
+
+        pendingDragOffsetRef.current = null;
+        paintSlideTransforms(activeIndexRef.current, nextOffset, false);
+      });
+    },
+    [items.length, navigationLocked, paintSlideTransforms]
+  );
+
+  const handleVerticalDragEnd = useCallback(
+    (deltaY: number, deltaX: number, velocityY: number) => {
+      if (isBottomSheetScrollLocked() || isSwipeLocked()) {
+        console.log("[SpotSwipe]", {
+          event: "end-blocked",
+          reason: isBottomSheetScrollLocked() ? "bottom-sheet" : "swipe-locked",
+          deltaY,
+          velocityY,
+          activeIndex: activeIndexRef.current,
+        });
+        snapBackToCurrent();
+        return;
+      }
+
+      const viewportHeightPx = measureViewportHeight();
+      const decision = resolveVerticalPostDragEnd({
+        deltaY,
+        deltaX,
+        velocityY,
+        activeIndex: activeIndexRef.current,
+        itemCount: items.length,
+        viewportHeightPx,
+      });
+
+      const activeIndexNow = activeIndexRef.current;
+      const targetIndex =
+        decision.action === "next"
+          ? activeIndexNow + 1
+          : decision.action === "previous"
+            ? activeIndexNow - 1
+            : activeIndexNow;
+
+      console.log("[SpotSwipe]", {
+        event: "resolve",
+        startY: null,
+        currentY: null,
+        deltaY,
+        deltaX,
+        velocityY,
+        activeIndex: activeIndexNow,
+        targetIndex,
+        itemCount: items.length,
+        action: decision.action,
+        targetOffsetPx: "targetOffsetPx" in decision ? decision.targetOffsetPx : 0,
+      });
+
+      if (decision.action === "snap") {
+        snapBackToCurrent();
+        return;
+      }
+
+      if (decision.action === "next") {
+        commitSlideTransition(decision.targetOffsetPx, activeIndexNow + 1);
+        return;
+      }
+
+      if (decision.action === "previous") {
+        commitSlideTransition(decision.targetOffsetPx, activeIndexNow - 1);
+        return;
+      }
+
+      snapBackToCurrent();
+    },
+    [
+      commitSlideTransition,
+      isSwipeLocked,
+      items.length,
+      measureViewportHeight,
+      snapBackToCurrent,
+    ]
+  );
+
+  const handleVerticalDragCancel = useCallback(() => {
+    if (navigationLocked) {
+      return;
+    }
+
+    snapBackToCurrent();
+  }, [navigationLocked, snapBackToCurrent]);
+
+  const handleCarouselGestureStateChange = useCallback(
+    (state: SpotViewerCarouselGestureState | null) => {
+      carouselGestureStateRef.current = state;
+    },
+    []
+  );
+
+  const getCarouselGestureState = useCallback(
+    () => carouselGestureStateRef.current,
+    []
+  );
+
+  const getSwipeDebugContext = useCallback(
+    () => ({
+      activeIndex: activeIndexRef.current,
+      itemCount: items.length,
+    }),
+    [items.length]
+  );
+
+  const setScreenNode = useCallback((node: HTMLDivElement | null) => {
+    screenRef.current = node;
+    setGestureHost(node);
+  }, []);
+
+  const setSlideElement = useCallback((index: number, element: HTMLDivElement | null) => {
+    if (element) {
+      slideElsRef.current.set(index, element);
+      return;
+    }
+
+    slideElsRef.current.delete(index);
+  }, []);
+
+  const {
+    isClosing: dismissIsClosing,
+    panelStyle: dismissPanelStyle,
+    screenStyle: dismissScreenStyle,
+    requestClose: dismissRequestClose,
+    activeGestureRef,
+  } = useSpotViewerDismissGesture({
+    onClose,
+    targetRef: screenRef,
+    panelRef,
+    isActive: mounted && Boolean(gestureHost),
+    gestureHost,
+    enableVerticalAxis: true,
+    enableHorizontalDismiss: false,
+    isVerticalSwipeLocked: isSwipeLocked,
+    getCarouselGestureState,
+    getSwipeDebugContext,
+    onVerticalDrag: handleVerticalDrag,
+    onVerticalDragEnd: handleVerticalDragEnd,
+    onVerticalDragCancel: handleVerticalDragCancel,
+  });
+
+  const {
+    isClosing: swipeCloseIsClosing,
+    panelStyle: swipeClosePanelStyle,
+    screenStyle: swipeCloseScreenStyle,
+    requestClose: swipeCloseRequestClose,
+  } = useHorizontalSwipeClose({
+    onClose,
+    targetRef: screenRef,
+    panelRef,
+    enabled: enableHorizontalSwipeClose && mounted && Boolean(gestureHost),
+    gestureHost,
+  });
+
+  const isClosing = enableHorizontalSwipeClose ? swipeCloseIsClosing : dismissIsClosing;
+  const requestClose = enableHorizontalSwipeClose ? swipeCloseRequestClose : dismissRequestClose;
+  // Omit React transform when reusing swipe-close: the hook paints translate via the DOM
+  // so vertical-pager re-renders cannot reset finger-follow mid-gesture.
+  const panelStyle = enableHorizontalSwipeClose
+    ? {
+        height: "100%",
+        width: "100%",
+        touchAction: "none" as const,
+        willChange: swipeCloseIsClosing ? ("transform" as const) : swipeClosePanelStyle.willChange,
+      }
+    : dismissPanelStyle;
+  const screenStyle = enableHorizontalSwipeClose
+    ? {
+        backgroundColor: swipeCloseScreenStyle.backgroundColor ?? "#000",
+        touchAction: "none" as const,
+        pointerEvents: swipeCloseIsClosing ? ("none" as const) : undefined,
+      }
+    : dismissScreenStyle;
+
+  swipeCloseClosingRef.current = enableHorizontalSwipeClose && swipeCloseIsClosing;
 
   useEffect(() => {
     setMounted(true);
-  }, []);
+    logVideoPlaybackDebug("VerticalPostViewer mount", {
+      initialSpotId,
+      initialIndex: openedIndex,
+      itemCount: items.length,
+    });
+    notifySpotFullscreenViewerOpened();
+    pauseAllGridVideoPreviews();
+    pauseAllPreloadedReelVideos();
+
+    return () => {
+      clearCommitTimer();
+      clearDragRaf();
+      notifySpotFullscreenViewerClosed();
+    };
+  }, [clearCommitTimer, clearDragRaf, initialSpotId, items.length, openedIndex]);
 
   useEffect(() => {
     const nextIndex = findViewerIndexForSpot(items, initialSpotId, initialMediaUrl);
+    activeIndexRef.current = nextIndex;
     setActiveIndex(nextIndex);
+    dragOffsetRef.current = 0;
     setDragOffsetPx(0);
     setSlideTransitionEnabled(false);
+    setNavigationLocked(false);
     lockSwipes(OPEN_SWIPE_LOCK_MS);
   }, [initialSpotId, initialMediaUrl, items, lockSwipes]);
 
   useEffect(() => {
-    setActiveIndex((current) => Math.min(Math.max(0, current), Math.max(0, items.length - 1)));
+    setActiveIndex((current) => {
+      const next = Math.min(Math.max(0, current), Math.max(0, items.length - 1));
+      activeIndexRef.current = next;
+      return next;
+    });
   }, [items.length]);
+
+  useLayoutEffect(() => {
+    measureViewportHeight();
+    paintSlideTransforms(activeIndex, dragOffsetRef.current, slideTransitionEnabled);
+  }, [activeIndex, dragOffsetPx, items.length, measureViewportHeight, paintSlideTransforms, slideTransitionEnabled]);
 
   useEffect(() => {
     const previousBodyOverflow = document.body.style.overflow;
@@ -121,140 +466,68 @@ export default function VerticalPostViewer({
     };
   }, []);
 
+  const { session } = useAuthSession();
+  const userId = session?.user?.id ?? null;
+
   useEffect(() => {
-    void getSafeAuthSession().then(({ session }) => {
-      setUserId(session?.user?.id ?? null);
-    });
+    perfMark("spot-viewer");
   }, []);
 
   useEffect(() => {
-    const indices = [activeIndex - 1, activeIndex, activeIndex + 1].filter(
-      (index) => index >= 0 && index < items.length
-    );
+    const handleResize = () => {
+      measureViewportHeight();
+      paintSlideTransforms(activeIndexRef.current, dragOffsetRef.current, false);
+    };
 
-    for (const index of indices) {
-      preloadReelMediaSources(getReelMediaSources(items[index]!));
-    }
-  }, [activeIndex, items]);
+    window.addEventListener("resize", handleResize);
 
-  const resetTouch = useCallback(() => {
-    touchStartRef.current = null;
-    trackingVerticalSwipeRef.current = false;
-    setDragOffsetPx(0);
-  }, []);
+    return () => {
+      window.removeEventListener("resize", handleResize);
+    };
+  }, [measureViewportHeight, paintSlideTransforms]);
 
-  const handleTouchStart = useCallback(
-    (event: React.TouchEvent<HTMLDivElement>) => {
-      if (isBottomSheetScrollLocked() || isSwipeLocked() || items.length <= 1) {
-        return;
+  useEffect(() => {
+    const keepVideoUrls = new Set<string>();
+
+    for (const index of [activeIndex - 1, activeIndex, activeIndex + 1]) {
+      if (index < 0 || index >= items.length) {
+        continue;
       }
 
-      const touch = event.touches[0];
+      const spot = items[index]!;
+      const sources = getReelMediaSources(spot);
 
-      if (!touch) {
-        return;
-      }
+      preloadReelMediaSources(sources);
+      warmPostDetailCache(spot.id);
 
-      touchStartRef.current = {
-        x: touch.clientX,
-        y: touch.clientY,
-        time: Date.now(),
-      };
-      trackingVerticalSwipeRef.current = false;
-      setSlideTransitionEnabled(false);
-    },
-    [isSwipeLocked, items.length]
-  );
-
-  const handleTouchMove = useCallback(
-    (event: React.TouchEvent<HTMLDivElement>) => {
-      const start = touchStartRef.current;
-
-      if (!start || isBottomSheetScrollLocked() || isSwipeLocked()) {
-        return;
-      }
-
-      const touch = event.touches[0];
-
-      if (!touch) {
-        return;
-      }
-
-      const deltaX = touch.clientX - start.x;
-      const deltaY = touch.clientY - start.y;
-
-      if (!trackingVerticalSwipeRef.current) {
-        if (
-          Math.abs(deltaY) < VERTICAL_SWIPE_START_PX ||
-          Math.abs(deltaY) <= Math.abs(deltaX)
-        ) {
-          return;
+      if (sources.mediaType === "video" && sources.mediaUrl) {
+        if (index === activeIndex) {
+          releasePreloadedReelVideo(sources.mediaUrl);
+        } else {
+          preloadReelVideo(sources.mediaUrl, "metadata");
+          keepVideoUrls.add(sources.mediaUrl);
         }
-
-        trackingVerticalSwipeRef.current = true;
       }
+    }
 
-      event.preventDefault();
+    const nextSpot = items[activeIndex + 1];
 
-      let offset = deltaY;
+    if (nextSpot) {
+      const nextSources = getReelMediaSources(nextSpot);
 
-      if (activeIndex <= 0 && offset > 0) {
-        offset *= 0.25;
+      if (nextSources.mediaType === "video" && nextSources.mediaUrl) {
+        preloadReelVideo(nextSources.mediaUrl, "metadata");
+        keepVideoUrls.add(nextSources.mediaUrl);
       }
+    }
 
-      if (activeIndex >= items.length - 1 && offset < 0) {
-        offset *= 0.25;
-      }
+    cleanupReelVideoPreloads(keepVideoUrls);
 
-      setDragOffsetPx(offset);
-    },
-    [activeIndex, isSwipeLocked, items.length]
-  );
-
-  const handleTouchEnd = useCallback(
-    (event: React.TouchEvent<HTMLDivElement>) => {
-      const start = touchStartRef.current;
-
-      if (!start) {
-        return;
-      }
-
-      const touch = event.changedTouches[0];
-      const deltaY = touch ? touch.clientY - start.y : 0;
-      const deltaX = touch ? touch.clientX - start.x : 0;
-
-      touchStartRef.current = null;
-      trackingVerticalSwipeRef.current = false;
-      setSlideTransitionEnabled(true);
-      setDragOffsetPx(0);
-
-      if (isBottomSheetScrollLocked() || isSwipeLocked()) {
-        return;
-      }
-
-      const isVerticalSwipe =
-        Math.abs(deltaY) >= SWIPE_THRESHOLD_PX && Math.abs(deltaY) > Math.abs(deltaX);
-
-      if (!isVerticalSwipe) {
-        return;
-      }
-
-      if (deltaY <= -SWIPE_THRESHOLD_PX && activeIndex < items.length - 1) {
-        goToIndex(activeIndex + 1);
-        return;
-      }
-
-      if (deltaY >= SWIPE_THRESHOLD_PX && activeIndex > 0) {
-        goToIndex(activeIndex - 1);
-      }
-    },
-    [activeIndex, goToIndex, isSwipeLocked, items.length]
-  );
-
-  const handleTouchCancel = useCallback(() => {
-    setSlideTransitionEnabled(true);
-    resetTouch();
-  }, [resetTouch]);
+    return () => {
+      cleanupReelVideoPreloads(new Set());
+      pauseAllPreloadedReelVideos();
+    };
+  }, [activeIndex, items]);
 
   useEffect(() => {
     const viewport = viewportRef.current;
@@ -264,7 +537,7 @@ export default function VerticalPostViewer({
     }
 
     const blockRubberBand = (event: TouchEvent) => {
-      if (trackingVerticalSwipeRef.current) {
+      if (activeGestureRef.current) {
         event.preventDefault();
       }
     };
@@ -274,15 +547,15 @@ export default function VerticalPostViewer({
     return () => {
       viewport.removeEventListener("touchmove", blockRubberBand);
     };
-  }, []);
+  }, [activeGestureRef]);
 
   const handleKeyDown = useCallback(
     (event: KeyboardEvent) => {
       if (event.key === "Escape") {
-        onClose();
+        requestClose();
       }
     },
-    [onClose]
+    [requestClose]
   );
 
   useEffect(() => {
@@ -297,47 +570,66 @@ export default function VerticalPostViewer({
     return null;
   }
 
-  const trackTransform = `translate3d(0, calc(${-activeIndex * 100}svh + ${dragOffsetPx}px), 0)`;
+  const viewportHeightPx =
+    viewportHeightRef.current || (typeof window !== "undefined" ? window.innerHeight : 800);
+  // Prefer the live ref so incidental re-renders during a drag do not snap back.
+  const liveDragOffsetPx = dragOffsetRef.current;
 
   return createPortal(
     <div
+      ref={setScreenNode}
       data-spot-viewer-screen
-      className="fixed inset-0 z-[120] overscroll-none bg-black text-white"
+      data-search-reel-viewer={enableHorizontalSwipeClose ? "" : undefined}
+      data-spot-viewer-closing={isClosing ? "" : undefined}
+      className="fixed inset-0 z-[120] overscroll-none text-white"
+      style={screenStyle}
     >
-      <button
-        type="button"
-        onClick={onClose}
-        className="absolute left-3 z-50 flex h-10 w-10 items-center justify-center rounded-full bg-black/50 text-white ring-1 ring-white/15 backdrop-blur-md transition hover:bg-black/70"
-        data-spot-viewer-chrome-top
-        aria-label="Close viewer"
-      >
-        <X className="h-5 w-5" aria-hidden />
-      </button>
+      <div ref={panelRef} data-spot-viewer-panel style={panelStyle}>
+        <button
+          type="button"
+          onClick={requestClose}
+          className="absolute left-3 z-50 flex h-10 w-10 items-center justify-center rounded-full bg-black/50 text-white ring-1 ring-white/15 backdrop-blur-md transition hover:bg-black/70"
+          data-spot-viewer-chrome-top
+          aria-label={t("post.goBack")}
+        >
+          <ArrowLeft className="h-5 w-5" aria-hidden />
+        </button>
 
-      <div
-        ref={viewportRef}
-        data-spot-viewer-viewport
-        className="h-full w-full overflow-hidden overscroll-none"
-        style={{ overscrollBehavior: "none", touchAction: "pan-x pinch-zoom" }}
-        role="list"
-        aria-label="Posts and spots"
-        onTouchStart={handleTouchStart}
-        onTouchMove={handleTouchMove}
-        onTouchEnd={handleTouchEnd}
-        onTouchCancel={handleTouchCancel}
-      >
         <div
-          className="flex flex-col will-change-transform"
-          style={{
-            transform: trackTransform,
-            transition: slideTransitionEnabled ? "transform 220ms ease-out" : "none",
-          }}
+          ref={viewportRef}
+          data-spot-viewer-viewport
+          className="relative h-full w-full overflow-hidden overscroll-none"
+          style={{ overscrollBehavior: "none", touchAction: "none" }}
+          role="list"
+          aria-label="Posts and spots"
         >
           {items.map((spot, index) => {
             const distance = Math.abs(index - activeIndex);
 
+            if (distance > 1) {
+              return null;
+            }
+
+            const offsetPx = getVerticalPostSlideOffsetPx(
+              index,
+              activeIndex,
+              liveDragOffsetPx,
+              viewportHeightPx
+            );
+
             return (
-              <div key={`${spot.id}-${index}`} className="h-[100svh] w-full shrink-0">
+              <div
+                key={spot.id}
+                ref={(element) => setSlideElement(index, element)}
+                className="absolute inset-0 h-full w-full will-change-transform"
+                style={{
+                  transform: `translate3d(0, ${offsetPx}px, 0)`,
+                  transition: slideTransitionEnabled
+                    ? `transform ${VERTICAL_POST_SPRING_MS}ms ${VERTICAL_POST_SPRING_EASING}`
+                    : "none",
+                  zIndex: index === activeIndex ? 2 : 1,
+                }}
+              >
                 <PostViewerSlide
                   item={spot}
                   slideIndex={index}
@@ -345,6 +637,7 @@ export default function VerticalPostViewer({
                   shouldPreloadMedia={distance <= 1}
                   userId={userId}
                   onItemDeleted={onItemDeleted}
+                  onCarouselGestureStateChange={handleCarouselGestureStateChange}
                 />
               </div>
             );

@@ -5,6 +5,7 @@ export type PostMediaFields = {
   video_url?: string | null;
   video_cover_url?: string | null;
   thumbnail_url?: string | null;
+  audio_muted?: boolean | null;
 };
 
 /** Explicit FK for post author embed (posts.user_id → profiles.id). */

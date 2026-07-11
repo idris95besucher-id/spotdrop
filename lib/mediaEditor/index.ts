@@ -1,6 +1,7 @@
 export type { MediaEditorDraft, MediaEditorItem, MediaEditorMediaType } from "@/lib/mediaEditor/types";
 export { MEDIA_EDITOR_MAX_ITEMS } from "@/lib/mediaEditor/types";
 export {
+  createGalleryMediaEditorItem,
   createMediaEditorItem,
   getActiveMediaEditorItem,
   revokeMediaEditorItem,
@@ -13,7 +14,7 @@ export {
   requiresTrimForVideo,
   videoPublishNeedsExport,
 } from "@/lib/mediaEditor/trimValidation";
-export { prepareMediaFileForPublish } from "@/lib/mediaEditor/preparePublish";
+export { prepareMediaFileForPublish, type PreparedPublishMedia } from "@/lib/mediaEditor/preparePublish";
 export {
   formatTrimSummary,
   getCoverContinueBlockReason,

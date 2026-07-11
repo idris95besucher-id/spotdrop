@@ -2,54 +2,56 @@
 
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { useEffect, useLayoutEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useState, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { ArrowLeft, UserRound } from "lucide-react";
 import SpotLocationSummary from "@/components/SpotLocationSummary";
 import { useSpotLocationModal } from "@/components/SpotLocationModalProvider";
 import GuidePlaceCard from "@/components/GuidePlaceCard";
+import LocationCardViewerFrame from "@/components/LocationCardViewerFrame";
 import OwnContentMenu from "@/components/OwnContentMenu";
 import PostCommentsSection from "@/components/PostCommentsSection";
 import PostDetailActionRail from "@/components/PostDetailActionRail";
 import PostReelMedia from "@/components/PostReelMedia";
+import SpotMediaCarousel, { type SpotCarouselSlide } from "@/components/SpotMediaCarousel";
+import SpotViewerCarouselIndicator from "@/components/SpotViewerCarouselIndicator";
 import SaveToCollectionSheet from "@/components/SaveToCollectionSheet";
 import SendSpotSheet from "@/components/SendSpotSheet";
 import PostMediaViewer from "@/components/PostMediaViewer";
+import { loadPostMediaCarouselItems } from "@/lib/postMediaItems";
 import { deleteOwnedSpot } from "@/lib/deleteContent";
 import {
-  findDemoPost,
   formatPostDetailSpotTitle,
+  loadPostDetail,
   type PostDetailRow,
 } from "@/lib/postDetail";
-import { getSafeAuthSession } from "@/lib/authSession";
+import { getCachedPostDetail } from "@/lib/postDetailCache";
+import { useAuthSession } from "@/components/AuthSessionProvider";
 import { isGuideAccountProfile } from "@/lib/guideAccounts";
-import { isDemoPostId, normalizePostId, postIdForQuery } from "@/lib/postIds";
+import { normalizePostId } from "@/lib/postIds";
 import { loadPostReactions, type PostReactionState } from "@/lib/postReactions";
 import {
   formatPostTime,
   getPostMedia,
   getPostThumbnailUrl,
   inferMediaTypeFromUrl,
-  POST_AUTHOR_PROFILES_FKEY,
 } from "@/lib/posts";
-import { isGuidePlaceRelationMissing, normalizeGuidePlace } from "@/lib/guidePlaces";
+import { normalizeGuidePlace } from "@/lib/guidePlaces";
 import { publicProfileUsername } from "@/lib/publicProfile";
-import { getErrorMessage, logExactLoadError, userFacingSupabaseListError } from "@/lib/safeLoad";
-import {
-  logSpotLoadQueryResult,
-  logSpotLoadQueryStart,
-  logSpotLoadUiFailure,
-} from "@/lib/spotLoadDiagnostics";
+import { getErrorMessage, logExactLoadError } from "@/lib/safeLoad";
+import { perfMark, perfSince } from "@/lib/perfLog";
 import { shouldShowSpotLocation, isSpotContent } from "@/lib/spotLocationDisplay";
+import { getSpotCaption } from "@/lib/spotCaption";
+import { isSpotLocationCardPost, getSpotLocationCardViewerTitle, probeImageAspectRatio } from "@/lib/spotLocationCard";
 import { normalizeSpotPublicStats, EMPTY_SPOT_PUBLIC_STATS, type SpotPublicStats } from "@/lib/spotRanking";
 import { dispatchSpotStatsUpdated, SPOT_STATS_UPDATED_EVENT, type SpotStatsUpdatedDetail } from "@/lib/spotStatsEvents";
 import { loadSpotCollectionSaveState } from "@/lib/collections";
 import { setImmersiveOverlayActive } from "@/lib/immersiveOverlay";
+import { useSpotViewerDismissGesture } from "@/lib/useSpotViewerDismissGesture";
 import { useI18n } from "@/components/I18nProvider";
 import { localizeUserMessage } from "@/lib/i18n/localizeUserMessage";
 import { seeSpotLocation } from "@/lib/seeSpotLocation";
 import { type SpotLoadPhase } from "@/lib/spotLoadState";
-import { supabase } from "@/lib/supabaseClient";
 
 const REEL_ICON_BUTTON_CLASS =
   "flex h-10 w-10 items-center justify-center rounded-full bg-black/50 text-white ring-1 ring-white/15 backdrop-blur-md transition hover:bg-black/70";
@@ -60,21 +62,6 @@ const EMPTY_REACTIONS: PostReactionState = {
   userLiked: false,
   userMarkedUseful: false,
 };
-
-const POST_DETAIL_SELECT =
-  `id, user_id, content, created_at, updated_at, visibility, image_url, video_url, media_url, media_type, content_kind, spot_name, spot_address, spot_city, spot_country, spot_latitude, spot_longitude, visited_count, comments_count, collection_save_count, guide_places(title, location_name, canton, city, description, opening_hours, price_info, official_url, read_more_text, media_url, media_type, source_url), ${POST_AUTHOR_PROFILES_FKEY}(username, avatar_url)`;
-const POST_DETAIL_SELECT_LEGACY =
-  `id, user_id, content, created_at, updated_at, image_url, video_url, media_url, media_type, ${POST_AUTHOR_PROFILES_FKEY}(username, avatar_url)`;
-
-function isMissingSpotRankingInSelect(error: { code?: string; message?: string } | null) {
-  if (!error) {
-    return false;
-  }
-
-  const message = error.message?.toLowerCase() ?? "";
-
-  return error.code === "42703" && (message.includes("visited_count") || message.includes("comments_count") || message.includes("collection_save_count"));
-}
 
 function ShimmerBlock({ className }: { className: string }) {
   return (
@@ -153,8 +140,10 @@ export default function PostDetailPage({ postIdOverride }: PostDetailPageProps =
   const router = useRouter();
   const params = useParams<{ postId?: string | string[] }>();
   const postId = postIdOverride ?? resolveRoutePostId(params);
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const { openSpotLocation } = useSpotLocationModal();
+  const { session } = useAuthSession();
+  const userId = session?.user?.id ?? null;
 
   const [post, setPost] = useState<PostDetailRow | null>(null);
   const [loading, setLoading] = useState(true);
@@ -162,8 +151,6 @@ export default function PostDetailPage({ postIdOverride }: PostDetailPageProps =
   const [isDemo, setIsDemo] = useState(false);
 
   const [engagementReady, setEngagementReady] = useState(false);
-  const [sessionReady, setSessionReady] = useState(false);
-  const [userId, setUserId] = useState<string | null>(null);
   const [reactions, setReactions] = useState<PostReactionState>(EMPTY_REACTIONS);
   const [reactionsLoading, setReactionsLoading] = useState(false);
   const [reactionsError, setReactionsError] = useState<string | null>(null);
@@ -179,9 +166,28 @@ export default function PostDetailPage({ postIdOverride }: PostDetailPageProps =
   const [shareUrl, setShareUrl] = useState("");
   const [mounted, setMounted] = useState(false);
   const [mediaLoadPhase, setMediaLoadPhase] = useState<SpotLoadPhase>("loading");
+  const [carouselSlides, setCarouselSlides] = useState<SpotCarouselSlide[]>([]);
+  const [carouselActiveIndex, setCarouselActiveIndex] = useState(0);
+  const [mediaAspectRatio, setMediaAspectRatio] = useState<number | null>(null);
+  const screenRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const mediaMountAtRef = useRef<number | null>(null);
+
+  const handleMediaPhaseChange = useCallback(
+    (phase: SpotLoadPhase) => {
+      setMediaLoadPhase(phase);
+
+      if (phase === "loaded" && mediaMountAtRef.current != null) {
+        perfSince(mediaMountAtRef.current, "first media frame", { postId });
+        mediaMountAtRef.current = null;
+      }
+    },
+    [postId]
+  );
 
   useLayoutEffect(() => {
     setMounted(true);
+    perfMark("post-detail");
   }, []);
 
   useEffect(() => {
@@ -227,13 +233,13 @@ export default function PostDetailPage({ postIdOverride }: PostDetailPageProps =
     let cancelled = false;
 
     const loadPostOnly = async () => {
+      const mountAt = performance.now();
       setLoading(true);
       setError(null);
       setPost(null);
       setMediaLoadPhase("loading");
+      mediaMountAtRef.current = performance.now();
       setEngagementReady(false);
-      setSessionReady(false);
-      setUserId(null);
       setReactions(EMPTY_REACTIONS);
       setReactionsError(null);
       setCommentCount(0);
@@ -248,109 +254,44 @@ export default function PostDetailPage({ postIdOverride }: PostDetailPageProps =
         return;
       }
 
-      try {
-        if (isDemoPostId(postId)) {
-          const demoPost = findDemoPost(postId);
+      const cached = getCachedPostDetail(postId);
 
-          if (cancelled) {
-            return;
-          }
-
-          if (!demoPost) {
-            setError("Post not found.");
-            setLoading(false);
-            return;
-          }
-
-          setPost(demoPost);
-          setIsDemo(true);
-          setLoading(false);
-          return;
-        }
-
-        const queryId = postIdForQuery(postId);
-        logSpotLoadQueryStart("PostDetailView", postId, queryId);
-
-        let primaryResult = await supabase
-          .from("posts")
-          .select(POST_DETAIL_SELECT)
-          .eq("id", queryId)
-          .single();
-
-        if (isMissingSpotRankingInSelect(primaryResult.error)) {
-          console.warn("[Spot load] PostDetailView retry without ranking columns", {
-            receivedSpotId: postId,
-            queryId,
-            errorCode: primaryResult.error?.code ?? null,
-            errorMessage: primaryResult.error?.message ?? null,
-          });
-          primaryResult = await supabase
-            .from("posts")
-            .select(POST_DETAIL_SELECT.replace(", visited_count, comments_count, collection_save_count", ""))
-            .eq("id", queryId)
-            .single();
-        }
-
-        const { data, error: postError } = isGuidePlaceRelationMissing(primaryResult.error)
-          ? await (async () => {
-              console.warn("[Spot load] PostDetailView retry legacy select (no guide_places embed)", {
-                receivedSpotId: postId,
-                queryId,
-                errorCode: primaryResult.error?.code ?? null,
-                errorMessage: primaryResult.error?.message ?? null,
-              });
-              return supabase.from("posts").select(POST_DETAIL_SELECT_LEGACY).eq("id", queryId).single();
-            })()
-          : primaryResult;
-
-        logSpotLoadQueryResult({
-          context: "PostDetailView",
-          receivedSpotId: postId,
-          queryId,
-          data: data as Record<string, unknown> | null,
-          error: postError,
-          select: isGuidePlaceRelationMissing(primaryResult.error)
-            ? POST_DETAIL_SELECT_LEGACY
-            : POST_DETAIL_SELECT,
+      if (cached?.post) {
+        const cachedPost = cached.post;
+        setPost({
+          ...cachedPost,
+          spot_latitude: cachedPost.spot_latitude != null ? Number(cachedPost.spot_latitude) : null,
+          spot_longitude: cachedPost.spot_longitude != null ? Number(cachedPost.spot_longitude) : null,
         });
+        setIsDemo(cached.isDemo);
+        if (cachedPost.content_kind === "spot") {
+          const stats = normalizeSpotPublicStats(cachedPost);
+          setSpotStats(stats);
+          setCommentCount(stats.comments_count);
+        }
+        setLoading(false);
+        setEngagementReady(true);
+        perfSince(mountAt, "first data received", { postId, source: "cache" });
+      }
+
+      try {
+        const result = await loadPostDetail(postId);
 
         if (cancelled) {
           return;
         }
 
-        if (postError) {
-          logExactLoadError(postError);
-          logSpotLoadUiFailure("PostDetailView", "Supabase query error", {
-            receivedSpotId: postId,
-            queryId,
-            errorCode: postError.code ?? null,
-            errorMessage: postError.message ?? null,
-            userFacingError: userFacingSupabaseListError(postError) ?? "Unable to load this post.",
-          });
-          setError(userFacingSupabaseListError(postError) ?? "Unable to load this post.");
-          setLoading(false);
+        if (result.error || !result.post) {
+          if (!cached?.post) {
+            setError(result.error ?? "Post not found.");
+            setLoading(false);
+          }
           return;
         }
 
-        if (!data) {
-          logSpotLoadUiFailure("PostDetailView", "no row returned", {
-            receivedSpotId: postId,
-            queryId,
-          });
-          setError("Post not found.");
-          setLoading(false);
-          return;
-        }
+        const row = result.post;
 
-        const row = data as unknown as PostDetailRow & { id: string | number; profiles?: PostDetailRow["profiles"] | PostDetailRow["profiles"][] };
-        const authorProfile = Array.isArray(row.profiles) ? row.profiles[0] : row.profiles;
-
-        if (isGuideAccountProfile(authorProfile)) {
-          logSpotLoadUiFailure("PostDetailView", "guide account post hidden", {
-            receivedSpotId: postId,
-            queryId,
-            userId: row.user_id,
-          });
+        if (isGuideAccountProfile(row.profiles)) {
           setError("Post not found.");
           setLoading(false);
           return;
@@ -358,8 +299,6 @@ export default function PostDetailPage({ postIdOverride }: PostDetailPageProps =
 
         setPost({
           ...row,
-          profiles: authorProfile ?? null,
-          id: normalizePostId(row.id) ?? postId,
           spot_latitude: row.spot_latitude != null ? Number(row.spot_latitude) : null,
           spot_longitude: row.spot_longitude != null ? Number(row.spot_longitude) : null,
         });
@@ -368,9 +307,10 @@ export default function PostDetailPage({ postIdOverride }: PostDetailPageProps =
           setSpotStats(stats);
           setCommentCount(stats.comments_count);
         }
-        setIsDemo(false);
+        setIsDemo(result.isDemo);
         setLoading(false);
         setEngagementReady(true);
+        perfSince(mountAt, "first data received", { postId, source: cached?.post ? "network-refresh" : "network" });
       } catch (loadError) {
         logExactLoadError(loadError);
 
@@ -378,8 +318,10 @@ export default function PostDetailPage({ postIdOverride }: PostDetailPageProps =
           return;
         }
 
-        setError(getErrorMessage(loadError, "Unable to load this post."));
-        setLoading(false);
+        if (!cached?.post) {
+          setError(getErrorMessage(loadError, "Unable to load this post."));
+          setLoading(false);
+        }
       }
     };
 
@@ -391,31 +333,7 @@ export default function PostDetailPage({ postIdOverride }: PostDetailPageProps =
   }, [postId]);
 
   useEffect(() => {
-    if (!engagementReady || isDemo) {
-      return;
-    }
-
-    let cancelled = false;
-
-    const loadSession = async () => {
-      const { session, error } = await getSafeAuthSession();
-
-      if (!cancelled) {
-        setUserId(session?.user?.id ?? null);
-        setAuthHint(error);
-        setSessionReady(true);
-      }
-    };
-
-    void loadSession();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [engagementReady, isDemo]);
-
-  useEffect(() => {
-    if (!engagementReady || isDemo || !sessionReady || !postId) {
+    if (!engagementReady || isDemo || !postId) {
       return;
     }
 
@@ -456,7 +374,44 @@ export default function PostDetailPage({ postIdOverride }: PostDetailPageProps =
     return () => {
       cancelled = true;
     };
-  }, [engagementReady, isDemo, postId, sessionReady, userId]);
+  }, [engagementReady, isDemo, postId, userId]);
+
+  useEffect(() => {
+    if (!postId) {
+      setCarouselSlides([]);
+      setCarouselActiveIndex(0);
+      return;
+    }
+
+    let cancelled = false;
+
+    void loadPostMediaCarouselItems(postId).then((items) => {
+      if (cancelled) {
+        return;
+      }
+
+      if (items.length <= 1) {
+        setCarouselSlides([]);
+        setCarouselActiveIndex(0);
+        return;
+      }
+
+      setCarouselActiveIndex(0);
+      setCarouselSlides(
+        items.map((entry) => ({
+          id: entry.id,
+          mediaUrl: entry.media_url,
+          mediaType: entry.media_type,
+          posterUrl: entry.video_cover_url,
+          audioMuted: entry.audio_muted,
+        }))
+      );
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [postId]);
 
   const isSpotPost = post
     ? isSpotContent({
@@ -546,17 +501,62 @@ export default function PostDetailPage({ postIdOverride }: PostDetailPageProps =
     setSaveSheetOpen(true);
   };
 
-  const handleBack = () => {
+  const handleNavigateBack = useCallback(() => {
     if (window.history.length > 1) {
       router.back();
       return;
     }
 
     router.push("/feed");
-  };
+  }, [router]);
+
+  const getCarouselGestureState = useCallback(() => {
+    if (carouselSlides.length <= 1) {
+      return null;
+    }
+
+    return {
+      itemCount: carouselSlides.length,
+      activeIndex: carouselActiveIndex,
+    };
+  }, [carouselActiveIndex, carouselSlides.length]);
+
+  const {
+    isClosing,
+    panelStyle,
+    screenStyle,
+    requestClose,
+  } = useSpotViewerDismissGesture({
+    onClose: handleNavigateBack,
+    targetRef: screenRef,
+    panelRef,
+    isActive: mounted,
+    getCarouselGestureState,
+  });
 
   const { mediaUrl, mediaType } = post ? getDetailMedia(post) : { mediaUrl: null, mediaType: null };
   const posterUrl = post ? getPostThumbnailUrl(post) : null;
+
+  useEffect(() => {
+    if (!mediaUrl || mediaType !== "image") {
+      setMediaAspectRatio(null);
+      return;
+    }
+
+    let cancelled = false;
+
+    void probeImageAspectRatio(mediaUrl).then((ratio) => {
+      if (!cancelled) {
+        setMediaAspectRatio(ratio);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [mediaUrl, mediaType]);
+
+  const hasCarousel = carouselSlides.length > 1;
   const postAuthor = post?.profiles;
   const authorUsername = publicProfileUsername(postAuthor?.username);
   const guidePlace = normalizeGuidePlace(post?.guide_places);
@@ -572,8 +572,18 @@ export default function PostDetailPage({ postIdOverride }: PostDetailPageProps =
         spot_longitude: post.spot_longitude,
       })
     : false;
+  const isLocationCard = post ? isSpotLocationCardPost(post, {
+    carouselItemCount: carouselSlides.length,
+    mediaAspectRatio,
+  }) : false;
+  const showSpotLocationInViewer = showSpotLocation;
+  const viewerCaption = post ? getSpotCaption(post.content) : null;
+  const viewerTitle = post && isLocationCard ? getSpotLocationCardViewerTitle(post, locale) : null;
+  const mediaAlt = viewerCaption ?? viewerTitle ?? spotTitle ?? "";
   const engagementDisabled = isDemo || !engagementReady;
-  const showActionRail = Boolean(post && !loading && !error);
+  const showViewerContent = Boolean(post && (!loading || isClosing) && !error);
+  const showActionRail = showViewerContent;
+  const showSkeleton = loading && !isClosing;
   const isOwnPost = Boolean(post && userId && post.user_id === userId && !isDemo);
   const isSpotSaved = savedCollectionIds.length > 0;
 
@@ -596,7 +606,7 @@ export default function PostDetailPage({ postIdOverride }: PostDetailPageProps =
       },
       viewerId: userId,
       ownerId: post.user_id,
-      authResolved: engagementReady && sessionReady,
+      authResolved: engagementReady,
       currentVisitedCount: spotStats.visited_count,
       openSpotLocation,
     });
@@ -611,10 +621,18 @@ export default function PostDetailPage({ postIdOverride }: PostDetailPageProps =
   }, [postId, shareUrl]);
 
   const immersiveView = (
-    <div data-spot-reel-screen className="fixed inset-0 z-[120] overflow-hidden bg-black text-white">
+    <div
+      ref={screenRef}
+      data-spot-reel-screen
+      data-spot-viewer-screen
+      data-spot-viewer-closing={isClosing ? "" : undefined}
+      className="fixed inset-0 z-[120] overflow-hidden text-white"
+      style={screenStyle}
+    >
+      <div ref={panelRef} data-spot-viewer-panel style={panelStyle}>
       <button
         type="button"
-        onClick={handleBack}
+        onClick={requestClose}
         className={`absolute left-3 z-50 ${REEL_ICON_BUTTON_CLASS}`}
         data-spot-viewer-chrome-top
         aria-label={t("post.goBack")}
@@ -656,20 +674,20 @@ export default function PostDetailPage({ postIdOverride }: PostDetailPageProps =
         </div>
       ) : null}
 
-      {loading ? (
+      {showSkeleton ? (
         <PostDetailSkeleton />
-      ) : error || !post ? (
+      ) : !showViewerContent ? (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 px-8 text-center">
           <p className="text-sm text-red-300">{localizeUserMessage(t, error) ?? t("post.notFound")}</p>
           <button
             type="button"
-            onClick={handleBack}
+            onClick={handleNavigateBack}
             className="rounded-full bg-white/10 px-5 py-2.5 text-sm font-semibold text-white hover:bg-white/15"
           >
             {t("post.goBack")}
           </button>
         </div>
-      ) : (
+      ) : post ? (
         <>
           <div className="absolute inset-0 overflow-hidden">
             {guidePlace && !mediaUrl ? (
@@ -678,6 +696,29 @@ export default function PostDetailPage({ postIdOverride }: PostDetailPageProps =
                   <GuidePlaceCard place={guidePlace} postId={post.id} />
                 </div>
               </div>
+            ) : isLocationCard && mediaUrl && mediaType && isSpotPost ? (
+              <LocationCardViewerFrame>
+                <PostReelMedia
+                  mediaUrl={mediaUrl}
+                  mediaType={mediaType}
+                  posterUrl={posterUrl}
+                  isActive
+                  audioMuted={Boolean(post.audio_muted)}
+                  alt={mediaAlt}
+                  onPhaseChange={handleMediaPhaseChange}
+                />
+              </LocationCardViewerFrame>
+            ) : hasCarousel && isSpotPost ? (
+              <div data-spot-viewer-media className="absolute inset-0">
+                <SpotMediaCarousel
+                  slides={carouselSlides}
+                  isActive
+                  activeIndex={carouselActiveIndex}
+                  onActiveIndexChange={setCarouselActiveIndex}
+                  viewerPlayback
+                  className="h-full w-full"
+                />
+              </div>
             ) : mediaUrl && mediaType && isSpotPost ? (
               <div data-spot-viewer-media data-media-load-phase={mediaLoadPhase}>
                 <PostReelMedia
@@ -685,13 +726,14 @@ export default function PostDetailPage({ postIdOverride }: PostDetailPageProps =
                   mediaType={mediaType}
                   posterUrl={posterUrl}
                   isActive
-                  alt={spotTitle ?? post.content ?? ""}
-                  onPhaseChange={setMediaLoadPhase}
+                  audioMuted={Boolean(post.audio_muted)}
+                  alt={mediaAlt}
+                  onPhaseChange={handleMediaPhaseChange}
                 />
               </div>
             ) : mediaUrl && mediaType ? (
               <div data-spot-viewer-media>
-                <PostMediaViewer mediaUrl={mediaUrl} mediaType={mediaType} alt={spotTitle ?? post.content ?? ""} />
+                <PostMediaViewer mediaUrl={mediaUrl} mediaType={mediaType} alt={mediaAlt} />
               </div>
             ) : (
               <div className="absolute inset-0 flex items-center justify-center px-6 text-center text-sm text-slate-500">
@@ -701,7 +743,15 @@ export default function PostDetailPage({ postIdOverride }: PostDetailPageProps =
 
             {showActionRail ? (
               <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 bg-gradient-to-t from-black/95 via-black/60 to-transparent px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-28 pr-16">
-                <div className="pointer-events-auto space-y-2">
+                <div className="pointer-events-auto relative space-y-2">
+                  {!isLocationCard && hasCarousel ? (
+                    <SpotViewerCarouselIndicator
+                      slides={carouselSlides}
+                      activeIndex={carouselActiveIndex}
+                      showSwipeHint
+                      onSelectIndex={setCarouselActiveIndex}
+                    />
+                  ) : null}
                   {postAuthor ? (
                     <Link href={`/user?id=${post.user_id}`} className="inline-flex max-w-full items-center gap-2">
                       <div className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/15 bg-slate-900">
@@ -711,13 +761,23 @@ export default function PostDetailPage({ postIdOverride }: PostDetailPageProps =
                           <UserRound className="h-4 w-4 text-slate-400" strokeWidth={1.5} aria-hidden />
                         )}
                       </div>
-                      <span className="truncate text-sm font-semibold text-white">{authorUsername}</span>
+                      <span className="truncate text-sm font-semibold text-white">
+                        {authorUsername}
+                      </span>
                     </Link>
                   ) : null}
 
-                  {spotTitle ? <p className="text-sm font-semibold text-white">{spotTitle}</p> : null}
+                  {viewerTitle ? (
+                    <p className="text-sm font-semibold text-white">
+                      {viewerTitle}
+                    </p>
+                  ) : null}
 
-                  {showSpotLocation && post ? (
+                  {viewerCaption ? (
+                    <p className="whitespace-pre-wrap text-[15px] leading-relaxed text-white">{viewerCaption}</p>
+                  ) : null}
+
+                  {showSpotLocationInViewer && post ? (
                     <SpotLocationSummary
                       className="text-xs"
                       currentVisitedCount={spotStats.visited_count}
@@ -735,21 +795,20 @@ export default function PostDetailPage({ postIdOverride }: PostDetailPageProps =
                     />
                   ) : null}
 
-                  {post.content ? (
-                    <p className="line-clamp-4 whitespace-pre-wrap text-sm leading-relaxed text-slate-100">{post.content}</p>
-                  ) : null}
-
-                  <time className="block text-[11px] text-slate-400" dateTime={post.created_at}>
+                  <time
+                    className="block text-xs text-slate-500"
+                    dateTime={post.created_at}
+                  >
                     {formatPostTime(post.created_at)}
                   </time>
 
-                  {isDemo ? (
+                  {!isLocationCard && isDemo ? (
                     <p className="text-xs text-slate-500">{t("post.guidePreviewReadOnly")}</p>
-                  ) : authHint ? (
+                  ) : !isLocationCard && authHint ? (
                     <p className="text-xs text-amber-200/90">{localizeUserMessage(t, authHint) ?? authHint}</p>
                   ) : null}
 
-                  {reactionsError ? (
+                  {!isLocationCard && reactionsError ? (
                     <p className="text-xs text-red-300">{localizeUserMessage(t, reactionsError) ?? reactionsError}</p>
                   ) : null}
                 </div>
@@ -760,31 +819,25 @@ export default function PostDetailPage({ postIdOverride }: PostDetailPageProps =
               <div
                 className="pointer-events-auto absolute bottom-[max(6.5rem,calc(env(safe-area-inset-bottom)+5.5rem))] right-2 z-30"
                 onClick={(event) => event.stopPropagation()}
-                onTouchStart={(event) => event.stopPropagation()}
-                onTouchEnd={(event) => event.stopPropagation()}
               >
-                {!isDemo && engagementReady && (reactionsLoading || !sessionReady) ? (
-                  <div className="h-40 w-12 animate-pulse rounded-full bg-white/10" />
-                ) : (
-                  <PostDetailActionRail
-                    postId={postId}
-                    userId={userId}
-                    reactions={reactions}
-                    commentCount={commentCount}
-                    shareUrl={resolvedShareUrl}
-                    disabled={engagementDisabled || reactionsLoading}
-                    variant={isSpotPost ? "spot" : "default"}
-                    isSpotSaved={isSpotSaved}
-                    savedCount={spotStats.saved_count}
-                    visitedCount={spotStats.visited_count}
-                    savePending={saveStateLoading && isSpotPost}
-                    onRequireAuth={handleRequireAuth}
-                    onCommentClick={() => setCommentsOpen(true)}
-                    onSaveClick={handleOpenSaveSheet}
-                    onVisitedClick={isSpotPost && showSpotLocation ? handleOpenSpotLocation : undefined}
-                    onSendSpotClick={isSpotPost ? () => setSendSpotSheetOpen(true) : undefined}
-                  />
-                )}
+                <PostDetailActionRail
+                  postId={postId}
+                  userId={userId}
+                  reactions={reactions}
+                  commentCount={commentCount}
+                  shareUrl={resolvedShareUrl}
+                  disabled={engagementDisabled || reactionsLoading}
+                  variant={isSpotPost ? "spot" : "default"}
+                  isSpotSaved={isSpotSaved}
+                  savedCount={spotStats.saved_count}
+                  visitedCount={spotStats.visited_count}
+                  savePending={saveStateLoading && isSpotPost}
+                  onRequireAuth={handleRequireAuth}
+                  onCommentClick={() => setCommentsOpen(true)}
+                  onSaveClick={handleOpenSaveSheet}
+                  onVisitedClick={isSpotPost && showSpotLocation ? handleOpenSpotLocation : undefined}
+                  onSendSpotClick={isSpotPost ? () => setSendSpotSheetOpen(true) : undefined}
+                />
               </div>
             ) : null}
 
@@ -808,6 +861,8 @@ export default function PostDetailPage({ postIdOverride }: PostDetailPageProps =
               drawerOpen={commentsOpen}
               onDrawerClose={() => setCommentsOpen(false)}
               uniqueCommentersCount={isSpotPost}
+              initialCommentCount={commentCount}
+              skipInitialCountFetch={isSpotPost}
               onCountChange={(count) => {
                 setCommentCount(count);
                 if (isSpotPost) {
@@ -840,7 +895,8 @@ export default function PostDetailPage({ postIdOverride }: PostDetailPageProps =
             />
           ) : null}
         </>
-      )}
+      ) : null}
+      </div>
     </div>
   );
 

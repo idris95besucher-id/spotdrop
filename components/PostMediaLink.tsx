@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import type { MouseEvent, ReactNode } from "react";
-import { usePostViewerOptional } from "@/components/PostViewerProvider";
+import { usePostViewerOptional, type PostViewerMode } from "@/components/PostViewerProvider";
 import { getViewerSpotMediaUrl, type ViewerPostListItem } from "@/lib/postViewer";
 import { normalizePostId, postIdsEqual } from "@/lib/postIds";
 
@@ -14,6 +14,8 @@ type PostMediaLinkProps = {
   /** Full spot object from the same array as viewerItems. */
   clickedSpot?: ViewerPostListItem;
   onViewerItemDeleted?: (postId: string) => void;
+  /** profile-feed for profile grids; search-reel for Search; reel (default) elsewhere. */
+  viewerMode?: PostViewerMode;
 };
 
 export default function PostMediaLink({
@@ -23,6 +25,7 @@ export default function PostMediaLink({
   viewerItems,
   clickedSpot,
   onViewerItemDeleted,
+  viewerMode = "reel",
 }: PostMediaLinkProps) {
   const postViewer = usePostViewerOptional();
   const id = normalizePostId(postId);
@@ -56,11 +59,12 @@ export default function PostMediaLink({
       onItemDeleted: onViewerItemDeleted,
       initialSpotId,
       initialMediaUrl,
+      mode: viewerMode,
     });
   };
 
   return (
-    <Link href={href} className={className} scroll onClick={handleClick}>
+    <Link href={href} className={className} scroll prefetch={false} onClick={handleClick}>
       {children}
     </Link>
   );

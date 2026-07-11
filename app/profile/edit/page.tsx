@@ -8,6 +8,12 @@ import { getSafeAuthSession } from "@/lib/authSession";
 import { getCountryFlag } from "@/lib/countryFlags";
 import { ensureProfileRow } from "@/lib/profile";
 import { uploadAvatarImage } from "@/lib/profileMedia";
+import {
+  loadProfileGalleryVisibility,
+  PROFILE_GALLERY_VISIBILITY_VALUES,
+  saveProfileGalleryVisibility,
+  type ProfileGalleryVisibility,
+} from "@/lib/profileGalleryVisibility";
 import { supabase } from "@/lib/supabaseClient";
 import SignOutButton from "@/components/SignOutButton";
 import Shell from "@/components/Shell";
@@ -134,6 +140,8 @@ export default function EditProfilePage() {
   const [birthDay, setBirthDay] = useState("");
   const [birthMonth, setBirthMonth] = useState("");
   const [birthYear, setBirthYear] = useState("");
+  const [galleryVisibility, setGalleryVisibility] = useState<ProfileGalleryVisibility>("everyone");
+  const [savingGalleryVisibility, setSavingGalleryVisibility] = useState(false);
 
   useEffect(() => {
     const loadProfile = async () => {
@@ -189,6 +197,8 @@ export default function EditProfilePage() {
       setBirthYear(dateParts.year);
       setBirthMonth(dateParts.month);
       setBirthDay(dateParts.day);
+
+      void loadProfileGalleryVisibility(session.user.id).then(setGalleryVisibility);
       setLoading(false);
     };
 
@@ -259,6 +269,26 @@ export default function EditProfilePage() {
       setUploadingAvatar(false);
       event.target.value = "";
     }
+  };
+
+  const handleGalleryVisibilityChange = async (nextVisibility: ProfileGalleryVisibility) => {
+    if (!session?.user?.id || savingGalleryVisibility || nextVisibility === galleryVisibility) {
+      return;
+    }
+
+    const previousVisibility = galleryVisibility;
+    setGalleryVisibility(nextVisibility);
+    setSavingGalleryVisibility(true);
+    setError(null);
+
+    const result = await saveProfileGalleryVisibility(session.user.id, nextVisibility);
+
+    if (result.error) {
+      setGalleryVisibility(previousVisibility);
+      setError(t("profileEdit.error.galleryVisibilityFailed"));
+    }
+
+    setSavingGalleryVisibility(false);
   };
 
   const handleSaveProfile = async (event: FormEvent<HTMLFormElement>) => {
@@ -583,6 +613,51 @@ export default function EditProfilePage() {
                   </select>
                 </div>
               </label>
+            </section>
+
+            <section className="space-y-4 rounded-2xl border border-white/10 bg-slate-900/60 p-4 sm:p-5">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm font-medium text-white">{t("profileEdit.privacyTitle")}</p>
+                {savingGalleryVisibility ? (
+                  <p className="text-xs text-slate-500">{t("profileEdit.galleryVisibilitySaving")}</p>
+                ) : null}
+              </div>
+
+              <div>
+                <p className={labelClass}>{t("profile.galleryVisibility.sectionTitle")}</p>
+                <div className="mt-3 space-y-2">
+                  {PROFILE_GALLERY_VISIBILITY_VALUES.map((value) => {
+                    const labelKey =
+                      value === "everyone"
+                        ? "profile.galleryVisibility.everyone"
+                        : value === "friends"
+                          ? "profile.galleryVisibility.friends"
+                          : "profile.galleryVisibility.onlyMe";
+
+                    return (
+                      <label
+                        key={value}
+                        className={`flex cursor-pointer items-center gap-3 rounded-xl border px-3.5 py-3 transition ${
+                          galleryVisibility === value
+                            ? "border-cyan-400/40 bg-cyan-400/10"
+                            : "border-white/10 bg-slate-950/50 hover:border-white/15"
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="galleryVisibility"
+                          value={value}
+                          checked={galleryVisibility === value}
+                          disabled={savingGalleryVisibility}
+                          onChange={() => void handleGalleryVisibilityChange(value)}
+                          className="h-4 w-4 accent-cyan-400"
+                        />
+                        <span className="text-sm font-medium text-white">{t(labelKey)}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
             </section>
 
             {error ? (

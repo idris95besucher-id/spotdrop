@@ -5,6 +5,7 @@ import {
 } from "@/lib/messagePrivacy";
 import { isProfileUserId } from "@/lib/userPresence";
 import { supabase } from "@/lib/supabaseClient";
+import { isLocationCardShareMessage } from "@/lib/locationCardShareMessage";
 
 const MESSAGE_PRIVACY_BLOCK_EN: Record<MessagePrivacyBlockReasonKey, string> = {
   "messagePrivacy.blocked.nobody": "This user isn't accepting messages.",
@@ -741,6 +742,10 @@ export function truncateChatPreview(
 
   if (message.message_type === "spot_share_accepted") {
     return "CheckSpot accepted";
+  }
+
+  if (isLocationCardShareMessage(message.body)) {
+    return "Shared a Text Card";
   }
 
   const trimmed = (message.body ?? "").trim();

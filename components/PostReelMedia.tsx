@@ -1,34 +1,40 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Loader2 } from "lucide-react";
+import { pauseAllGridVideoPreviews } from "@/lib/gridVideoPreviewControl";
 import { logSpotLoadUiFailure } from "@/lib/spotLoadDiagnostics";
+import { releasePreloadedReelVideo } from "@/lib/postViewerMedia";
+import { SPOT_LOAD_ERROR, type SpotLoadPhase } from "@/lib/spotLoadState";
 import {
-  getSpotMediaLoadTimeoutMs,
-  SPOT_LOAD_ERROR,
-  type SpotLoadPhase,
-} from "@/lib/spotLoadState";
+  applySpotFullscreenVideoAttributes,
+  playSpotFullscreenVideo,
+} from "@/lib/spotViewerVideoPlayback";
+import {
+  installVideoPauseTracer,
+  isVideoPlaybackDebugEnabled,
+  logVideoPlaybackDebug,
+  snapshotVideoElement,
+} from "@/lib/videoPlaybackDebug";
 
-const MAX_AUTO_RETRIES = 3;
-const RETRY_DELAY_MS = 1200;
+const MAX_AUTO_RETRIES = 2;
+const RETRY_DELAY_MS = 800;
 
-/**
- * Module-level mute preference that persists while the user scrolls through the
- * reel. Starts muted (required for iOS/Android autoplay). Tapping the video
- * toggles sound — no visible speaker control (Instagram Reels style).
- */
-let viewerGlobalMuted = true;
+export type ReelMediaPreload = "active" | "adjacent" | "none";
+
+type VideoPlaybackFlags = {
+  firstFrameReady: boolean;
+  playing: boolean;
+  error: boolean;
+};
+
+const INITIAL_VIDEO_FLAGS: VideoPlaybackFlags = {
+  firstFrameReady: false,
+  playing: false,
+  error: false,
+};
 
 function applySpotViewerVideoAttributes(video: HTMLVideoElement) {
-  video.controls = false;
-  video.playsInline = true;
-  video.setAttribute("playsinline", "true");
-  video.setAttribute("webkit-playsinline", "true");
-  video.disablePictureInPicture = true;
-  video.setAttribute("disablepictureinpicture", "");
-  video.setAttribute("disableremoteplayback", "");
-  video.setAttribute("controlsList", "nodownload nofullscreen noremoteplayback");
-  video.setAttribute("x-webkit-airplay", "deny");
+  applySpotFullscreenVideoAttributes(video);
 }
 
 type PostReelMediaProps = {
@@ -36,14 +42,16 @@ type PostReelMediaProps = {
   mediaType: "image" | "video";
   posterUrl?: string | null;
   isActive: boolean;
-  /** Preload full image/video (poster still shows when false). */
   shouldLoad?: boolean;
+  mediaPreload?: ReelMediaPreload;
   alt?: string;
+  /** Published video without audio — always play muted in viewer. */
+  audioMuted?: boolean;
   onLoadingChange?: (loading: boolean) => void;
   onPhaseChange?: (phase: SpotLoadPhase) => void;
 };
 
-function cacheBustUrl(url: string, attempt: number) {
+function retryPlaybackUrl(url: string, attempt: number) {
   if (attempt <= 0) {
     return url;
   }
@@ -56,152 +64,196 @@ function logSpotMedia(event: string, details?: Record<string, unknown>) {
   console.log(`[Spot media] ${event}`, details ?? "");
 }
 
-function logVideoStart(event: string, details?: Record<string, unknown>) {
-  console.log(`[Video start] ${event}`, details ?? "");
-}
-
-async function attemptVideoPlay(video: HTMLVideoElement) {
-  video.muted = true;
-  logVideoStart("play called", {
-    paused: video.paused,
-    readyState: video.readyState,
-    currentTime: video.currentTime,
-  });
-
-  try {
-    await video.play();
-    video.muted = viewerGlobalMuted;
-  } catch (error) {
-    console.warn("[Video start] play blocked", error);
-  }
-}
-
 export default function PostReelMedia({
   mediaUrl,
   mediaType,
   posterUrl,
   isActive,
   shouldLoad = true,
+  mediaPreload = "none",
   alt = "",
+  audioMuted = false,
   onLoadingChange,
   onPhaseChange,
 }: PostReelMediaProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const audioMutedRef = useRef(audioMuted);
+  const isActiveRef = useRef(isActive);
+  const playRetryUsedRef = useRef(false);
+  const resumeAfterPauseRef = useRef(false);
   const retryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const retryCountRef = useRef(0);
-  const playRequestedRef = useRef(false);
+  const debugLastEventRef = useRef("—");
+  const debugLastPlayResultRef = useRef("—");
 
   const [retryKey, setRetryKey] = useState(0);
   const [phase, setPhase] = useState<SpotLoadPhase>("loading");
-  const [mediaReady, setMediaReady] = useState(false);
-  const [posterReady, setPosterReady] = useState(false);
+  const [imageReady, setImageReady] = useState(false);
+  const [videoFlags, setVideoFlags] = useState<VideoPlaybackFlags>(INITIAL_VIDEO_FLAGS);
+
+  audioMutedRef.current = audioMuted;
 
   const resolvedPoster = posterUrl?.trim() || (mediaType === "image" ? mediaUrl : null);
-  const playbackUrl = cacheBustUrl(mediaUrl, retryKey);
-  const loadHeavyMedia = shouldLoad || isActive;
-  const shouldMountVideo = mediaType === "video" && loadHeavyMedia && phase !== "error";
+  const playbackUrl = retryPlaybackUrl(mediaUrl, retryKey);
+  const resolvedPreload =
+    mediaPreload === "active" ? "active" : mediaPreload === "adjacent" ? "adjacent" : shouldLoad ? "adjacent" : "none";
+  const loadHeavyMedia = resolvedPreload !== "none";
+  const shouldMountVideo = mediaType === "video" && loadHeavyMedia && !videoFlags.error;
   const canShowImage = mediaType === "image" && loadHeavyMedia;
 
-  const markLoaded = useCallback(() => {
-    setMediaReady(true);
-    setPhase("loaded");
-    retryCountRef.current = 0;
-    logSpotMedia("loaded", { mediaUrl: playbackUrl, mediaType });
-  }, [mediaType, playbackUrl]);
-
-  const markPosterFallbackLoaded = useCallback(() => {
-    setPhase("loaded");
-    retryCountRef.current = 0;
+  const markDebugEvent = useCallback((event: string, details?: Record<string, unknown>) => {
+    debugLastEventRef.current = event;
+    logVideoPlaybackDebug(event, details);
   }, []);
 
-  const markFinalError = useCallback(
-    (reason: string, details: Record<string, unknown>) => {
-      logSpotLoadUiFailure("PostReelMedia", reason, {
-        mediaUrl,
-        mediaType,
-        posterUrl: posterUrl ?? null,
-        retryCount: retryCountRef.current,
-        genericMessage: SPOT_LOAD_ERROR,
-        ...details,
-      });
-      setPhase("error");
+  const markPlayResult = useCallback((result: string, details?: Record<string, unknown>) => {
+    debugLastPlayResultRef.current = result;
+    if (result.startsWith("rejected")) {
+      logVideoPlaybackDebug("play rejected", { result, ...details });
+    } else {
+      logVideoPlaybackDebug("play resolved", { result, ...details });
+    }
+  }, []);
+
+  const refreshDebugSnapshot = useCallback(() => {
+    if (!isVideoPlaybackDebugEnabled() || mediaType !== "video") {
+      return;
+    }
+
+    snapshotVideoElement(videoRef.current, {
+      mediaUrl,
+      lastEvent: debugLastEventRef.current,
+      lastPlayResult: debugLastPlayResultRef.current,
+      isActive: isActiveRef.current,
+    });
+  }, [mediaType, mediaUrl]);
+
+  const patchVideoFlags = useCallback((patch: Partial<VideoPlaybackFlags>) => {
+    setVideoFlags((current) => ({ ...current, ...patch }));
+  }, []);
+
+  const markFirstFrameReady = useCallback(() => {
+    patchVideoFlags({ firstFrameReady: true });
+    setPhase("loaded");
+  }, [patchVideoFlags]);
+
+  const releaseCompetingDecoders = useCallback(
+    (reason: string) => {
+      logVideoPlaybackDebug("releaseCompetingDecoders", { reason, mediaUrl });
+      pauseAllGridVideoPreviews();
+      releasePreloadedReelVideo(mediaUrl);
     },
-    [mediaType, mediaUrl, posterUrl]
+    [mediaUrl]
   );
 
-  const scheduleRetry = useCallback(() => {
-    if (retryCountRef.current >= MAX_AUTO_RETRIES) {
-      if (resolvedPoster && posterReady) {
-        markPosterFallbackLoaded();
+  const attemptPlay = useCallback(
+    async (video: HTMLVideoElement, reason: string, options?: { allowRetry?: boolean }) => {
+      markDebugEvent("play attempt", {
+        reason,
+        paused: video.paused,
+        readyState: video.readyState,
+        networkState: video.networkState,
+        currentTime: video.currentTime,
+        src: video.currentSrc || video.src,
+        preferMuted: audioMutedRef.current,
+      });
+
+      const result = await playSpotFullscreenVideo(video, {
+        forceMuted: audioMutedRef.current,
+      });
+
+      if (result.started) {
+        const playResult = `resolved (${reason})`;
+        markPlayResult(playResult, {
+          reason,
+          currentTime: video.currentTime,
+          paused: video.paused,
+          muted: video.muted,
+        });
+        return true;
+      }
+
+      const rejection = "autoplay blocked";
+      markPlayResult(`rejected (${reason}): ${rejection}`, {
+        reason,
+        rejection,
+        readyState: video.readyState,
+        networkState: video.networkState,
+      });
+
+      if (options?.allowRetry) {
+        window.requestAnimationFrame(() => {
+          window.requestAnimationFrame(() => {
+            if (!video.isConnected || !video.paused) {
+              return;
+            }
+
+            markDebugEvent("play attempt", { reason: `${reason}-mount-retry` });
+            void playSpotFullscreenVideo(video, { forceMuted: audioMutedRef.current }).then((retryResult) => {
+              if (retryResult.started) {
+                markPlayResult(`resolved (${reason}-mount-retry)`, { currentTime: video.currentTime });
+              } else {
+                markPlayResult(`rejected (${reason}-mount-retry): autoplay blocked`);
+              }
+            });
+          });
+        });
+      }
+
+      refreshDebugSnapshot();
+      return false;
+    },
+    [markDebugEvent, markPlayResult, refreshDebugSnapshot]
+  );
+
+  const requestActivePlay = useCallback(
+    (video: HTMLVideoElement, reason: string) => {
+      if (!isActiveRef.current) {
+        markDebugEvent("play attempt skipped", { reason, cause: "isActive=false" });
         return;
       }
 
-      markFinalError("media load failed after retries — storage/CDN issue", {
-        posterReady,
-        hasPoster: Boolean(resolvedPoster),
+      releaseCompetingDecoders(`before-play:${reason}`);
+      void attemptPlay(video, reason, { allowRetry: !playRetryUsedRef.current }).then((started) => {
+        if (started) {
+          playRetryUsedRef.current = true;
+          patchVideoFlags({ playing: true });
+        }
+        refreshDebugSnapshot();
       });
-      return;
-    }
-
-    retryCountRef.current += 1;
-    setPhase("mediaLoading");
-    playRequestedRef.current = false;
-
-    if (retryTimeoutRef.current) {
-      clearTimeout(retryTimeoutRef.current);
-    }
-
-    retryTimeoutRef.current = setTimeout(() => {
-      setMediaReady(false);
-      setRetryKey((current) => current + 1);
-    }, RETRY_DELAY_MS);
-  }, [markFinalError, markPosterFallbackLoaded, posterReady, resolvedPoster]);
-
-  const requestVideoLoad = useCallback(
-    (video: HTMLVideoElement) => {
-      applySpotViewerVideoAttributes(video);
-      video.muted = true;
-      logVideoStart("load called", { mediaUrl: playbackUrl, isActive });
-      video.load();
     },
-    [isActive, playbackUrl]
+    [attemptPlay, markDebugEvent, patchVideoFlags, refreshDebugSnapshot, releaseCompetingDecoders]
   );
 
-  const requestVideoPlay = useCallback((video: HTMLVideoElement) => {
-    if (playRequestedRef.current && !video.paused) {
+  useEffect(() => {
+    isActiveRef.current = isActive;
+    refreshDebugSnapshot();
+  }, [isActive, refreshDebugSnapshot]);
+
+  useEffect(() => {
+    if (!isVideoPlaybackDebugEnabled() || !shouldMountVideo) {
       return;
     }
 
-    playRequestedRef.current = true;
-    void attemptVideoPlay(video);
-  }, []);
-
-  useEffect(() => {
-    logSpotMedia("mediaUrl", {
-      mediaUrl: playbackUrl,
-      mediaType,
-      isActive,
-      shouldLoad,
+    logVideoPlaybackDebug("VIDEO DEBUG ACTIVE", {
+      native: typeof window !== "undefined",
+      mediaUrl,
     });
-  }, [mediaType, playbackUrl, isActive, shouldLoad]);
 
-  useEffect(() => {
-    if (shouldMountVideo) {
-      logSpotMedia("render video", { playbackUrl, isActive });
-    }
-
-    if (canShowImage && isActive) {
-      logSpotMedia("render image", { playbackUrl });
-    }
-  }, [canShowImage, isActive, playbackUrl, shouldMountVideo]);
+    const interval = window.setInterval(refreshDebugSnapshot, 250);
+    return () => window.clearInterval(interval);
+  }, [mediaUrl, refreshDebugSnapshot, shouldMountVideo]);
 
   useEffect(() => {
     retryCountRef.current = 0;
-    playRequestedRef.current = false;
+    playRetryUsedRef.current = false;
+    resumeAfterPauseRef.current = false;
     setRetryKey(0);
-    setMediaReady(false);
-    setPosterReady(false);
+    setImageReady(false);
+    setVideoFlags(INITIAL_VIDEO_FLAGS);
     setPhase("loading");
+    debugLastEventRef.current = "—";
+    debugLastPlayResultRef.current = "—";
   }, [mediaUrl, mediaType, posterUrl]);
 
   useEffect(() => {
@@ -211,40 +263,266 @@ export default function PostReelMedia({
   }, [loadHeavyMedia, phase]);
 
   useEffect(() => {
-    if (!isActive || phase === "loaded" || phase === "error") {
+    if (mediaType === "video") {
+      if (videoFlags.error) {
+        onPhaseChange?.("error");
+      } else if (videoFlags.playing || videoFlags.firstFrameReady) {
+        onPhaseChange?.("loaded");
+      } else {
+        onPhaseChange?.(phase);
+      }
       return;
     }
 
-    if (mediaReady) {
+    onPhaseChange?.(phase);
+  }, [mediaType, onPhaseChange, phase, videoFlags.error, videoFlags.firstFrameReady, videoFlags.playing]);
+
+  useEffect(() => {
+    if (!shouldMountVideo || mediaType !== "video") {
       return;
     }
 
-    if (mediaType === "video" && resolvedPoster) {
+    markDebugEvent("mount", { mediaUrl, playbackUrl, isActive: isActiveRef.current });
+    releaseCompetingDecoders("mount");
+
+    const video = videoRef.current;
+
+    if (!video) {
+      markDebugEvent("mount", { error: "videoRef null after render" });
       return;
     }
 
-    const timeoutMs = getSpotMediaLoadTimeoutMs();
-    const timeout = window.setTimeout(() => {
-      if (mediaReady || posterReady) {
+    markDebugEvent("src set", {
+      playbackUrl,
+      currentSrc: video.currentSrc || video.src,
+    });
+
+    const restorePause = installVideoPauseTracer(video, (details) => {
+      markDebugEvent("pause", { source: "video.pause() intercepted", ...details });
+      refreshDebugSnapshot();
+    });
+
+    applySpotViewerVideoAttributes(video);
+    video.muted = audioMutedRef.current;
+    video.preload = "auto";
+
+    if (isActiveRef.current) {
+      void attemptPlay(video, "mount", { allowRetry: true });
+    }
+
+    const handleLoadedMetadata = () => {
+      markDebugEvent("loadedmetadata", {
+        readyState: video.readyState,
+        duration: video.duration,
+        videoWidth: video.videoWidth,
+        videoHeight: video.videoHeight,
+      });
+      refreshDebugSnapshot();
+    };
+
+    const handleLoadedData = () => {
+      markDebugEvent("loadeddata", {
+        readyState: video.readyState,
+        currentTime: video.currentTime,
+      });
+      markFirstFrameReady();
+
+      if (isActiveRef.current) {
+        requestActivePlay(video, "loadeddata");
+      }
+
+      refreshDebugSnapshot();
+    };
+
+    const handleCanPlay = () => {
+      markDebugEvent("canplay", {
+        readyState: video.readyState,
+        currentTime: video.currentTime,
+      });
+      markFirstFrameReady();
+
+      if (isActiveRef.current) {
+        requestActivePlay(video, "canplay");
+      }
+
+      refreshDebugSnapshot();
+    };
+
+    const handlePlaying = () => {
+      markDebugEvent("playing", { currentTime: video.currentTime });
+      patchVideoFlags({ playing: true, firstFrameReady: true, error: false });
+      setPhase("loaded");
+      retryCountRef.current = 0;
+      refreshDebugSnapshot();
+    };
+
+    const handlePause = () => {
+      markDebugEvent("pause", {
+        source: "pause event",
+        isActive: isActiveRef.current,
+        currentTime: video.currentTime,
+        readyState: video.readyState,
+        stack: isVideoPlaybackDebugEnabled() ? new Error("pause event trace").stack : undefined,
+      });
+
+      if (!isActiveRef.current) {
+        patchVideoFlags({ playing: false });
+        refreshDebugSnapshot();
         return;
       }
 
-      scheduleRetry();
-    }, timeoutMs);
+      if (resumeAfterPauseRef.current) {
+        refreshDebugSnapshot();
+        return;
+      }
+
+      resumeAfterPauseRef.current = true;
+      void attemptPlay(video, "unexpected-pause-resume").then((started) => {
+        if (started) {
+          patchVideoFlags({ playing: true });
+        }
+        refreshDebugSnapshot();
+      });
+    };
+
+    const handleStalled = () => {
+      markDebugEvent("stalled", {
+        readyState: video.readyState,
+        networkState: video.networkState,
+        currentTime: video.currentTime,
+      });
+      refreshDebugSnapshot();
+    };
+
+    const handleWaiting = () => {
+      markDebugEvent("waiting", {
+        readyState: video.readyState,
+        networkState: video.networkState,
+        currentTime: video.currentTime,
+      });
+      refreshDebugSnapshot();
+    };
+
+    const handleError = () => {
+      const mediaError = video.error;
+      markDebugEvent("error", {
+        code: mediaError?.code ?? null,
+        message: mediaError?.message ?? null,
+        readyState: video.readyState,
+        networkState: video.networkState,
+      });
+      markPlayResult(
+        `media error code=${mediaError?.code ?? "?"} msg=${mediaError?.message ?? "unknown"}`,
+        { code: mediaError?.code, message: mediaError?.message }
+      );
+
+      patchVideoFlags({ playing: false, firstFrameReady: false, error: true });
+
+      if (retryCountRef.current >= MAX_AUTO_RETRIES) {
+        logSpotLoadUiFailure("PostReelMedia", "media load failed after retries", {
+          mediaUrl,
+          retryCount: retryCountRef.current,
+          genericMessage: SPOT_LOAD_ERROR,
+        });
+        setPhase("error");
+        refreshDebugSnapshot();
+        return;
+      }
+
+      retryCountRef.current += 1;
+      playRetryUsedRef.current = false;
+      resumeAfterPauseRef.current = false;
+
+      if (retryTimeoutRef.current) {
+        clearTimeout(retryTimeoutRef.current);
+      }
+
+      retryTimeoutRef.current = setTimeout(() => {
+        setRetryKey((current) => current + 1);
+      }, RETRY_DELAY_MS);
+
+      refreshDebugSnapshot();
+    };
+
+    video.addEventListener("loadedmetadata", handleLoadedMetadata);
+    video.addEventListener("loadeddata", handleLoadedData);
+    video.addEventListener("canplay", handleCanPlay);
+    video.addEventListener("playing", handlePlaying);
+    video.addEventListener("pause", handlePause);
+    video.addEventListener("stalled", handleStalled);
+    video.addEventListener("waiting", handleWaiting);
+    video.addEventListener("error", handleError);
+
+    refreshDebugSnapshot();
 
     return () => {
-      window.clearTimeout(timeout);
+      restorePause();
+      video.removeEventListener("loadedmetadata", handleLoadedMetadata);
+      video.removeEventListener("loadeddata", handleLoadedData);
+      video.removeEventListener("canplay", handleCanPlay);
+      video.removeEventListener("playing", handlePlaying);
+      video.removeEventListener("pause", handlePause);
+      video.removeEventListener("stalled", handleStalled);
+      video.removeEventListener("waiting", handleWaiting);
+      video.removeEventListener("error", handleError);
     };
   }, [
-    isActive,
-    mediaReady,
+    attemptPlay,
+    markDebugEvent,
+    markFirstFrameReady,
+    markPlayResult,
     mediaType,
     mediaUrl,
-    phase,
-    posterReady,
-    resolvedPoster,
-    retryKey,
-    scheduleRetry,
+    patchVideoFlags,
+    playbackUrl,
+    refreshDebugSnapshot,
+    releaseCompetingDecoders,
+    requestActivePlay,
+    shouldMountVideo,
+  ]);
+
+  useEffect(() => {
+    const video = videoRef.current;
+
+    if (!video || !shouldMountVideo) {
+      return;
+    }
+
+    if (!isActive) {
+      markDebugEvent("pause", {
+        source: "PostReelMedia isActive=false effect",
+        currentTime: video.currentTime,
+        stack: isVideoPlaybackDebugEnabled() ? new Error("isActive effect pause").stack : undefined,
+      });
+      video.pause();
+      patchVideoFlags({ playing: false });
+      refreshDebugSnapshot();
+      return;
+    }
+
+    releaseCompetingDecoders("activated");
+    playRetryUsedRef.current = false;
+    resumeAfterPauseRef.current = false;
+    video.muted = audioMuted;
+    video.preload = "auto";
+
+    requestActivePlay(video, "activated");
+
+    if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+      markFirstFrameReady();
+    }
+
+    refreshDebugSnapshot();
+  }, [
+    isActive,
+    markDebugEvent,
+    markFirstFrameReady,
+    patchVideoFlags,
+    refreshDebugSnapshot,
+    releaseCompetingDecoders,
+    requestActivePlay,
+    shouldMountVideo,
+    audioMuted,
   ]);
 
   useEffect(() => {
@@ -255,177 +533,33 @@ export default function PostReelMedia({
     };
   }, []);
 
-  useEffect(() => {
-    onPhaseChange?.(phase);
-  }, [onPhaseChange, phase]);
+  const showPosterWhileVideo =
+    Boolean(resolvedPoster) &&
+    mediaType === "video" &&
+    loadHeavyMedia &&
+    isActive &&
+    !videoFlags.firstFrameReady &&
+    !videoFlags.error;
 
-  useEffect(() => {
-    if (!isActive) {
-      return;
-    }
-
-    const video = videoRef.current;
-
-    if (video) {
-      video.muted = viewerGlobalMuted;
-    }
-  }, [isActive]);
-
-  useEffect(() => {
-    const video = videoRef.current;
-
-    if (!video || !shouldMountVideo) {
-      return;
-    }
-
-    requestVideoLoad(video);
-
-    const handleLoadedMetadata = () => {
-      logVideoStart("loadedmetadata", { readyState: video.readyState });
-    };
-
-    const handleCanPlay = () => {
-      logVideoStart("canplay", { readyState: video.readyState });
-
-      if (isActive) {
-        requestVideoPlay(video);
-      }
-    };
-
-    const handleLoadedData = () => {
-      logSpotMedia("loaded", { mediaType: "video", playbackUrl, readyState: video.readyState });
-      markLoaded();
-
-      if (isActive) {
-        requestVideoPlay(video);
-      }
-    };
-
-    const handlePlaying = () => {
-      logVideoStart("playing", { currentTime: video.currentTime });
-      markLoaded();
-    };
-
-    const handleError = () => {
-      playRequestedRef.current = false;
-      setMediaReady(false);
-      scheduleRetry();
-    };
-
-    video.addEventListener("loadedmetadata", handleLoadedMetadata);
-    video.addEventListener("canplay", handleCanPlay);
-    video.addEventListener("loadeddata", handleLoadedData);
-    video.addEventListener("playing", handlePlaying);
-    video.addEventListener("error", handleError);
-
-    if (isActive) {
-      if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
-        requestVideoPlay(video);
-      }
-    } else {
-      video.pause();
-
-      try {
-        video.currentTime = 0;
-      } catch {
-        /* ignore */
-      }
-    }
-
-    return () => {
-      video.removeEventListener("loadedmetadata", handleLoadedMetadata);
-      video.removeEventListener("canplay", handleCanPlay);
-      video.removeEventListener("loadeddata", handleLoadedData);
-      video.removeEventListener("playing", handlePlaying);
-      video.removeEventListener("error", handleError);
-    };
-  }, [
-    isActive,
-    markLoaded,
-    requestVideoLoad,
-    requestVideoPlay,
-    scheduleRetry,
-    shouldMountVideo,
-    playbackUrl,
-  ]);
-
-  useEffect(() => {
-    if (!isActive || !shouldMountVideo) {
-      return;
-    }
-
-    playRequestedRef.current = false;
-    const video = videoRef.current;
-
-    if (video && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
-      requestVideoPlay(video);
-    }
-  }, [isActive, playbackUrl, requestVideoPlay, shouldMountVideo]);
-
-  const toggleMute = useCallback(() => {
-    const video = videoRef.current;
-    const next = !viewerGlobalMuted;
-    viewerGlobalMuted = next;
-
-    if (video) {
-      video.muted = next;
-
-      if (!next && video.paused && isActive) {
-        void video.play().catch(() => undefined);
-      }
-    }
-  }, [isActive]);
-
-  const handleMediaReady = () => {
-    markLoaded();
-  };
-
-  const handleMediaError = () => {
-    setMediaReady(false);
-    scheduleRetry();
-  };
-
-  const handlePosterError = () => {
-    if (!isActive || mediaType !== "video") {
-      return;
-    }
-
-    if (mediaReady) {
-      return;
-    }
-
-    scheduleRetry();
-  };
+  const showBlurredPlaceholder =
+    mediaType === "video" && loadHeavyMedia && !resolvedPoster && !videoFlags.firstFrameReady && !videoFlags.error;
 
   const showImageLayer = canShowImage && isActive;
-  const hasPrimaryMedia =
-    (mediaType === "image" && showImageLayer && mediaReady) ||
-    (mediaType === "video" && isActive && mediaReady);
-  const showPosterLayer =
-    Boolean(resolvedPoster) &&
-    isActive &&
-    mediaType === "video" &&
-    posterReady &&
-    !mediaReady &&
-    phase !== "error";
-  const hasPosterFallback = showPosterLayer;
-  const hasVisibleMedia = hasPrimaryMedia || hasPosterFallback;
-  const showFinalError = phase === "error" && !hasVisibleMedia;
-
-  const showSpinner =
-    isActive &&
-    (phase === "loading" || phase === "mediaLoading") &&
-    !posterReady &&
-    !mediaReady;
-
-  const isLoading = isActive && phase !== "loaded" && phase !== "error";
+  const isLoading = isActive && mediaType === "video" && !videoFlags.firstFrameReady && !videoFlags.error;
 
   useEffect(() => {
     onLoadingChange?.(isLoading);
   }, [isLoading, onLoadingChange]);
 
   return (
-    <div className="absolute inset-0 z-0 h-full w-full bg-black">
+    <div className="absolute inset-0 z-0 h-full w-full bg-slate-950">
+      {showBlurredPlaceholder ? (
+        <div
+          className="absolute inset-0 z-0 bg-gradient-to-b from-slate-800 via-slate-900 to-slate-950"
+          aria-hidden
+        />
+      ) : null}
+
       {resolvedPoster ? (
         <img
           key={`poster-${resolvedPoster}`}
@@ -434,29 +568,28 @@ export default function PostReelMedia({
           aria-hidden
           loading={loadHeavyMedia ? "eager" : "lazy"}
           decoding="async"
-          className={`absolute inset-0 z-0 h-full w-full object-cover object-center transition-opacity duration-200 ${
-            showPosterLayer ? "opacity-100" : "opacity-0"
+          className={`absolute inset-0 z-[1] h-full w-full object-cover object-center transition-opacity duration-150 ${
+            showPosterWhileVideo ? "opacity-100" : "pointer-events-none opacity-0"
           }`}
-          onLoad={() => {
-            setPosterReady(true);
-            logSpotMedia("loaded", { mediaType: "poster", src: resolvedPoster });
-          }}
-          onError={handlePosterError}
         />
       ) : null}
 
-      {canShowImage && isActive ? (
+      {showImageLayer ? (
         <img
           key={playbackUrl}
           src={playbackUrl}
           alt={alt}
           loading="eager"
           decoding="async"
-          className={`absolute inset-0 z-[1] h-full w-full object-cover object-center transition-opacity duration-200 ${
-            mediaReady ? "opacity-100" : "opacity-0"
+          className={`absolute inset-0 z-[2] h-full w-full object-cover object-center transition-opacity duration-150 ${
+            imageReady ? "opacity-100" : "opacity-0"
           }`}
-          onLoad={handleMediaReady}
-          onError={handleMediaError}
+          onLoad={() => {
+            setImageReady(true);
+            setPhase("loaded");
+            logSpotMedia("loaded", { mediaUrl: playbackUrl, mediaType: "image" });
+          }}
+          onError={() => setPhase("error")}
         />
       ) : null}
 
@@ -465,44 +598,22 @@ export default function PostReelMedia({
           ref={videoRef}
           key={playbackUrl}
           src={playbackUrl}
-          poster={resolvedPoster ?? undefined}
           playsInline
           autoPlay={isActive}
-          muted
+          muted={audioMuted}
           loop
           preload="auto"
           controls={false}
           disablePictureInPicture
           disableRemotePlayback
           controlsList="nodownload nofullscreen noremoteplayback"
-          onClick={(event) => {
-            event.stopPropagation();
-            if (isActive && mediaReady) {
-              toggleMute();
-            }
-          }}
-          className={`absolute inset-0 z-[1] h-full w-full object-cover object-center transition-opacity duration-200 ${
-            mediaReady && isActive ? "opacity-100" : "opacity-0"
-          }`}
+          className="absolute inset-0 z-[2] h-full w-full object-cover object-center"
           aria-label={alt || "Video"}
         />
       ) : null}
 
-      {!resolvedPoster && !shouldMountVideo && !canShowImage ? (
-        <div
-          className="absolute inset-0 animate-pulse bg-gradient-to-b from-slate-800 via-slate-900 to-slate-950"
-          aria-hidden
-        />
-      ) : null}
-
-      {showSpinner ? (
-        <div className="pointer-events-none absolute inset-0 z-[2] flex items-center justify-center">
-          <Loader2 className="h-10 w-10 animate-spin text-white/85" aria-hidden />
-        </div>
-      ) : null}
-
-      {showFinalError ? (
-        <div className="absolute inset-0 z-[2] flex flex-col items-center justify-center gap-2 bg-black/80 px-6 text-center">
+      {phase === "error" ? (
+        <div className="absolute inset-0 z-[3] flex flex-col items-center justify-center gap-2 bg-slate-950/90 px-6 text-center">
           <p className="text-sm font-medium text-white">{alt || "Spot"}</p>
           <p className="text-xs text-red-300">{SPOT_LOAD_ERROR}</p>
         </div>

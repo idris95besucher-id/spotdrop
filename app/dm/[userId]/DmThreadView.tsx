@@ -4,14 +4,15 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
-import type { Session } from "@supabase/supabase-js";
 import ChatDateSeparator from "@/components/ChatDateSeparator";
 import DmChatThreadShell from "@/components/DmChatThreadShell";
 import DmComposerPortal from "@/components/DmComposerPortal";
 import DmThreadHeader from "@/components/DmThreadHeader";
 import DirectMessageSpotShareCard from "@/components/DirectMessageSpotShareCard";
 import DirectMessageSpotCard from "@/components/DirectMessageSpotCard";
+import DirectMessageLocationCard from "@/components/DirectMessageLocationCard";
 import DmMessageStatus from "@/components/DmMessageStatus";
+import { useAuthSession } from "@/components/AuthSessionProvider";
 import { useChatNotifications } from "@/components/ChatNotificationsProvider";
 import ShareSpotToUserButton from "@/components/ShareSpotToUserButton";
 import Shell from "@/components/Shell";
@@ -19,7 +20,6 @@ import { useI18n } from "@/components/I18nProvider";
 import { localizeUserMessage } from "@/lib/i18n/localizeUserMessage";
 import { markDirectMessagesReadInThread } from "@/lib/chatNotifications";
 import { markDmThreadOpened } from "@/lib/chatUnreadSync";
-import { getSafeAuthSession } from "@/lib/authSession";
 import { shouldShowChatDateSeparator } from "@/lib/chatDates";
 import {
   acceptConversationRequest,
@@ -40,6 +40,8 @@ import {
 } from "@/lib/directConversations";
 import { startDmThreadLiveSync, type DmAppendSource } from "@/lib/dmThreadSync";
 import { CHATS_INBOX_REFRESH_EVENT } from "@/lib/chatsInbox";
+import { getCachedDmThreadMessages, setCachedDmThreadMessages } from "@/lib/dmThreadCache";
+import { perfMark, perfSince } from "@/lib/perfLog";
 import { resolveDmRoutePartnerId } from "@/lib/chatThreadRoutes";
 import { startDmTypingSync } from "@/lib/dmTypingIndicator";
 import { useDmPartnerPresence } from "@/lib/useDmPartnerPresence";
@@ -51,6 +53,7 @@ import { useDmThreadScroll } from "@/lib/useDmThreadScroll";
 import { useDmComposerPosition, dmComposerBottomPadding } from "@/lib/useDmComposerInsets";
 import { isGuideAccountUsername, publicProfileUsername } from "@/lib/publicProfile";
 import { supabase } from "@/lib/supabaseClient";
+import { isLocationCardShareMessage } from "@/lib/locationCardShareMessage";
 
 type PartnerProfile = {
   id: string;
@@ -89,13 +92,7 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
     paramsUserId: params.userId,
   });
 
-  console.log("[DM SCREEN] app/dm/[userId]/DmThreadView.tsx render", {
-    routeUserId,
-    partnerIdOverride: partnerIdOverride ?? null,
-    paramsUserId: params.userId ?? null,
-  });
-
-  const [session, setSession] = useState<Session | null>(null);
+  const { session } = useAuthSession();
   const [partner, setPartner] = useState<PartnerProfile | null>(null);
   const [partnerId, setPartnerId] = useState("");
   const [partnerIdReady, setPartnerIdReady] = useState(false);
@@ -139,19 +136,6 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
     canSeePartnerPresence ? threadPartnerId : null,
     partner?.profileUsername ?? null
   );
-
-  useEffect(() => {
-    console.log("[DM DEBUG] currentUserId", currentUserId);
-    console.log("[DM DEBUG] routeUserId", routeUserId);
-    console.log("[DM DEBUG] resolvedPartnerId", threadPartnerId);
-    console.log("[DM DEBUG] loadedPartnerProfile", {
-      id: partner?.id,
-      username: partner?.username,
-      name: partner?.name,
-      isOnline: partner?.isOnline,
-      lastSeenAt: partner?.lastSeenAt,
-    });
-  }, [currentUserId, routeUserId, threadPartnerId, partner]);
 
   useEffect(() => {
     let cancelled = false;
@@ -367,25 +351,8 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
   }, [currentUserId, partnerId]);
 
   useEffect(() => {
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, nextSession) => {
-      setSession(nextSession);
-    });
+    const mountAt = perfMark("dm-thread");
 
-    void getSafeAuthSession().then((result) => {
-      setSession(result.session);
-      if (result.error) {
-        setError(result.error);
-      }
-    });
-
-    return () => {
-      subscription.unsubscribe();
-    };
-  }, []);
-
-  useEffect(() => {
     const loadConversation = async () => {
       if (!partnerIdReady) {
         return;
@@ -397,7 +364,6 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
         return;
       }
 
-      setLoading(true);
       setError(null);
       setSendError(null);
       setMessagePrivacyBlockKey(null);
@@ -411,11 +377,75 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
         return;
       }
 
-      const { data: partnerRow, error: partnerError } = await supabase
+      const cachedMessages =
+        currentUserId && partnerId ? getCachedDmThreadMessages(currentUserId, partnerId) : null;
+
+      if (cachedMessages?.length) {
+        setMessages(cachedMessages as DirectMessage[]);
+        seenMessageIdsRef.current = new Set(cachedMessages.map((message) => message.id));
+        setLoading(false);
+        perfSince(mountAt, "first data received", { partnerId, source: "cache" });
+      } else {
+        setLoading(true);
+      }
+
+      const partnerQuery = supabase
         .from("profiles")
         .select("id, username, avatar_url, is_online, last_seen_at")
         .eq("id", partnerId)
         .maybeSingle();
+
+      if (!currentUserId) {
+        const { data: partnerRow, error: partnerError } = await partnerQuery;
+
+        if (partnerError) {
+          setError(partnerError.message || t("dm.error.loadConversation"));
+          setPartner(null);
+          setMessages([]);
+          setConversation(null);
+          setLoading(false);
+          return;
+        }
+
+        if (!partnerRow || isGuideAccountUsername(partnerRow.username)) {
+          setError(t("profile.userNotFound"));
+          setPartner(null);
+          setMessages([]);
+          setConversation(null);
+          setLoading(false);
+          return;
+        }
+
+        const partnerLastSeenAt = (partnerRow.last_seen_at as string | null) ?? null;
+        setPartner({
+          id: partnerRow.id,
+          username: publicProfileUsername(partnerRow.username),
+          profileUsername: partnerRow.username,
+          avatar_url: partnerRow.avatar_url,
+          isOnline: resolveProfileIsOnline(partnerRow.is_online, partnerLastSeenAt, {
+            screen: "dm-thread-load",
+            userId: partnerRow.id,
+            username: partnerRow.username,
+          }),
+          lastSeenAt: partnerLastSeenAt,
+        } as PartnerProfile);
+        setMessages([]);
+        setConversation(null);
+        setLoading(false);
+        return;
+      }
+
+      const [
+        { data: partnerRow, error: partnerError },
+        messagePermission,
+        conversationResult,
+        messagesResult,
+      ] = await Promise.all([
+        partnerQuery,
+        checkCanMessageUser(currentUserId, partnerId),
+        getDirectConversation(currentUserId, partnerId),
+        loadDirectMessagesForThread(currentUserId, partnerId),
+      ]);
 
       if (partnerError) {
         console.error("Failed to load DM partner:", JSON.stringify(partnerError, null, 2));
@@ -436,7 +466,7 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
         return;
       }
 
-      if (currentUserId && partnerRow.id === currentUserId) {
+      if (partnerRow.id === currentUserId) {
         const corrected = await resolveDmThreadPartnerId(currentUserId, routeUserId);
 
         if (corrected.partnerId && corrected.partnerId !== currentUserId) {
@@ -470,20 +500,9 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
 
       void fetchPartnerProfilePresenceDirect(partnerRow.id, partnerRow.username);
 
-      if (!currentUserId) {
-        setMessages([]);
-        setConversation(null);
-        setLoading(false);
-        return;
-      }
-
-      const messagePermission = await checkCanMessageUser(currentUserId, partnerId);
-
       if (!messagePermission.allowed) {
         setMessagePrivacyBlockKey(messagePermission.reasonKey);
       }
-
-      const conversationResult = await getDirectConversation(currentUserId, partnerId);
 
       if (conversationResult.error && !conversationResult.conversation) {
         setError(conversationResult.error);
@@ -491,23 +510,25 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
 
       setConversation(conversationResult.conversation);
 
-      const { messages: loadedMessages, error: messagesError } = await loadDirectMessagesForThread(
-        currentUserId,
-        partnerId
-      );
-
-      if (messagesError) {
-        console.error("Failed to load direct messages:", messagesError);
-        setError(messagesError || t("dm.error.loadMessages"));
-        setMessages([]);
-        setShareById(new Map());
+      if (messagesResult.error) {
+        console.error("Failed to load direct messages:", messagesResult.error);
+        if (!cachedMessages?.length) {
+          setError(messagesResult.error || t("dm.error.loadMessages"));
+          setMessages([]);
+          setShareById(new Map());
+        }
       } else {
-        setMessages(loadedMessages as DirectMessage[]);
-        seenMessageIdsRef.current = new Set(loadedMessages.map((message) => message.id));
+        setMessages(messagesResult.messages as DirectMessage[]);
+        seenMessageIdsRef.current = new Set(messagesResult.messages.map((message) => message.id));
+        setCachedDmThreadMessages(currentUserId, partnerId, messagesResult.messages);
+        perfSince(mountAt, "first data received", {
+          partnerId,
+          source: cachedMessages?.length ? "network-refresh" : "network",
+        });
 
         const shareIds = [
           ...new Set(
-            loadedMessages
+            messagesResult.messages
               .map((message) => message.spot_share_id)
               .filter((id): id is string => Boolean(id))
           ),
@@ -518,6 +539,7 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
       }
 
       setLoading(false);
+      perfSince(mountAt, "interaction ready", { partnerId });
     };
 
     void loadConversation();
@@ -814,6 +836,7 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
     <Shell chatThread>
       <DmChatThreadShell>
         <DmThreadHeader
+          partnerId={partnerId || null}
           partner={partner}
           presence={partnerPresence}
           isSelfConversation={isSelfConversation}
@@ -915,6 +938,7 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
 
                 const isSpotShareMessage = isSpotShareDirectMessage(message);
                 const isSpotPostMessage = isSpotDirectMessage(message);
+                const isLocationCardMessage = isLocationCardShareMessage(message.body);
 
                 return (
                   <Fragment key={message.id}>
@@ -953,6 +977,13 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
                           senderId={message.sender_id}
                           initialShare={shareById.get(message.spot_share_id) ?? null}
                           onShareUpdated={() => void handleSpotShareSent()}
+                        />
+                      ) : isLocationCardMessage && message.body ? (
+                        <DirectMessageLocationCard
+                          body={message.body}
+                          isOwnMessage={isOwnMessage}
+                          currentUserId={currentUserId!}
+                          message={message}
                         />
                       ) : (
                         <div

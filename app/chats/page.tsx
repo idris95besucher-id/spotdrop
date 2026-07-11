@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import type { Session } from "@supabase/supabase-js";
 import ChatInboxActionSheet, {
   type ChatInboxActionSheetTarget,
@@ -10,7 +11,6 @@ import { useChatNotifications } from "@/components/ChatNotificationsProvider";
 import DmInboxListItem from "@/components/DmInboxListItem";
 import { useI18n } from "@/components/I18nProvider";
 import type { MessageRequestItemData } from "@/components/MessageRequestItem";
-import MobileSecondaryHeader from "@/components/MobileSecondaryHeader";
 import RoomInboxListItem from "@/components/RoomInboxListItem";
 import Shell from "@/components/Shell";
 import { hideDmChat, setDmMuted } from "@/lib/chatInboxPreferences";
@@ -22,10 +22,12 @@ import { formatUnreadBadge } from "@/lib/chatNotifications";
 import {
   CHATS_INBOX_REFRESH_EVENT,
   CHATS_INBOX_SILENT_REFRESH_EVENT,
+  getCachedChatsInbox,
   loadChatsInbox,
   type InboxChatRow,
   type InboxItem,
 } from "@/lib/chatsInbox";
+import { perfMark, perfSince } from "@/lib/perfLog";
 import {
   CHATS_INBOX_DM_INCOMING_EVENT,
   CHATS_INBOX_OPTIMISTIC_READ_EVENT,
@@ -47,7 +49,19 @@ type ActionTarget =
   | { kind: "dm"; chat: InboxChatRow }
   | { kind: "room"; room: RoomInboxRow };
 
-export default function ChatsPage() {
+function ChatsPageFallback() {
+  const { t } = useI18n();
+
+  return (
+    <Shell showHeader={false} immersive>
+      <div className="flex h-full items-center justify-center text-sm text-slate-400">{t("common.loading")}</div>
+    </Shell>
+  );
+}
+
+function ChatsPageContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const { t, locale } = useI18n();
   const [session, setSession] = useState<Session | null>(null);
   const [loadingSession, setLoadingSession] = useState(true);
@@ -59,11 +73,38 @@ export default function ChatsPage() {
   const [actionTarget, setActionTarget] = useState<ActionTarget | null>(null);
   const { refreshUnreadCount } = useChatNotifications();
   const silentReloadRef = useRef(false);
+  const refreshDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const refresh = useCallback(() => {
     setReloadKey((current) => current + 1);
     void refreshUnreadCount();
   }, [refreshUnreadCount]);
+
+  const debouncedRefresh = useCallback(() => {
+    if (refreshDebounceRef.current) {
+      clearTimeout(refreshDebounceRef.current);
+    }
+
+    refreshDebounceRef.current = setTimeout(() => {
+      refreshDebounceRef.current = null;
+      silentReloadRef.current = true;
+      setReloadKey((current) => current + 1);
+    }, 400);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (refreshDebounceRef.current) {
+        clearTimeout(refreshDebounceRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (searchParams.get("tab") === "friends") {
+      router.replace("/friends");
+    }
+  }, [router, searchParams]);
 
   useEffect(() => {
     const { data: { subscription } = {} } = supabase.auth.onAuthStateChange((_event, nextSession) => {
@@ -225,7 +266,18 @@ export default function ChatsPage() {
         return;
       }
 
-      setLoadingChats(!silentReloadRef.current);
+      const mountAt = perfMark("chats-inbox");
+      const cached = getCachedChatsInbox(userId);
+
+      if (cached && !silentReloadRef.current) {
+        setItems(cached.items);
+        setRequests(cached.requests);
+        setLoadingChats(false);
+        perfSince(mountAt, "first data received", { source: "cache" });
+      } else {
+        setLoadingChats(!silentReloadRef.current);
+      }
+
       setError(null);
 
       const result = await loadChatsInbox(userId);
@@ -237,6 +289,7 @@ export default function ChatsPage() {
       } else {
         setItems(result.items);
         setRequests(result.requests);
+        perfSince(mountAt, "first data received", { source: "network" });
       }
 
       silentReloadRef.current = false;
@@ -262,7 +315,7 @@ export default function ChatsPage() {
           const row = payload.new as { sender_id: string; recipient_id: string };
 
           if (row.sender_id === userId || row.recipient_id === userId) {
-            refresh();
+            debouncedRefresh();
           }
         }
       )
@@ -273,7 +326,7 @@ export default function ChatsPage() {
           const row = payload.new as { sender_id: string; recipient_id: string };
 
           if (row.sender_id === userId || row.recipient_id === userId) {
-            refresh();
+            debouncedRefresh();
           }
         }
       )
@@ -281,28 +334,28 @@ export default function ChatsPage() {
         "postgres_changes",
         { event: "*", schema: "public", table: "direct_conversations" },
         () => {
-          refresh();
+          debouncedRefresh();
         }
       )
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "city_messages" },
         () => {
-          refresh();
+          debouncedRefresh();
         }
       )
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "room_memberships", filter: `user_id=eq.${userId}` },
         () => {
-          refresh();
+          debouncedRefresh();
         }
       )
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "chat_inbox_preferences", filter: `user_id=eq.${userId}` },
         () => {
-          refresh();
+          debouncedRefresh();
         }
       )
       .subscribe();
@@ -310,7 +363,7 @@ export default function ChatsPage() {
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, [refresh, session?.user?.id]);
+  }, [debouncedRefresh, session?.user?.id]);
 
   const pendingCount = requests.length;
   const requestsBadge = formatUnreadBadge(pendingCount);
@@ -378,31 +431,8 @@ export default function ChatsPage() {
   }, [actionTarget, refresh, session?.user?.id]);
 
   return (
-    <Shell showHeader={false} flushTop>
+    <Shell showHeader={false} immersive>
       <div className={`mx-auto flex min-h-0 w-full max-w-lg flex-1 flex-col ${MOBILE_WIDTH_SAFE_CLASS}`}>
-        <MobileSecondaryHeader
-          title={t("chats.title")}
-          backHref="/feed"
-          trailing={
-            session?.user ? (
-              <Link
-                href="/chats/requests"
-                className="relative inline-flex items-center rounded-full px-2.5 py-1.5 text-sm font-semibold text-white transition hover:bg-white/10 active:opacity-80"
-              >
-                {t("chats.requests")}
-                {pendingCount > 0 ? (
-                  <span
-                    className="absolute -right-0.5 -top-0.5 inline-flex min-h-[18px] min-w-[18px] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold leading-none text-white"
-                    aria-label={t("chats.viewRequests", { count: requestsBadge ?? pendingCount })}
-                  >
-                    {requestsBadge}
-                  </span>
-                ) : null}
-              </Link>
-            ) : null
-          }
-        />
-
         {loadingSession ? (
           <div className="px-4 py-12 text-center text-sm text-muted">{t("common.loading")}</div>
         ) : !session?.user ? (
@@ -469,5 +499,13 @@ export default function ChatsPage() {
         onRemove={() => void handleRemove()}
       />
     </Shell>
+  );
+}
+
+export default function ChatsPage() {
+  return (
+    <Suspense fallback={<ChatsPageFallback />}>
+      <ChatsPageContent />
+    </Suspense>
   );
 }

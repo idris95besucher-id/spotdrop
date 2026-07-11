@@ -1,11 +1,14 @@
 import {
   CAMERA_AUDIO_BITS_PER_SECOND,
-  CAMERA_VIDEO_BITS_PER_SECOND,
   isIosSafari,
   parseRecorderCodecs,
 } from "@/lib/cameraCapture";
 import { isCapacitorNative } from "@/lib/capacitorUtils";
 import { MAX_TRIM_CLIP_SECONDS } from "@/lib/videoTrim";
+import { logVideoQuality, probeVideoFile } from "@/lib/videoQualityDiagnostics";
+
+/** Desktop re-encode target — higher than in-camera recording to offset generation loss. */
+const EXPORT_VIDEO_BITS_PER_SECOND = 25_000_000;
 
 function isIosPlaybackTarget() {
   return isIosSafari() || isCapacitorNative();
@@ -126,8 +129,10 @@ export async function exportVideoFile(file: File, options: ExportVideoOptions) {
     audioCodec: codecs.audioCodec,
     videoCodec: codecs.videoCodec,
     audioBitsPerSecond: CAMERA_AUDIO_BITS_PER_SECOND,
-    videoBitsPerSecond: CAMERA_VIDEO_BITS_PER_SECOND,
+    videoBitsPerSecond: EXPORT_VIDEO_BITS_PER_SECOND,
   });
+
+  const sourceProbe = await probeVideoFile(file);
 
   const url = URL.createObjectURL(file);
   const video = document.createElement("video");
@@ -175,7 +180,7 @@ export async function exportVideoFile(file: File, options: ExportVideoOptions) {
     const chunks: BlobPart[] = [];
     const recorder = new MediaRecorder(stream, {
       mimeType,
-      videoBitsPerSecond: CAMERA_VIDEO_BITS_PER_SECOND,
+      videoBitsPerSecond: EXPORT_VIDEO_BITS_PER_SECOND,
       audioBitsPerSecond: options.mute ? undefined : CAMERA_AUDIO_BITS_PER_SECOND,
     });
 
@@ -198,11 +203,29 @@ export async function exportVideoFile(file: File, options: ExportVideoOptions) {
           audioCodec: outCodecs.audioCodec,
           videoCodec: outCodecs.videoCodec,
           audioBitsPerSecond: options.mute ? 0 : CAMERA_AUDIO_BITS_PER_SECOND,
+          videoBitsPerSecond: EXPORT_VIDEO_BITS_PER_SECOND,
           blobSize: blob.size,
         });
-        resolve(
-          new File([blob], `spot-export-${Date.now()}.${extension}`, { type: blob.type })
-        );
+        const exportedFile = new File([blob], `spot-export-${Date.now()}.${extension}`, {
+          type: blob.type,
+        });
+
+        void probeVideoFile(exportedFile).then((exportProbe) => {
+          logVideoQuality("desktop export", {
+            ...sourceProbe,
+            ...exportProbe,
+            reEncoded: true,
+            exportedResolution:
+              exportProbe.width && exportProbe.height
+                ? `${exportProbe.width}x${exportProbe.height}`
+                : null,
+            exportedBitrateMbps: exportProbe.estimatedBitrateMbps,
+            exportedMimeType: exportedFile.type || mimeType,
+            finalUploadSizeBytes: exportedFile.size,
+          });
+        });
+
+        resolve(exportedFile);
       };
 
       recorder.start(200);

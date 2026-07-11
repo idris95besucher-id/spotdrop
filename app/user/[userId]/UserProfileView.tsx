@@ -1,9 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { UserRound } from "lucide-react";
 import { useI18n } from "@/components/I18nProvider";
 import { localizeError } from "@/lib/i18n/localizeError";
 import { getSafeAuthSession } from "@/lib/authSession";
@@ -13,7 +12,14 @@ import { followUser, loadFollowConnections, loadFollowRelationship, unfollowUser
 import { checkCanMessageUser } from "@/lib/messagePrivacy";
 import ProfileCollectionsTab from "@/components/ProfileCollectionsTab";
 import ProfileContentTabs, { type ProfileContentTab } from "@/components/ProfileContentTabs";
+import ProfileGalleryAvatarLink from "@/components/profile/ProfileGalleryAvatarLink";
+import MobileSecondaryHeader from "@/components/MobileSecondaryHeader";
+import NavigationStackScreen from "@/components/NavigationStackScreen";
 import { loadPublicProfileContent, type ProfileContentPost } from "@/lib/profileContent";
+import {
+  normalizeProfileGalleryVisibility,
+  type ProfileGalleryVisibility,
+} from "@/lib/profileGalleryVisibility";
 import {
   formatProfileLocationLineLocalized,
   resolveProfileLocation,
@@ -25,6 +31,8 @@ import Shell from "@/components/Shell";
 import { useUserPresence } from "@/lib/useUserPresence";
 import { useCanSeeOnlineStatus } from "@/lib/useCanSeeOnlineStatus";
 import { supabase } from "@/lib/supabaseClient";
+import { MOBILE_BOTTOM_NAV_PADDING, MOBILE_MAIN_SCROLL_CLASS } from "@/lib/mobileLayout";
+import { navigateBack } from "@/lib/navigateBack";
 
 type Profile = {
   id: string;
@@ -35,6 +43,7 @@ type Profile = {
   country_slug?: string | null;
   city_slug?: string | null;
   city_id?: string | null;
+  gallery_visibility?: ProfileGalleryVisibility | null;
 };
 
 function isUuid(value: string) {
@@ -48,10 +57,22 @@ async function loadPublicProfile(profileParam: string) {
   };
 
   const primaryResult = await loadWithSelect(
-    "id, name, username, avatar_url, bio, country_slug, city_slug, city_id"
+    "id, name, username, avatar_url, bio, country_slug, city_slug, city_id, gallery_visibility"
   );
 
-  if (primaryResult.error?.code !== "42703") {
+    if (primaryResult.error?.code !== "42703") {
+    if (primaryResult.data) {
+      const row = primaryResult.data as unknown as Profile;
+
+      return {
+        ...primaryResult,
+        data: {
+          ...row,
+          gallery_visibility: normalizeProfileGalleryVisibility(row.gallery_visibility),
+        },
+      };
+    }
+
     return primaryResult;
   }
 
@@ -61,12 +82,18 @@ async function loadPublicProfile(profileParam: string) {
 
   return {
     ...fallbackResult,
-    data: fallbackResult.data ? (fallbackResult.data as unknown as Profile) : null,
+    data: fallbackResult.data
+      ? ({
+          ...(fallbackResult.data as unknown as Profile),
+          gallery_visibility: "everyone" as ProfileGalleryVisibility,
+        } satisfies Profile)
+      : null,
   };
 }
 
 export default function UserPage({ userIdOverride }: { userIdOverride?: string }) {
   const { t, locale } = useI18n();
+  const router = useRouter();
   const params = useParams<{ userId: string }>();
   const profileParam = userIdOverride?.trim() || decodeURIComponent(String(params.userId ?? "")).trim();
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -74,7 +101,7 @@ export default function UserPage({ userIdOverride }: { userIdOverride?: string }
   const [viewerFollowsTarget, setViewerFollowsTarget] = useState(false);
   const [personalPosts, setPersonalPosts] = useState<ProfileContentPost[]>([]);
   const [spotPosts, setSpotPosts] = useState<ProfileContentPost[]>([]);
-  const [activeContentTab, setActiveContentTab] = useState<ProfileContentTab>("spots");
+  const [activeContentTab, setActiveContentTab] = useState<Exclude<ProfileContentTab, "posts">>("spots");
   const [location, setLocation] = useState<ResolvedProfileLocation>({ countryName: null, cityName: null });
   const [followersCount, setFollowersCount] = useState(0);
   const [friendsCount, setFriendsCount] = useState(0);
@@ -295,10 +322,20 @@ export default function UserPage({ userIdOverride }: { userIdOverride?: string }
   };
 
   const locationLine = formatProfileLocationLineLocalized(location, locale);
+  const headerTitle = profile
+    ? profile.name?.trim() || `@${profile.username}`
+    : t("profile.viewProfile");
 
   return (
-    <Shell flushTop>
-      <ProfileScreenLayout safeTop>
+    <Shell showHeader={false} flushTop fixedLayout>
+      <NavigationStackScreen fallbackHref="/search">
+        <MobileSecondaryHeader title={headerTitle} backHref="/search" />
+
+        <div
+          data-mobile-main-scroll=""
+          className={`${MOBILE_MAIN_SCROLL_CLASS} ${MOBILE_BOTTOM_NAV_PADDING}`}
+        >
+          <ProfileScreenLayout>
         {loading ? (
           <div className="w-full rounded-2xl border border-dashed border-slate-700 bg-slate-950 p-8 text-center text-slate-400 sm:rounded-3xl">
             {t("profile.loading")}
@@ -306,23 +343,30 @@ export default function UserPage({ userIdOverride }: { userIdOverride?: string }
         ) : error ? (
           <div className="w-full space-y-4 rounded-2xl border border-red-500/20 bg-red-500/5 p-6 text-sm text-red-200 sm:rounded-3xl">
             <p>{localizeError(t, error) ?? error}</p>
-            <Link href="/search" className="inline-flex w-full items-center justify-center rounded-full bg-white px-5 py-2.5 text-sm font-semibold text-slate-950 sm:w-auto">
-              {t("profile.backToSearch")}
-            </Link>
+            <button
+              type="button"
+              onClick={() => navigateBack(router, "/search")}
+              className="inline-flex w-full items-center justify-center rounded-full bg-white px-5 py-2.5 text-sm font-semibold text-slate-950 sm:w-auto"
+            >
+              {t("common.back")}
+            </button>
           </div>
         ) : profile ? (
           <>
-            <section className="w-full space-y-5 bg-slate-900/90 px-1 py-5 sm:space-y-6 sm:rounded-[2rem] sm:border sm:border-white/10 sm:px-6 sm:py-8 sm:shadow-xl sm:shadow-black/40">
+            <section className="profile-header-enter w-full space-y-5 bg-slate-900/90 px-1 py-5 sm:space-y-6 sm:rounded-[2rem] sm:border sm:border-white/10 sm:px-6 sm:py-8 sm:shadow-xl sm:shadow-black/40">
               <div className="flex w-full flex-col items-stretch gap-4 sm:items-center sm:text-center">
-                <div className="mx-auto flex h-24 w-24 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/10 bg-slate-800 text-white shadow-xl shadow-black/40 sm:h-32 sm:w-32">
-                  {profile.avatar_url ? (
-                    <img src={profile.avatar_url} alt="" className="h-full w-full object-cover" />
-                  ) : (
-                    <UserRound className="h-11 w-11 text-slate-400 sm:h-12 sm:w-12" strokeWidth={1.25} aria-hidden />
-                  )}
+                <div className="profile-header-avatar">
+                  <ProfileGalleryAvatarLink
+                    avatarUrl={profile.avatar_url}
+                    ownerUserId={profile.id}
+                    viewerUserId={viewerId}
+                    visibility={profile.gallery_visibility ?? "everyone"}
+                    variant="large"
+                    showLabel={false}
+                  />
                 </div>
 
-                <div className="min-w-0 w-full space-y-1.5 sm:space-y-2">
+                <div className="profile-header-rise min-w-0 w-full space-y-1.5 sm:space-y-2">
                   <h1 className="truncate text-2xl font-semibold tracking-tight text-white sm:text-center sm:text-4xl">
                     {profile.name?.trim() || profile.username}
                   </h1>
@@ -346,22 +390,22 @@ export default function UserPage({ userIdOverride }: { userIdOverride?: string }
                 </div>
               </div>
 
-              <div className="grid w-full grid-cols-3 gap-2">
-                <div className="px-2 py-2 text-center">
-                  <p className="text-lg font-semibold tabular-nums text-white sm:text-xl">{spotPosts.length}</p>
-                  <p className="mt-0.5 text-xs text-muted">{t("profile.spots")}</p>
+              <div className="profile-header-rise-delay grid w-full grid-cols-3 items-center">
+                <div className="flex flex-col items-center justify-center gap-0.5 py-1">
+                  <p className="text-[17px] font-bold leading-none tabular-nums text-white">{spotPosts.length}</p>
+                  <p className="text-[12px] leading-none text-muted">{t("profile.posts")}</p>
                 </div>
-                <div className="px-2 py-2 text-center">
-                  <p className="text-lg font-semibold tabular-nums text-white sm:text-xl">{followersCount}</p>
-                  <p className="mt-0.5 text-xs text-muted">{t("profile.followers")}</p>
+                <div className="flex flex-col items-center justify-center gap-0.5 py-1">
+                  <p className="text-[17px] font-bold leading-none tabular-nums text-white">{followersCount}</p>
+                  <p className="text-[12px] leading-none text-muted">{t("profile.followers")}</p>
                 </div>
-                <div className="px-2 py-2 text-center">
-                  <p className="text-lg font-semibold tabular-nums text-white sm:text-xl">{friendsCount}</p>
-                  <p className="mt-0.5 text-xs text-muted">{t("profile.friends")}</p>
+                <div className="flex flex-col items-center justify-center gap-0.5 py-1">
+                  <p className="text-[17px] font-bold leading-none tabular-nums text-white">{friendsCount}</p>
+                  <p className="text-[12px] leading-none text-muted">{t("profile.friends")}</p>
                 </div>
               </div>
 
-              <div className="flex w-full flex-col gap-2.5 sm:flex-row sm:flex-wrap sm:justify-center">
+              <div className="profile-header-rise-delay-2 flex w-full flex-col gap-2.5 sm:flex-row sm:flex-wrap sm:justify-center">
                 {!isOwnProfile && viewerId ? (
                   <button
                     type="button"
@@ -419,8 +463,7 @@ export default function UserPage({ userIdOverride }: { userIdOverride?: string }
                 personalPosts={personalPosts}
                 spotPosts={spotPosts}
                 loading={loadingPosts}
-                emptyPostsMessage={t("profile.noPostsYet")}
-                emptySpotsMessage={t("profile.noPublicSpotsYet")}
+                emptySpotsMessage={t("profile.noPostsYet")}
                 viewerUserId={isOwnProfile ? viewerId : null}
                 onPostDeleted={isOwnProfile ? handlePostDeleted : undefined}
                 viewerAuthor={
@@ -448,7 +491,9 @@ export default function UserPage({ userIdOverride }: { userIdOverride?: string }
             {t("profile.userNotFound")}
           </div>
         )}
-      </ProfileScreenLayout>
+          </ProfileScreenLayout>
+        </div>
+      </NavigationStackScreen>
     </Shell>
   );
 }

@@ -8,7 +8,6 @@ import {
   Eye,
   KeyRound,
   Mail,
-  Phone,
   Smartphone,
   Trash2,
   UserPen,
@@ -354,7 +353,6 @@ export default function SettingsPage() {
         <SettingsSection title={t("settings.account")}>
           <SettingsRow href="/profile/edit" label={t("settings.editProfile")} icon={UserPen} />
           <SettingsRow href="/settings/change-email" label={t("settings.changeEmail")} icon={Mail} />
-          <SettingsRow href="/settings/change-phone" label={t("settings.changePhone")} icon={Phone} />
           <SettingsRow href="/settings/change-password" label={t("settings.changePassword")} icon={KeyRound} />
         </SettingsSection>
 

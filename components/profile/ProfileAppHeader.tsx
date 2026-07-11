@@ -15,7 +15,7 @@ export default function ProfileAppHeader({ actions }: ProfileAppHeaderProps) {
       <h1 className="min-w-0 truncate text-xl font-bold tracking-[-0.03em] text-white">
         Spot<span className="text-primary">Drop</span>
       </h1>
-      {actions ?? <span className="h-8 w-8 shrink-0" aria-hidden />}
+      {actions}
     </header>
   );
 }

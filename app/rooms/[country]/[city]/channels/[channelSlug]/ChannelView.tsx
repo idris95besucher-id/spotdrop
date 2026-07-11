@@ -388,7 +388,7 @@ export default function CityChannelPage() {
       <ChatThreadShell>
         <MobileSecondaryHeader
           title={city?.name ?? citySlug}
-          backHref={`/rooms/${country?.slug ?? countrySlug}/${city?.slug ?? citySlug}`}
+          backHref={`/visit/${country?.slug ?? countrySlug}/${city?.slug ?? citySlug}`}
         />
 
         <div className="shrink-0 border-b border-white/10 bg-slate-900/95 px-4 py-2.5 backdrop-blur-xl">

@@ -31,6 +31,16 @@ const nextConfig: NextConfig = {
               destination: "/visit",
               permanent: false,
             },
+            {
+              source: "/rooms/:country",
+              destination: "/visit/:country",
+              permanent: false,
+            },
+            {
+              source: "/rooms/:country/:city",
+              destination: "/visit/:country/:city",
+              permanent: false,
+            },
           ];
         },
       }

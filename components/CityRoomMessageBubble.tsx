@@ -1,12 +1,21 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Pencil, Trash2, UserRound } from "lucide-react";
 import CityRoomPlaceCard from "@/components/CityRoomPlaceCard";
+import ChatLocationCardPreview, {
+  chatLocationCardPreviewFromPayload,
+} from "@/components/ChatLocationCardPreview";
 import { useI18n } from "@/components/I18nProvider";
+import { usePostViewerOptional } from "@/components/PostViewerProvider";
 import { formatChatMessageTime } from "@/lib/chatDates";
 import { getCityRoomBubbleCornerClass } from "@/lib/cityRoomChatGrouping";
 import { parseCityRoomMessageContent } from "@/lib/cityRoomPlaceMessage";
+import {
+  locationCardSharePayloadToViewerItem,
+  type LocationCardSharePayload,
+} from "@/lib/locationCardShareMessage";
 import { localizeUserMessage } from "@/lib/i18n/localizeUserMessage";
 import { publicProfileUsername } from "@/lib/publicProfile";
 
@@ -83,15 +92,36 @@ export default function CityRoomMessageBubble({
   onCancelDelete,
   onConfirmDelete,
 }: CityRoomMessageBubbleProps) {
+  const router = useRouter();
   const { t } = useI18n();
+  const postViewer = usePostViewerOptional();
   const sender = message.profile;
   const parsedContent = parseCityRoomMessageContent(message.content);
-  const isStructuredMessage = parsedContent.kind === "place" || parsedContent.kind === "image";
+  const isStructuredMessage =
+    parsedContent.kind === "place" ||
+    parsedContent.kind === "image" ||
+    parsedContent.kind === "location_card";
   const cornerClass = getCityRoomBubbleCornerClass(isFirstInGroup, isLastInGroup);
   const bubbleShellClass = `${cornerClass} bg-[#182232]/90 text-slate-100 shadow-sm shadow-black/20 ring-1 ring-white/5`;
   const displayName = sender ? publicProfileUsername(sender.username) : t("common.user");
   const localizedEditError = localizeUserMessage(t, editError);
   const localizedDeleteError = localizeUserMessage(t, deleteError);
+
+  const openLocationCard = (card: LocationCardSharePayload) => {
+    const item = locationCardSharePayloadToViewerItem(card, message.user_id, {
+      createdAt: message.created_at,
+    });
+
+    if (postViewer) {
+      postViewer.openPostViewer([item], {
+        initialSpotId: item.id,
+        initialMediaUrl: card.imageUrl,
+      });
+      return;
+    }
+
+    router.push(`/posts?id=${encodeURIComponent(item.id)}`);
+  };
 
   const renderBubbleBody = () => {
     if (isConfirmingDelete) {
@@ -128,6 +158,27 @@ export default function CityRoomMessageBubble({
           createdAt={message.created_at}
           editedAt={message.edited_at}
         />
+      );
+    }
+
+    if (parsedContent.kind === "location_card") {
+      const preview = chatLocationCardPreviewFromPayload(parsedContent.card);
+
+      return (
+        <div className="relative max-w-[14rem]">
+          <ChatLocationCardPreview
+            imageUrl={preview.imageUrl}
+            title={preview.title}
+            locationLabel={preview.locationLabel}
+            onPress={() => openLocationCard(parsedContent.card)}
+          />
+          <span className="pointer-events-none absolute bottom-1 right-1 inline-flex items-center gap-1 rounded-full bg-[#0b1020]/80 px-1.5 py-0.5 text-[10px] leading-none text-slate-500">
+            {message.edited_at ? (
+              <span className="text-[9px] uppercase tracking-wide opacity-80">{t("rooms.message.edited")}</span>
+            ) : null}
+            <span>{formatChatMessageTime(message.created_at)}</span>
+          </span>
+        </div>
       );
     }
 

@@ -1,3 +1,9 @@
+import {
+  logVideoQuality,
+  probeVideoFile,
+  snapshotFromVideoTrack,
+} from "@/lib/videoQualityDiagnostics";
+
 export const CAMERA_MAX_VIDEO_SECONDS = 60;
 
 export const CAMERA_PERMISSION_MESSAGE = "Camera access is required to record a Spot.";
@@ -24,14 +30,14 @@ export const RECORDING_BROWSER_UNSAVED_MESSAGE =
   "Recording was not saved by this browser. Please try again.";
 
 /** Target recording bitrate (bits per second) — high for sharp 1080p/4K output. */
-export const CAMERA_VIDEO_BITS_PER_SECOND = 12_000_000;
+export const CAMERA_VIDEO_BITS_PER_SECOND = 22_000_000;
 
-export const CAMERA_VIDEO_BITS_PER_SECOND_FALLBACK = 8_000_000;
+export const CAMERA_VIDEO_BITS_PER_SECOND_FALLBACK = 16_000_000;
 
-/** iPhone / WKWebView recording bitrates — match native Camera app quality. */
-export const IOS_CAMERA_VIDEO_BITS_PER_SECOND = 12_000_000;
+/** iPhone / WKWebView recording bitrates — preserve native-looking motion detail. */
+export const IOS_CAMERA_VIDEO_BITS_PER_SECOND = 28_000_000;
 
-export const IOS_CAMERA_VIDEO_BITS_PER_SECOND_FALLBACK = 8_000_000;
+export const IOS_CAMERA_VIDEO_BITS_PER_SECOND_FALLBACK = 18_000_000;
 
 export const IOS_CAMERA_AUDIO_BITS_PER_SECOND = 256_000;
 
@@ -412,14 +418,17 @@ type ExtendedVideoConstraints = MediaTrackConstraints & {
 function buildAdvancedVideoConstraints(
   facingMode: CameraFacingMode,
   width: number,
-  height: number
+  height: number,
+  options?: { minWidth?: number; minHeight?: number }
 ): ExtendedVideoConstraints {
+  const minWidth = options?.minWidth ?? Math.max(1280, Math.round(width * 0.75));
+  const minHeight = options?.minHeight ?? Math.max(720, Math.round(height * 0.75));
+
   return {
     facingMode: { ideal: facingMode },
-    width: { min: Math.round(width * 0.75), ideal: width, max: width },
-    height: { min: Math.round(height * 0.75), ideal: height, max: height },
-    // Lock 30fps — high/unstable FPS causes jerky preview and recording on iOS WKWebView.
-    frameRate: { min: 24, ideal: 30, max: 30 },
+    width: { ideal: width, min: minWidth },
+    height: { ideal: height, min: minHeight },
+    frameRate: { min: 24, ideal: 30, max: 60 },
     focusMode: { ideal: "continuous" },
     exposureMode: { ideal: "continuous" },
     whiteBalanceMode: { ideal: "continuous" },
@@ -494,18 +503,24 @@ export function logAudioTrackSettings(label: string, stream: MediaStream | null)
   }
 }
 
-/** 4K capture — desktop fallback only; iOS uses 1080p for stable preview/recording. */
+/** 4K capture when the device supports it — falls back to 1080p minimum. */
 export function build4KVideoConstraints(
   facingMode: CameraFacingMode = "environment"
 ): ExtendedVideoConstraints {
-  return buildAdvancedVideoConstraints(facingMode, 3840, 2160);
+  return buildAdvancedVideoConstraints(facingMode, 3840, 2160, {
+    minWidth: 1920,
+    minHeight: 1080,
+  });
 }
 
-/** Full HD capture — primary profile for smooth 1080p @ 30fps. */
+/** Full HD capture — primary profile with 1080p floor. */
 export function buildFullHdVideoConstraints(
   facingMode: CameraFacingMode = "environment"
 ): ExtendedVideoConstraints {
-  return buildAdvancedVideoConstraints(facingMode, 1920, 1080);
+  return buildAdvancedVideoConstraints(facingMode, 1920, 1080, {
+    minWidth: 1920,
+    minHeight: 1080,
+  });
 }
 
 /** Balanced fallback — 720p only when 1080p/4K are unavailable. */
@@ -602,14 +617,15 @@ function getCameraConstraintAttempts(
       ? [buildLowVideoConstraints(facingMode)]
       : isIosSafari()
         ? [
+            build4KVideoConstraints(facingMode),
             buildFullHdVideoConstraints(facingMode),
             buildBalancedVideoConstraints(facingMode),
             buildLowVideoConstraints(facingMode),
           ]
         : [
+            build4KVideoConstraints(facingMode),
             buildFullHdVideoConstraints(facingMode),
             buildBalancedVideoConstraints(facingMode),
-            build4KVideoConstraints(facingMode),
           ];
 
   const attempts: MediaStreamConstraints[] = [];
@@ -710,6 +726,14 @@ export async function startCameraStream(
       await optimizeVideoTrack(videoTrack);
       logCameraTrackSettings("after getUserMedia", videoTrack);
       logAudioTrackSettings("after getUserMedia", stream);
+      logVideoQuality("camera stream", {
+        ...snapshotFromVideoTrack(videoTrack),
+        mimeType: null,
+        fileName: null,
+        fileSizeBytes: null,
+        durationSeconds: null,
+        estimatedBitrateMbps: null,
+      });
       return stream;
     } catch (caught) {
       console.warn(`[SpotDrop camera] attempt ${index + 1} failed`, caught);
@@ -987,11 +1011,19 @@ export function recordVideoFromStream(
         }
 
         const extension = blobType.includes("mp4") ? "mp4" : "webm";
-        settleResolve(
-          new File([blob], `spot-video-${Date.now()}.${extension}`, {
-            type: blob.type || blobType,
-          })
-        );
+        const recordedFile = new File([blob], `spot-video-${Date.now()}.${extension}`, {
+          type: blob.type || blobType,
+        });
+
+        void probeVideoFile(recordedFile).then((probe) => {
+          logVideoQuality("camera recording", {
+            ...probe,
+            exportedMimeType: recordedFile.type,
+            exportedBitrateMbps: probe.estimatedBitrateMbps,
+          });
+        });
+
+        settleResolve(recordedFile);
       })();
     };
   });

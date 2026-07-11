@@ -139,7 +139,21 @@ export function formatSpotLocationLabelLocalized(location: SpotGeoLocation, loca
   return `${location.latitude.toFixed(5)}, ${location.longitude.toFixed(5)}`;
 }
 
-/** Instagram-style short location label for spots: "Country, City". */
+/** Short card/viewer label from captured GPS: "City, Country" (no long address). */
+export function formatSpotGeoLocationShortLabel(location: SpotGeoLocation, locale: I18nLocale) {
+  return (
+    formatSpotLocationShort(
+      {
+        spot_city: location.city,
+        spot_country: location.country,
+        spot_address: location.address,
+      },
+      locale
+    ) ?? `${location.latitude.toFixed(4)}, ${location.longitude.toFixed(4)}`
+  );
+}
+
+/** Instagram-style short location label for spots: "City, Country". */
 export function formatSpotLocationShort(
   post: SpotLocationDisplayFields,
   locale: I18nLocale = "en"
@@ -151,7 +165,7 @@ export function formatSpotLocationShort(
     post.spot_address
   );
   const localizedCountry = localizeSpotCountryField(locale, post.spot_country);
-  const parts = uniqueLocationParts([localizedCountry, localizedCity]);
+  const parts = uniqueLocationParts([localizedCity, localizedCountry]);
 
   if (parts.length > 0) {
     const line = parts.join(", ");

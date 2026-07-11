@@ -6,6 +6,7 @@ import {
   requireAuthenticatedUser,
 } from "@/lib/storageUpload";
 import { supabase } from "@/lib/supabaseClient";
+import { logVideoQuality, probeVideoFile } from "@/lib/videoQualityDiagnostics";
 
 export type UploadProgressCallback = (percent: number) => void;
 
@@ -141,6 +142,20 @@ export async function uploadPostMedia(
   const storagePath = formatPostMediaPath(userId, file);
   const skipVerification = options.skipVerification !== false;
 
+  const videoProbe =
+    mediaType === "video" ? await probeVideoFile(file) : null;
+
+  if (videoProbe) {
+    logVideoQuality("upload start", {
+      ...videoProbe,
+      exportedResolution:
+        videoProbe.width && videoProbe.height
+          ? `${videoProbe.width}x${videoProbe.height}`
+          : null,
+      finalUploadSizeBytes: file.size,
+    });
+  }
+
   if (!skipVerification) {
     await verifyStorageBucket(POST_MEDIA_BUCKET);
   }
@@ -206,6 +221,20 @@ export async function uploadPostMedia(
         publicUrl,
       });
     }
+  }
+
+  if (videoProbe) {
+    logVideoQuality("upload complete", {
+      ...videoProbe,
+      exportedResolution:
+        videoProbe.width && videoProbe.height
+          ? `${videoProbe.width}x${videoProbe.height}`
+          : null,
+      exportedMimeType: file.type || null,
+      exportedBitrateMbps: videoProbe.estimatedBitrateMbps,
+      finalUploadSizeBytes: file.size,
+      finalMediaUrl: publicUrl,
+    });
   }
 
   return {

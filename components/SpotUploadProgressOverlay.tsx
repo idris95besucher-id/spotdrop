@@ -23,6 +23,7 @@ export default function SpotUploadProgressOverlay({
   const barPercent = spotUploadDisplayPercent(rawPercent);
   const label = progress?.label ?? (showDetailed ? "Preparing..." : "Publishing spot…");
   const showBar = showDetailed;
+  const isComplete = rawPercent >= 100;
 
   return (
     <div className="pointer-events-auto absolute inset-0 z-[60] flex flex-col items-center justify-center gap-4 bg-black px-8">
@@ -33,7 +34,7 @@ export default function SpotUploadProgressOverlay({
           <div className="h-1.5 overflow-hidden rounded-full bg-white/15">
             <div
               className="h-full rounded-full bg-primary transition-[width] duration-300 ease-out"
-              style={{ width: `${Math.max(barPercent > 0 ? 8 : 0, barPercent)}%` }}
+              style={{ width: `${isComplete ? 100 : Math.max(barPercent > 0 ? 8 : 0, barPercent)}%` }}
             />
           </div>
         ) : null}

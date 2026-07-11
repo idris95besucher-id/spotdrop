@@ -1,22 +1,31 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import {
   Globe2,
   MessageCircle,
+  Plane,
   Plus,
   Search as SearchIcon,
   UserRound,
+  Users,
 } from "lucide-react";
 import { useAuthSession } from "@/components/AuthSessionProvider";
 import { useI18n } from "@/components/I18nProvider";
 import { useChatNotifications } from "@/components/ChatNotificationsProvider";
 import { CreateNavButton, useCreateMenu } from "@/components/CreateMenuProvider";
 import { formatUnreadBadge } from "@/lib/chatNotifications";
-import { isMainNavActive, MAIN_NAV_ITEMS, MAIN_NAV_LEFT, MAIN_NAV_RIGHT, shouldShowMobileBottomNav, shouldShowMobileCreateButton } from "@/lib/mainNav";
+import {
+  isMainNavActive,
+  MAIN_NAV_LEFT,
+  MAIN_NAV_RIGHT,
+  type MainNavItem,
+  shouldShowMobileBottomNav,
+  shouldShowMobileCreateButton,
+} from "@/lib/mainNav";
 import { MOBILE_FIXED_BOTTOM_NAV_CLASS } from "@/lib/mobileLayout";
 
 const MOBILE_BOTTOM_NAV_TOUCH_CLASS = "select-none touch-manipulation";
@@ -44,22 +53,28 @@ function NavBadge({ count }: { count: number }) {
   );
 }
 
-function navIcon(href: string, active: boolean, badgeCount = 0) {
+function navIcon(item: MainNavItem, active: boolean, badgeCount = 0) {
   const className = `pointer-events-none h-6 w-6 shrink-0 select-none transition-colors ${
     active ? "text-primary [filter:drop-shadow(0_0_8px_var(--sd-primary-glow))]" : "text-muted group-hover:text-slate-300"
   }`;
 
   let icon: ReactNode = null;
 
-  switch (href) {
+  switch (item.href) {
+    case "/search":
+      icon = <SearchIcon className={className} strokeWidth={1.75} aria-hidden />;
+      break;
+    case "/friends":
+      icon = <Users className={className} strokeWidth={1.75} aria-hidden />;
+      break;
     case "/visit":
-      icon = <Globe2 className={className} strokeWidth={1.75} aria-hidden />;
+      icon = <Plane className={className} strokeWidth={1.75} aria-hidden />;
       break;
     case "/chats":
       icon = <MessageCircle className={className} strokeWidth={1.75} aria-hidden />;
       break;
-    case "/search":
-      icon = <SearchIcon className={className} strokeWidth={1.75} aria-hidden />;
+    case "/visit?tab=map":
+      icon = <Globe2 className={className} strokeWidth={1.75} aria-hidden />;
       break;
     case "/profile":
       icon = <UserRound className={className} strokeWidth={1.75} aria-hidden />;
@@ -72,7 +87,7 @@ function navIcon(href: string, active: boolean, badgeCount = 0) {
     return null;
   }
 
-  if (href === "/chats") {
+  if (item.href === "/chats") {
     return (
       <span className="pointer-events-none relative inline-flex select-none">
         {icon}
@@ -131,12 +146,12 @@ function MobileNavLink({
   href,
   label,
   active,
-  badgeCount,
+  icon,
 }: {
   href: string;
   label: string;
   active: boolean;
-  badgeCount: number;
+  icon: ReactNode;
 }) {
   return (
     <Link
@@ -145,7 +160,7 @@ function MobileNavLink({
       aria-current={active ? "page" : undefined}
       draggable={false}
     >
-      {navIcon(href, active, badgeCount)}
+      {icon}
       <span
         className={`pointer-events-none max-w-full truncate text-[10px] font-medium leading-none select-none ${
           active ? "text-primary" : "text-muted group-hover:text-slate-300"
@@ -157,8 +172,13 @@ function MobileNavLink({
   );
 }
 
+function useMainNavSearchParams() {
+  return useSearchParams();
+}
+
 export function DesktopMainNav() {
   const pathname = usePathname();
+  const searchParams = useMainNavSearchParams();
   const { session, loading } = useNavSession();
   const { unreadCount: chatUnreadCount } = useChatNotifications();
   const { t } = useI18n();
@@ -175,13 +195,13 @@ export function DesktopMainNav() {
     return 0;
   };
 
-  const renderNavLink = (item: (typeof MAIN_NAV_ITEMS)[number]) => (
+  const renderNavLink = (item: MainNavItem) => (
     <DesktopNavLink
       key={item.href}
       href={item.href}
       label={t(item.labelKey)}
-      active={isMainNavActive(pathname, item.href)}
-      icon={navIcon(item.href, isMainNavActive(pathname, item.href), badgeForHref(item.href))}
+      active={isMainNavActive(pathname, item.href, searchParams)}
+      icon={navIcon(item, isMainNavActive(pathname, item.href, searchParams), badgeForHref(item.href))}
     />
   );
 
@@ -201,6 +221,7 @@ export function DesktopMainNav() {
 
 export function MobileBottomNav() {
   const pathname = usePathname();
+  const searchParams = useMainNavSearchParams();
   const { unreadCount: chatUnreadCount } = useChatNotifications();
   const { t } = useI18n();
   const [mounted, setMounted] = useState(false);
@@ -221,8 +242,8 @@ export function MobileBottomNav() {
     return 0;
   };
 
-  const renderItem = (item: (typeof MAIN_NAV_ITEMS)[number]) => {
-    const active = isMainNavActive(pathname, item.href);
+  const renderItem = (item: MainNavItem) => {
+    const active = isMainNavActive(pathname, item.href, searchParams);
     const label = t(item.shortLabelKey ?? item.labelKey);
 
     return (
@@ -231,7 +252,7 @@ export function MobileBottomNav() {
         href={item.href}
         label={label}
         active={active}
-        badgeCount={badgeForHref(item.href)}
+        icon={navIcon(item, active, badgeForHref(item.href))}
       />
     );
   };

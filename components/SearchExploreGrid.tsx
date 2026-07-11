@@ -5,9 +5,9 @@ import { Footprints, Loader2 } from "lucide-react";
 import PostCardMedia from "@/components/PostCardMedia";
 import PostMediaLink from "@/components/PostMediaLink";
 import { useI18n } from "@/components/I18nProvider";
+import { getSpotCaption } from "@/lib/spotCaption";
 import {
   EXPLORE_PAGE_SIZE,
-  formatFeedSpotTitle,
   loadExploreSpotPostsPage,
   mergeFeedSpotPosts,
   type FeedSpotRow,
@@ -16,6 +16,7 @@ import { MOBILE_WIDTH_SAFE_CLASS } from "@/lib/mobileLayout";
 import { localizeUserMessage } from "@/lib/i18n/localizeUserMessage";
 import { feedRowsToViewerItems } from "@/lib/postViewer";
 import { normalizePostId, postIdsEqual } from "@/lib/postIds";
+import { shouldHideFromSearchExploreGrid } from "@/lib/searchExploreGrid";
 import { SPOT_DELETED_EVENT, type SpotDeletedDetail } from "@/lib/spotDeletedEvents";
 import { SPOT_STATS_UPDATED_EVENT, type SpotStatsUpdatedDetail } from "@/lib/spotStatsEvents";
 import { getPostMedia } from "@/lib/posts";
@@ -43,7 +44,12 @@ export default function SearchExploreGrid({ onPostsChange }: SearchExploreGridPr
   const fetchOffsetRef = useRef(0);
   const initialLoadStartedRef = useRef(false);
 
-  const viewerItems = useMemo(() => feedRowsToViewerItems(posts), [posts]);
+  const visiblePosts = useMemo(
+    () => posts.filter((post) => !shouldHideFromSearchExploreGrid(post)),
+    [posts]
+  );
+
+  const viewerItems = useMemo(() => feedRowsToViewerItems(visiblePosts), [visiblePosts]);
 
   const loadInitial = useCallback(async () => {
     if (initialLoadStartedRef.current) {
@@ -180,7 +186,7 @@ export default function SearchExploreGrid({ onPostsChange }: SearchExploreGridPr
     );
   }
 
-  if (error && posts.length === 0) {
+  if (error && visiblePosts.length === 0) {
     return (
       <div className="rounded-2xl border border-red-500/20 bg-red-500/5 p-5 text-sm text-red-200">
         {localizeUserMessage(t, error) ?? error}
@@ -188,7 +194,7 @@ export default function SearchExploreGrid({ onPostsChange }: SearchExploreGridPr
     );
   }
 
-  if (posts.length === 0) {
+  if (visiblePosts.length === 0) {
     return (
       <div className="rounded-2xl border border-white/[0.08] bg-card/80 px-6 py-14 text-center">
         <p className="text-sm font-medium text-slate-300">{t("search.exploreEmptyTitle")}</p>
@@ -199,10 +205,10 @@ export default function SearchExploreGrid({ onPostsChange }: SearchExploreGridPr
 
   const renderTile = (post: FeedSpotRow, postIndex: number) => {
     const { mediaUrl } = getPostMedia(post);
-    const spotTitle = formatFeedSpotTitle(post);
+    const spotTitle = post.spot_name?.trim() || null;
     const clickedSpot = postIndex >= 0 ? viewerItems[postIndex] : undefined;
     const visitCount = post.visited_count ?? 0;
-    const fallbackLabel = spotTitle || post.content?.trim() || t("profile.spotFallback");
+    const fallbackLabel = getSpotCaption(post.content) || spotTitle || t("profile.spotFallback");
 
     return (
       <article key={post.id} className="relative aspect-square overflow-hidden bg-slate-950">
@@ -211,11 +217,13 @@ export default function SearchExploreGrid({ onPostsChange }: SearchExploreGridPr
           className="block h-full w-full"
           viewerItems={viewerItems}
           clickedSpot={clickedSpot}
+          viewerMode="search-reel"
         >
           {mediaUrl ? (
             <PostCardMedia
               post={post}
-              autoplay
+              postId={post.id}
+              gridPreview
               className="aspect-square h-full w-full"
               imageClassName="aspect-square h-full w-full object-cover"
               fallbackLabel={fallbackLabel}
@@ -240,12 +248,12 @@ export default function SearchExploreGrid({ onPostsChange }: SearchExploreGridPr
   return (
     <div className={`space-y-3 select-none touch-manipulation ${MOBILE_WIDTH_SAFE_CLASS}`}>
       <div className="grid w-full min-w-0 max-w-full grid-cols-3 gap-px">
-        {posts.map((post, index) => renderTile(post, index))}
+        {visiblePosts.map((post, index) => renderTile(post, index))}
       </div>
 
       <div ref={sentinelRef} className="flex min-h-8 items-center justify-center py-4">
         {loadingMore ? <Loader2 className="h-5 w-5 animate-spin text-slate-500" aria-hidden /> : null}
-        {!hasMore && posts.length > 0 ? (
+        {!hasMore && visiblePosts.length > 0 ? (
           <p className="text-xs text-slate-500">{t("search.exploreEnd")}</p>
         ) : null}
       </div>

@@ -3,6 +3,10 @@ import {
   parseCityRoomImageMessage,
   type CityRoomImagePayload,
 } from "@/lib/cityRoomImageMessage";
+import {
+  parseLocationCardShareMessage,
+  type LocationCardSharePayload,
+} from "@/lib/locationCardShareMessage";
 
 export type CityRoomPlacePayload = {
   name: string;
@@ -36,10 +40,16 @@ export function encodeCityRoomPlaceMessage(place: CityRoomPlacePayload) {
 export type CityRoomMessageContent =
   | { kind: "text"; text: string }
   | { kind: "place"; place: CityRoomPlacePayload }
-  | { kind: "image"; image: CityRoomImagePayload };
+  | { kind: "image"; image: CityRoomImagePayload }
+  | { kind: "location_card"; card: LocationCardSharePayload };
 
 export function parseCityRoomMessageContent(content: string): CityRoomMessageContent {
   const trimmed = content.trim();
+
+  const locationCard = parseLocationCardShareMessage(trimmed);
+  if (locationCard) {
+    return { kind: "location_card", card: locationCard };
+  }
 
   const image = parseCityRoomImageMessage(trimmed);
   if (image) {
@@ -98,7 +108,7 @@ export function isCityRoomPlaceMessage(content: string) {
 
 export function isCityRoomStructuredMessage(content: string) {
   const parsed = parseCityRoomMessageContent(content);
-  return parsed.kind === "place" || parsed.kind === "image";
+  return parsed.kind === "place" || parsed.kind === "image" || parsed.kind === "location_card";
 }
 
 export { isCityRoomImageMessage };

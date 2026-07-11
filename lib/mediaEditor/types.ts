@@ -6,6 +6,8 @@ export type MediaEditorItem = {
   file: File;
   mediaType: MediaEditorMediaType;
   previewUrl: string;
+  /** When false, publish without audio (videos only). Default true. */
+  keepSound: boolean;
   /** Full source video length in seconds (0 until loaded). */
   sourceDuration: number;
   trimStart: number;

@@ -32,16 +32,24 @@ function buildStaticSupabaseClient() {
 // ---------------------------------------------------------------------------
 
 export async function countryStaticParams(): Promise<{ country: string }[]> {
+  const ensureSwitzerland = (params: { country: string }[]) => {
+    if (params.some((p) => p.country === "switzerland")) {
+      return params;
+    }
+
+    return [...params, { country: "switzerland" }];
+  };
+
   if (process.env.CAPACITOR_BUILD !== "1") {
-    return [{ country: PLACEHOLDER }];
+    return ensureSwitzerland([{ country: PLACEHOLDER }]);
   }
 
   try {
     const supabase = buildStaticSupabaseClient();
 
     if (!supabase) {
-      console.warn("[staticParams] Supabase client unavailable, using _ placeholder for countries");
-      return [{ country: PLACEHOLDER }];
+      console.warn("[staticParams] Supabase client unavailable, using switzerland fallback for countries");
+      return ensureSwitzerland([{ country: PLACEHOLDER }]);
     }
 
     const { data, error } = await supabase
@@ -51,7 +59,7 @@ export async function countryStaticParams(): Promise<{ country: string }[]> {
 
     if (error) {
       console.warn("[staticParams] Failed to fetch countries:", error.message);
-      return [{ country: PLACEHOLDER }];
+      return ensureSwitzerland([{ country: PLACEHOLDER }]);
     }
 
     const params = (data ?? [])
@@ -59,10 +67,10 @@ export async function countryStaticParams(): Promise<{ country: string }[]> {
       .filter((p) => Boolean(p.country));
 
     console.log(`[staticParams] Generated ${params.length} country params`);
-    return params.length > 0 ? params : [{ country: PLACEHOLDER }];
+    return ensureSwitzerland(params.length > 0 ? params : [{ country: PLACEHOLDER }]);
   } catch (err) {
     console.warn("[staticParams] countryStaticParams error:", err);
-    return [{ country: PLACEHOLDER }];
+    return ensureSwitzerland([{ country: PLACEHOLDER }]);
   }
 }
 

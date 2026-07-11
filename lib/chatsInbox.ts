@@ -1,6 +1,3 @@
-export const CHATS_INBOX_REFRESH_EVENT = "spotdrop:chats-inbox-refresh";
-export const CHATS_INBOX_SILENT_REFRESH_EVENT = "spotdrop:chats-inbox-silent-refresh";
-
 import {
   buildFirstMessageByPartner,
   buildLatestMessageByPartner,
@@ -26,6 +23,38 @@ import type { MessageRequestItemData } from "@/components/MessageRequestItem";
 import { isGuideAccountUsername, publicProfileUsername } from "@/lib/publicProfile";
 import { loadRoomInbox, type RoomInboxRow } from "@/lib/roomMemberships";
 import { supabase } from "@/lib/supabaseClient";
+
+export const CHATS_INBOX_REFRESH_EVENT = "spotdrop:chats-inbox-refresh";
+export const CHATS_INBOX_SILENT_REFRESH_EVENT = "spotdrop:chats-inbox-silent-refresh";
+
+const INBOX_CACHE_TTL_MS = 30 * 1000;
+
+type InboxLoadResult = {
+  chats: InboxChatRow[];
+  rooms: RoomInboxRow[];
+  items: InboxItem[];
+  requests: MessageRequestItemData[];
+  error: string | null;
+};
+
+let inboxCache: { userId: string; result: InboxLoadResult; cachedAt: number } | null = null;
+
+export function getCachedChatsInbox(userId: string): InboxLoadResult | null {
+  if (!inboxCache || inboxCache.userId !== userId) {
+    return null;
+  }
+
+  if (Date.now() - inboxCache.cachedAt > INBOX_CACHE_TTL_MS) {
+    inboxCache = null;
+    return null;
+  }
+
+  return inboxCache.result;
+}
+
+function setCachedChatsInbox(userId: string, result: InboxLoadResult) {
+  inboxCache = { userId, result, cachedAt: Date.now() };
+}
 
 export type InboxChatRow = {
   partnerId: string;
@@ -133,7 +162,10 @@ function conversationByPartnerId(conversations: DirectConversation[], userId: st
 }
 
 export async function loadChatsInbox(userId: string) {
-  let { conversations, error: conversationsError } = await loadUserDirectConversations(userId);
+  const [{ conversations, error: conversationsError }, messagePartnerIds] = await Promise.all([
+    loadUserDirectConversations(userId),
+    loadDistinctMessagePartnerIds(userId),
+  ]);
 
   if (conversationsError) {
     return {
@@ -145,62 +177,69 @@ export async function loadChatsInbox(userId: string) {
     };
   }
 
-  const messagePartnerIds = await loadDistinctMessagePartnerIds(userId);
+  let resolvedConversations = conversations;
 
-  for (const partnerId of messagePartnerIds) {
-    const existing = conversations.find((row) => getConversationPartnerId(row, userId) === partnerId);
+  const missingPartnerIds = messagePartnerIds.filter(
+    (partnerId) => !resolvedConversations.some((row) => getConversationPartnerId(row, userId) === partnerId)
+  );
 
-    if (!existing) {
-      await syncMissingConversationForPartner(userId, partnerId);
-    }
-  }
+  if (missingPartnerIds.length > 0) {
+    await Promise.all(missingPartnerIds.map((partnerId) => syncMissingConversationForPartner(userId, partnerId)));
 
-  if (messagePartnerIds.length > 0) {
     const refreshed = await loadUserDirectConversations(userId);
 
     if (!refreshed.error) {
-      conversations = refreshed.conversations;
+      resolvedConversations = refreshed.conversations;
     }
   }
 
-  const conversationMap = conversationByPartnerId(conversations, userId);
+  const conversationMap = conversationByPartnerId(resolvedConversations, userId);
   const allPartnerIds = [
     ...new Set([
       ...messagePartnerIds,
-      ...conversations
+      ...resolvedConversations
         .map((row) => getConversationPartnerId(row, userId))
         .filter((partnerId): partnerId is string => Boolean(partnerId)),
     ]),
   ];
 
-  const { messages, error: messagesError } = await loadMessagesForPartners(userId, allPartnerIds);
+  const { dmPartners, roomKeys } = getOptimisticReadExcludes();
+
+  const [
+    { messages, error: messagesError },
+    ,
+    unreadByPartner,
+    { preferences: dmPreferences, error: preferencesError },
+    { profiles, error: profilesError },
+    { rooms, error: roomsError },
+  ] = await Promise.all([
+    loadMessagesForPartners(userId, allPartnerIds),
+    markAllPendingDirectMessagesDelivered(userId),
+    countUnreadByPartner(userId, dmPartners),
+    loadDmInboxPreferences(userId),
+    loadProfilesByIds(allPartnerIds),
+    loadRoomInbox(userId),
+  ]);
 
   if (messagesError) {
     return { chats: [], rooms: [], items: [], requests: [], error: messagesError };
   }
 
-  const latestByPartner = buildLatestMessageByPartner(messages, userId);
-  const firstByPartner = buildFirstMessageByPartner(messages, userId);
-  await markAllPendingDirectMessagesDelivered(userId);
-  const { dmPartners, roomKeys } = getOptimisticReadExcludes();
-  const unreadByPartner = await countUnreadByPartner(userId, dmPartners);
-
-  const { preferences: dmPreferences, error: preferencesError } = await loadDmInboxPreferences(userId);
-
   if (preferencesError) {
     console.error("[chats-inbox] failed to load DM preferences:", preferencesError);
   }
-
-  const { profiles, error: profilesError } = await loadProfilesByIds(allPartnerIds);
 
   if (profilesError) {
     return { chats: [], rooms: [], items: [], requests: [], error: profilesError };
   }
 
+  const latestByPartner = buildLatestMessageByPartner(messages, userId);
+  const firstByPartner = buildFirstMessageByPartner(messages, userId);
+
   const chats: InboxChatRow[] = [];
   const requests: MessageRequestItemData[] = [];
 
-  for (const row of conversations) {
+  for (const row of resolvedConversations) {
     const conversationPartnerId = getConversationPartnerId(row, userId);
     const threadLatest = conversationPartnerId ? latestByPartner.get(conversationPartnerId) : undefined;
     const partnerId = resolveInboxPartnerId(userId, row, threadLatest);
@@ -311,8 +350,6 @@ export async function loadChatsInbox(userId: string) {
   chats.sort((left, right) => new Date(right.lastAt).getTime() - new Date(left.lastAt).getTime());
   requests.sort((left, right) => new Date(right.requestedAt).getTime() - new Date(left.requestedAt).getTime());
 
-  const { rooms, error: roomsError } = await loadRoomInbox(userId);
-
   if (roomsError) {
     console.error("[chats-inbox] room inbox unavailable:", roomsError);
   }
@@ -343,5 +380,7 @@ export async function loadChatsInbox(userId: string) {
     return new Date(rightAt).getTime() - new Date(leftAt).getTime();
   });
 
-  return { chats, rooms, items, requests, error: null as string | null };
+  const result = { chats, rooms, items, requests, error: null as string | null };
+  setCachedChatsInbox(userId, result);
+  return result;
 }

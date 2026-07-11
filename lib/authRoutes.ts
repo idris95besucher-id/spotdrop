@@ -16,6 +16,10 @@ export function isPublicBrowseRoute(pathname: string | null) {
     return true;
   }
 
+  if (pathname === "/friends" || pathname.startsWith("/friends/")) {
+    return true;
+  }
+
   if (pathname === "/search" || pathname.startsWith("/search/")) {
     return true;
   }

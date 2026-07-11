@@ -2,6 +2,7 @@
 
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
 import VerticalPostViewer from "@/components/VerticalPostViewer";
+import ProfilePostFeedViewer from "@/components/ProfilePostFeedViewer";
 import {
   findViewerIndexForSpot,
   getViewerSpotMediaUrl,
@@ -9,10 +10,18 @@ import {
 } from "@/lib/postViewer";
 import { normalizePostId, postIdsEqual } from "@/lib/postIds";
 
+export type PostViewerMode = "reel" | "profile-feed" | "search-reel";
+
 type OpenPostViewerOptions = {
   onItemDeleted?: (postId: string) => void;
   initialSpotId: string;
   initialMediaUrl?: string | null;
+  /**
+   * profile-feed = Instagram-style continuous list (profile grid).
+   * search-reel = fullscreen pager with swipe-right close (Search grid).
+   * reel = fullscreen pager (back button only).
+   */
+  mode?: PostViewerMode;
 };
 
 type PostViewerContextValue = {
@@ -42,6 +51,7 @@ type ViewerState = {
   initialSpotId: string;
   initialMediaUrl: string | null;
   openId: string;
+  mode: PostViewerMode;
   onItemDeleted?: (postId: string) => void;
 };
 
@@ -64,17 +74,21 @@ export default function PostViewerProvider({ children }: { children: ReactNode }
       return;
     }
 
-    const initialMediaUrl = options.initialMediaUrl?.trim() || getViewerSpotMediaUrl(
-      frozenItems.find((spot) => normalizePostId(spot.id) === initialSpotId) ?? frozenItems[0]!
-    );
+    const initialMediaUrl =
+      options.initialMediaUrl?.trim() ||
+      getViewerSpotMediaUrl(
+        frozenItems.find((spot) => normalizePostId(spot.id) === initialSpotId) ?? frozenItems[0]!
+      );
     const initialIndex = findViewerIndexForSpot(frozenItems, initialSpotId, initialMediaUrl);
+    const mode = options.mode ?? "reel";
 
     setViewerState({
       items: frozenItems,
       initialIndex,
       initialSpotId,
       initialMediaUrl,
-      openId: `${initialSpotId}-${Date.now()}`,
+      openId: `${mode}-${initialSpotId}-${Date.now()}`,
+      mode,
       onItemDeleted: options.onItemDeleted,
     });
   }, []);
@@ -102,7 +116,9 @@ export default function PostViewerProvider({ children }: { children: ReactNode }
       }
 
       const nextIndex =
-        deletedIndex >= 0 ? Math.min(deletedIndex, nextItems.length - 1) : findViewerIndexForSpot(nextItems, current.initialSpotId, current.initialMediaUrl);
+        deletedIndex >= 0
+          ? Math.min(deletedIndex, nextItems.length - 1)
+          : findViewerIndexForSpot(nextItems, current.initialSpotId, current.initialMediaUrl);
 
       const anchor = nextItems[nextIndex]!;
       const anchorId = normalizePostId(anchor.id);
@@ -117,7 +133,7 @@ export default function PostViewerProvider({ children }: { children: ReactNode }
         initialIndex: nextIndex,
         initialSpotId: anchorId,
         initialMediaUrl: getViewerSpotMediaUrl(anchor),
-        openId: `${anchorId}-${Date.now()}`,
+        openId: `${current.mode}-${anchorId}-${Date.now()}`,
       };
     });
   }, []);
@@ -134,15 +150,27 @@ export default function PostViewerProvider({ children }: { children: ReactNode }
     <PostViewerContext.Provider value={value}>
       {children}
       {viewerState ? (
-        <VerticalPostViewer
-          key={viewerState.openId}
-          items={viewerState.items}
-          initialIndex={viewerState.initialIndex}
-          initialSpotId={viewerState.initialSpotId}
-          initialMediaUrl={viewerState.initialMediaUrl}
-          onClose={closePostViewer}
-          onItemDeleted={handleItemDeleted}
-        />
+        viewerState.mode === "profile-feed" ? (
+          <ProfilePostFeedViewer
+            key={viewerState.openId}
+            items={viewerState.items}
+            initialSpotId={viewerState.initialSpotId}
+            initialMediaUrl={viewerState.initialMediaUrl}
+            onClose={closePostViewer}
+            onItemDeleted={handleItemDeleted}
+          />
+        ) : (
+          <VerticalPostViewer
+            key={viewerState.openId}
+            items={viewerState.items}
+            initialIndex={viewerState.initialIndex}
+            initialSpotId={viewerState.initialSpotId}
+            initialMediaUrl={viewerState.initialMediaUrl}
+            onClose={closePostViewer}
+            onItemDeleted={handleItemDeleted}
+            enableHorizontalSwipeClose={viewerState.mode === "search-reel"}
+          />
+        )
       ) : null}
     </PostViewerContext.Provider>
   );

@@ -3,11 +3,14 @@
 import type { ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { ChevronLeft } from "lucide-react";
+import { useI18n } from "@/components/I18nProvider";
 import { MOBILE_SAFE_AREA_INSET_TOP, MOBILE_WIDTH_SAFE_CLASS } from "@/lib/mobileLayout";
+import { navigateBack } from "@/lib/navigateBack";
 
 type MobileSecondaryHeaderProps = {
   title: string;
-  backHref: string;
+  /** Fallback when there is no browser history entry (e.g. deep link). */
+  backHref?: string;
   onBack?: () => void;
   className?: string;
   trailing?: ReactNode;
@@ -21,6 +24,16 @@ export default function MobileSecondaryHeader({
   trailing,
 }: MobileSecondaryHeaderProps) {
   const router = useRouter();
+  const { t } = useI18n();
+
+  const handleBack = () => {
+    if (onBack) {
+      onBack();
+      return;
+    }
+
+    navigateBack(router, backHref);
+  };
 
   return (
     <header
@@ -28,12 +41,9 @@ export default function MobileSecondaryHeader({
     >
       <button
         type="button"
-        onClick={() => {
-          onBack?.();
-          router.push(backHref);
-        }}
+        onClick={handleBack}
         className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-white transition hover:bg-white/10 active:opacity-80"
-        aria-label={`Back to ${title}`}
+        aria-label={t("common.back")}
       >
         <ChevronLeft className="h-5 w-5" strokeWidth={2} aria-hidden />
       </button>

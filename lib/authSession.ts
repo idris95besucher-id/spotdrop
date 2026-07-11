@@ -21,10 +21,11 @@ export { isInvalidCredentialsError, isStaleSessionError } from "@/lib/authMessag
 
 export const AUTH_NOTICE_STORAGE_KEY = "spotdrop_auth_notice";
 
-type AuthErrorDetails = {
+export type AuthErrorDetails = {
   name: string | null;
   message: string | null;
   status: number | string | null;
+  code?: string | null;
 };
 
 export type SafeAuthSessionResult = {
@@ -34,7 +35,7 @@ export type SafeAuthSessionResult = {
 };
 
 function authErrorDetails(error: unknown): AuthErrorDetails {
-  const maybeError = error as { name?: unknown; message?: unknown; status?: unknown };
+  const maybeError = error as { name?: unknown; message?: unknown; status?: unknown; code?: unknown };
 
   return {
     name: typeof maybeError?.name === "string" ? maybeError.name : error instanceof Error ? error.name : null,
@@ -43,15 +44,51 @@ function authErrorDetails(error: unknown): AuthErrorDetails {
       typeof maybeError?.status === "number" || typeof maybeError?.status === "string"
         ? maybeError.status
         : null,
+    code: typeof maybeError?.code === "string" ? maybeError.code : null,
   };
 }
 
-export function logAuthSessionError(error: unknown) {
+/** User-visible message from Supabase/auth errors — never substitutes a generic fallback. */
+export function formatAuthErrorMessage(error: unknown) {
+  if (typeof error === "string" && error.trim()) {
+    return error.trim();
+  }
+
+  const details = authErrorDetails(error);
+  const parts: string[] = [];
+
+  if (details.message?.trim()) {
+    parts.push(details.message.trim());
+  }
+
+  if (details.code && details.code !== details.message) {
+    parts.push(`Code: ${details.code}`);
+  }
+
+  if (details.status != null) {
+    parts.push(`HTTP ${details.status}`);
+  }
+
+  if (parts.length === 0 && details.name) {
+    parts.push(details.name);
+  }
+
+  return parts.join(" · ") || "Unknown authentication error";
+}
+
+export function logAuthSessionError(error: unknown, context?: string) {
   if (!shouldLogAuthError(error)) {
     return;
   }
 
-  console.error("Auth session error:", JSON.stringify(authErrorDetails(error), null, 2));
+  const label = context ? `[SpotDrop auth] ${context}` : "[SpotDrop auth]";
+  const details = authErrorDetails(error);
+
+  console.error(label, {
+    ...details,
+    online: typeof navigator !== "undefined" ? navigator.onLine : null,
+    raw: error,
+  });
 }
 
 export async function clearLocalAuthSession() {

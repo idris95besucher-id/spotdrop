@@ -1,12 +1,16 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useCallback, useEffect } from "react";
 import { UserRound } from "lucide-react";
+import { useAuthSession } from "@/components/AuthSessionProvider";
 import { useI18n } from "@/components/I18nProvider";
 import { formatChatPreview } from "@/lib/i18n/chatPreview";
 import type { InboxChatRow } from "@/lib/chatsInbox";
 import { publicProfileUsername } from "@/lib/publicProfile";
 import { dmThreadHref } from "@/lib/chatThreadRoutes";
+import { warmDmThreadCache } from "@/lib/dmThreadCache";
 import { useLongPress } from "@/lib/useLongPress";
 import UserOnlineDot from "@/components/UserOnlineDot";
 
@@ -37,6 +41,10 @@ function formatChatTime(createdAt: string) {
 
 export default function DmInboxListItem({ chat, onLongPress }: DmInboxListItemProps) {
   const { t } = useI18n();
+  const router = useRouter();
+  const { session } = useAuthSession();
+  const currentUserId = session?.user?.id ?? null;
+  const href = dmThreadHref(chat.partnerId);
   const hasUnread = chat.unreadCount > 0;
   const preview = chat.lastMessage
     ? formatChatPreview(chat.lastMessage, t)
@@ -46,10 +54,23 @@ export default function DmInboxListItem({ chat, onLongPress }: DmInboxListItemPr
     onLongPress: () => onLongPress(chat),
   });
 
+  useEffect(() => {
+    if (currentUserId) {
+      warmDmThreadCache(currentUserId, chat.partnerId);
+    }
+  }, [chat.partnerId, currentUserId]);
+
+  const prefetchThread = useCallback(() => {
+    router.prefetch(href);
+  }, [href, router]);
+
   return (
     <li {...longPressProps} className="select-none touch-manipulation">
       <Link
-        href={dmThreadHref(chat.partnerId)}
+        href={href}
+        prefetch={false}
+        onMouseEnter={prefetchThread}
+        onTouchStart={prefetchThread}
         onClickCapture={onClickCapture}
         className={`flex items-center gap-3 px-4 py-3.5 transition sm:gap-4 sm:px-5 sm:py-4 ${
           hasUnread ? "bg-primary/[0.06]" : "hover:bg-white/[0.03]"
@@ -59,7 +80,14 @@ export default function DmInboxListItem({ chat, onLongPress }: DmInboxListItemPr
         <div className="relative shrink-0">
           <div className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-full bg-white/[0.06] sm:h-16 sm:w-16">
             {chat.avatarUrl ? (
-              <img src={chat.avatarUrl} alt="" className="h-full w-full object-cover" draggable={false} />
+              <img
+                src={chat.avatarUrl}
+                alt=""
+                loading="lazy"
+                decoding="async"
+                className="h-full w-full object-cover"
+                draggable={false}
+              />
             ) : (
               <UserRound className="h-6 w-6 text-muted" strokeWidth={1.5} aria-hidden />
             )}

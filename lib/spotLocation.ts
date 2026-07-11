@@ -12,6 +12,14 @@ export type SpotGeoLocation = {
   address: string | null;
   city: string | null;
   country: string | null;
+  /** Horizontal accuracy in meters at capture time (when available). */
+  accuracy?: number | null;
+  /** Device GPS timestamp (ms since epoch) when coordinates were frozen. */
+  capturedAt?: number | null;
+  /** Ground speed m/s when available. */
+  speed?: number | null;
+  /** Heading degrees when available. */
+  heading?: number | null;
 };
 
 export type ReverseGeocodeResult = {
@@ -103,12 +111,12 @@ type LocationAccuracy = "fast" | "high";
 
 function buildGeolocationOptions(accuracy: LocationAccuracy): PositionOptions {
   if (accuracy === "fast") {
-    // Low-accuracy (network/WiFi) — resolves in <2 s, suitable for pre-warming.
-    return { enableHighAccuracy: false, timeout: 2000, maximumAge: 60_000 };
+    // Quick seed — never accept fixes older than 5 seconds.
+    return { enableHighAccuracy: false, timeout: 2_000, maximumAge: 5_000 };
   }
 
-  // High-accuracy (GPS) — more precise but slower; used as background refinement.
-  return { enableHighAccuracy: true, timeout: 8000, maximumAge: 30_000 };
+  // High-accuracy GPS — no stale cache; wait up to 2s for a fresh fix.
+  return { enableHighAccuracy: true, timeout: 2_000, maximumAge: 0 };
 }
 
 async function capacitorGetPosition(accuracy: LocationAccuracy): Promise<SpotGeoLocation> {
@@ -124,9 +132,24 @@ async function capacitorGetPosition(accuracy: LocationAccuracy): Promise<SpotGeo
   const position = await Geolocation.getCurrentPosition({
     enableHighAccuracy: opts.enableHighAccuracy,
     timeout: opts.timeout,
+    maximumAge: opts.maximumAge,
   });
 
-  return resolveCoordinates(position.coords.latitude, position.coords.longitude);
+  const location = await resolveCoordinates(position.coords.latitude, position.coords.longitude);
+
+  return {
+    ...location,
+    accuracy: Number.isFinite(position.coords.accuracy) ? position.coords.accuracy : null,
+    capturedAt: Number.isFinite(position.timestamp) ? position.timestamp : Date.now(),
+    speed:
+      typeof position.coords.speed === "number" && position.coords.speed >= 0
+        ? position.coords.speed
+        : null,
+    heading:
+      typeof position.coords.heading === "number" && position.coords.heading >= 0
+        ? position.coords.heading
+        : null,
+  };
 }
 
 function browserGetPosition(accuracy: LocationAccuracy): Promise<SpotGeoLocation> {
@@ -140,7 +163,21 @@ function browserGetPosition(accuracy: LocationAccuracy): Promise<SpotGeoLocation
 
     navigator.geolocation.getCurrentPosition(
       (position) => {
-        void resolveCoordinates(position.coords.latitude, position.coords.longitude).then(resolve);
+        void resolveCoordinates(position.coords.latitude, position.coords.longitude).then((base) => {
+          resolve({
+            ...base,
+            accuracy: Number.isFinite(position.coords.accuracy) ? position.coords.accuracy : null,
+            capturedAt: Number.isFinite(position.timestamp) ? position.timestamp : Date.now(),
+            speed:
+              typeof position.coords.speed === "number" && position.coords.speed >= 0
+                ? position.coords.speed
+                : null,
+            heading:
+              typeof position.coords.heading === "number" && position.coords.heading >= 0
+                ? position.coords.heading
+                : null,
+          });
+        });
       },
       (error) => {
         if (error.code === error.PERMISSION_DENIED) {
@@ -171,7 +208,7 @@ export function requestDeviceLocationFast(): Promise<SpotGeoLocation> {
 }
 
 /**
- * High-accuracy location lookup (≤8 s).
+ * High-accuracy location lookup (≤2 s).
  * Triggers GPS on supported devices — use for refining a previously-cached position.
  */
 export function requestDeviceLocation(): Promise<SpotGeoLocation> {

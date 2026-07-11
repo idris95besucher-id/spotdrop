@@ -7,11 +7,13 @@ export type CoreTranslationKey =
   | "nav.spots"
   | "nav.visit"
   | "nav.search"
+  | "nav.friends"
   | "nav.map"
   | "nav.messages"
   | "nav.myChats"
   | "nav.myProfile"
   | "nav.create"
+  | "nav.saveLocation"
   | "auth.signIn"
   | "auth.signOut"
   | "common.loading"
@@ -19,6 +21,7 @@ export type CoreTranslationKey =
   | "common.cancel"
   | "common.delete"
   | "common.close"
+  | "common.back"
   | "profile.myProfile"
   | "profile.follow"
   | "profile.unfollow"
@@ -28,11 +31,70 @@ export type CoreTranslationKey =
   | "profile.posts"
   | "profile.spots"
   | "profile.collections"
+  | "profile.channels"
   | "profile.viewProfile"
   | "profile.openMyProfile"
   | "profile.editProfile"
   | "profile.shareProfile"
+  | "profile.galleryTitle"
+  | "profile.gallerySubtitle"
+  | "profile.galleryEmpty"
+  | "profile.galleryMediaSubtitle"
+  | "profile.galleryEmptyHint"
+  | "profile.galleryStatPhotoOne"
+  | "profile.galleryStatPhotoMany"
+  | "profile.galleryStatVideoOne"
+  | "profile.galleryStatVideoMany"
+  | "profile.galleryAdd"
+  | "profile.galleryAddPhoto"
+  | "profile.galleryAddVideo"
+  | "profile.galleryUploading"
+  | "profile.galleryUploadFailed"
+  | "profile.galleryOpenPhoto"
+  | "profile.galleryOpenVideo"
+  | "profile.galleryPhotoLabel"
+  | "profile.galleryVideoLabel"
+  | "profile.galleryPrevious"
+  | "profile.galleryNext"
+  | "profile.galleryUnavailable"
+  | "profile.galleryActions"
+  | "profile.galleryLabel"
+  | "profile.galleryTitleUser"
+  | "profile.galleryFriendsOnly"
+  | "profile.galleryPrivate"
+  | "profile.galleryItemActions"
+  | "profile.gallerySetProfilePhoto"
+  | "profile.galleryAddDescription"
+  | "profile.galleryEditDescription"
+  | "profile.galleryDescriptionPlaceholder"
+  | "profile.gallerySaveDescription"
+  | "profile.galleryDeleteConfirmTitle"
+  | "profile.galleryDeleteConfirmBody"
+  | "profile.galleryDescriptionSaved"
+  | "profile.galleryDeleted"
+  | "profile.galleryVisibility.sectionTitle"
+  | "profile.galleryVisibility.everyone"
+  | "profile.galleryVisibility.friends"
+  | "profile.galleryVisibility.onlyMe"
+  | "profile.openGallery"
+  | "channels.new"
+  | "channels.create"
+  | "channels.creating"
+  | "channels.namePlaceholder"
+  | "channels.descriptionPlaceholder"
+  | "channels.emptyTitle"
+  | "channels.emptyOwner"
+  | "channels.emptyViewer"
+  | "channels.emptyItems"
+  | "channels.invalid"
+  | "channels.itemCountOne"
+  | "channels.itemCountMany"
+  | "channels.visibility.public"
+  | "channels.visibility.private"
+  | "menu.channels"
+  | "menu.channelsDesc"
   | "profile.noPostsYet"
+  | "profile.noPostsYetSubtitle"
   | "profile.noPublicSpotsYet"
   | "profile.loading"
   | "profile.updating"
@@ -139,6 +201,36 @@ export type CoreTranslationKey =
   | "map.noPreview"
   | "map.locationAvailable"
   | "map.openSpot"
+  | "map.saveThisPlace"
+  | "map.createTextCard"
+  | "map.viewSpot"
+  | "map.seeSpot"
+  | "map.placeActionsTitle"
+  | "map.actionSavePlace"
+  | "map.actionGoToPlace"
+  | "map.actionMarkPlace"
+  | "map.markTextPlaceholder"
+  | "map.markTextRequired"
+  | "map.markAddPhotoCamera"
+  | "map.markAddPhotoGallery"
+  | "map.markRetakePhoto"
+  | "map.markRemovePhoto"
+  | "map.markDiscardConfirm"
+  | "map.markPublish"
+  | "map.markEdit"
+  | "map.markPublished"
+  | "map.placeSaved"
+  | "map.placeAlreadySaved"
+  | "map.placeMarked"
+  | "map.placeAlreadyMarked"
+  | "map.placeActionFailed"
+  | "map.selectedLocation"
+  | "map.resolvingAddress"
+  | "map.closeSavePlace"
+  | "map.placesSearchPlaceholder"
+  | "map.placesSearchEmpty"
+  | "map.placesSearching"
+  | "map.placesSearchError"
   | "error.connection"
   | "error.loadUsers"
   | "error.loadFollowers"
@@ -159,11 +251,13 @@ const CORE_EN: CoreMessageTable = {
   "nav.spots": "Spots",
   "nav.visit": "Visit",
   "nav.search": "Search",
+  "nav.friends": "Following",
   "nav.map": "Map",
   "nav.messages": "Messages",
   "nav.myChats": "My chats",
   "nav.myProfile": "My profile",
   "nav.create": "Create",
+  "nav.saveLocation": "Save location",
   "auth.signIn": "Sign in",
   "auth.signOut": "Sign out",
   "common.loading": "Loading…",
@@ -171,6 +265,7 @@ const CORE_EN: CoreMessageTable = {
   "common.cancel": "Cancel",
   "common.delete": "Delete",
   "common.close": "Close",
+  "common.back": "Back",
   "profile.myProfile": "My profile",
   "profile.follow": "Follow",
   "profile.unfollow": "Unfollow",
@@ -180,11 +275,70 @@ const CORE_EN: CoreMessageTable = {
   "profile.posts": "Posts",
   "profile.spots": "Spots",
   "profile.collections": "Collections",
+  "profile.channels": "Channels",
   "profile.viewProfile": "View profile",
   "profile.openMyProfile": "Open my profile",
   "profile.editProfile": "Edit profile",
   "profile.shareProfile": "Share profile",
-  "profile.noPostsYet": "No posts yet.",
+  "profile.galleryTitle": "Profile Gallery",
+  "profile.gallerySubtitle": "Your photos, videos, and text cards",
+  "profile.galleryMediaSubtitle": "Your personal photos and videos",
+  "profile.galleryEmpty": "No personal photos or videos yet.",
+  "profile.galleryEmptyHint": "Tap + to add photos or videos from your library.",
+  "profile.galleryStatPhotoOne": "1 photo",
+  "profile.galleryStatPhotoMany": "{count} photos",
+  "profile.galleryStatVideoOne": "1 video",
+  "profile.galleryStatVideoMany": "{count} videos",
+  "profile.galleryAdd": "Add to gallery",
+  "profile.galleryAddPhoto": "Add photo",
+  "profile.galleryAddVideo": "Add video",
+  "profile.galleryUploading": "Uploading…",
+  "profile.galleryUploadFailed": "Unable to save gallery media.",
+  "profile.galleryOpenPhoto": "Open photo",
+  "profile.galleryOpenVideo": "Open video",
+  "profile.galleryPhotoLabel": "Photo",
+  "profile.galleryVideoLabel": "Video",
+  "profile.galleryPrevious": "Previous",
+  "profile.galleryNext": "Next",
+  "profile.galleryUnavailable": "Media unavailable.",
+  "profile.galleryActions": "Gallery actions",
+  "profile.galleryLabel": "Gallery",
+  "profile.galleryTitleUser": "{user}'s Gallery",
+  "profile.galleryFriendsOnly": "This Profile Gallery is available to friends only.",
+  "profile.galleryPrivate": "This Profile Gallery is private.",
+  "profile.galleryItemActions": "Gallery item",
+  "profile.gallerySetProfilePhoto": "Set as profile photo",
+  "profile.galleryAddDescription": "Add description",
+  "profile.galleryEditDescription": "Edit description",
+  "profile.galleryDescriptionPlaceholder": "Write a description…",
+  "profile.gallerySaveDescription": "Save",
+  "profile.galleryDeleteConfirmTitle": "Delete from gallery?",
+  "profile.galleryDeleteConfirmBody": "Delete this from your gallery?",
+  "profile.galleryDescriptionSaved": "Description saved.",
+  "profile.galleryDeleted": "Removed from your gallery.",
+  "profile.galleryVisibility.sectionTitle": "Profile Gallery Visibility",
+  "profile.galleryVisibility.everyone": "Everyone",
+  "profile.galleryVisibility.friends": "Friends only",
+  "profile.galleryVisibility.onlyMe": "Only me",
+  "profile.openGallery": "Open profile gallery",
+  "channels.new": "New Channel",
+  "channels.create": "Create channel",
+  "channels.creating": "Creating…",
+  "channels.namePlaceholder": "Channel name",
+  "channels.descriptionPlaceholder": "Description (optional)",
+  "channels.emptyTitle": "No channels yet",
+  "channels.emptyOwner": "Create channels to curate Spots, photos, videos, and text cards.",
+  "channels.emptyViewer": "This user has not shared any channels.",
+  "channels.emptyItems": "This channel is empty.",
+  "channels.invalid": "Channel not found.",
+  "channels.itemCountOne": "1 item",
+  "channels.itemCountMany": "{count} items",
+  "channels.visibility.public": "Public",
+  "channels.visibility.private": "Personal",
+  "menu.channels": "Channels",
+  "menu.channelsDesc": "Your curated channels",
+  "profile.noPostsYet": "No posts yet",
+  "profile.noPostsYetSubtitle": "Your published posts will appear here.",
   "profile.noPublicSpotsYet": "No public spots yet",
   "profile.loading": "Loading profile…",
   "profile.updating": "Updating…",
@@ -240,9 +394,9 @@ const CORE_EN: CoreMessageTable = {
   "collections.descriptionPlaceholder": "Description (optional)",
   "collections.create": "Create collection",
   "collections.creating": "Creating…",
-  "collections.emptyTitle": "No collections yet",
-  "collections.emptyOwner": "Create collections like Family Trips or Hidden Places Europe.",
-  "collections.emptyViewer": "This user has not shared any collections.",
+  "collections.emptyTitle": "No saved spots yet",
+  "collections.emptyOwner": "Save spots to organize and view them here.",
+  "collections.emptyViewer": "No saved spots to show yet.",
   "collections.spotCountOne": "1 spot",
   "collections.spotCountMany": "{count} spots",
   "collections.visibility.public": "Public",
@@ -291,6 +445,36 @@ const CORE_EN: CoreMessageTable = {
   "map.noPreview": "No preview",
   "map.locationAvailable": "Location available",
   "map.openSpot": "Open spot",
+  "map.saveThisPlace": "Save this place?",
+  "map.createTextCard": "Create Text Card",
+  "map.viewSpot": "View Spot",
+  "map.seeSpot": "See Spot",
+  "map.placeActionsTitle": "This place",
+  "map.actionSavePlace": "Save this place",
+  "map.actionGoToPlace": "Go to this place",
+  "map.actionMarkPlace": "Mark this place",
+  "map.markTextPlaceholder": "What is happening here?",
+  "map.markTextRequired": "Write a short note for this mark.",
+  "map.markAddPhotoCamera": "Take photo",
+  "map.markAddPhotoGallery": "Gallery",
+  "map.markRetakePhoto": "Retake",
+  "map.markRemovePhoto": "Remove",
+  "map.markDiscardConfirm": "Discard this mark?",
+  "map.markPublish": "Publish",
+  "map.markEdit": "Edit",
+  "map.markPublished": "Mark published on the map",
+  "map.placeSaved": "Place saved",
+  "map.placeAlreadySaved": "Place already saved",
+  "map.placeMarked": "Place marked on map",
+  "map.placeAlreadyMarked": "Place already marked",
+  "map.placeActionFailed": "Could not update this place",
+  "map.selectedLocation": "Selected location",
+  "map.resolvingAddress": "Looking up address…",
+  "map.closeSavePlace": "Close place actions",
+  "map.placesSearchPlaceholder": "Search city, address or place...",
+  "map.placesSearchEmpty": "No places found.",
+  "map.placesSearching": "Searching…",
+  "map.placesSearchError": "Place search is unavailable.",
   "error.connection": "Connection problem. Please try again.",
   "error.loadUsers": "Unable to load users.",
   "error.loadFollowers": "Unable to load followers.",
@@ -309,11 +493,13 @@ const CORE_RU: CoreMessageTable = {
   "nav.spots": "Места",
   "nav.visit": "Комнаты",
   "nav.search": "Поиск",
+  "nav.friends": "Подписки",
   "nav.map": "Карта",
   "nav.messages": "Сообщения",
   "nav.myChats": "Мои чаты",
   "nav.myProfile": "Мой профиль",
   "nav.create": "Создать",
+  "nav.saveLocation": "Сохранить место",
   "auth.signIn": "Войти",
   "auth.signOut": "Выйти",
   "common.loading": "Загрузка…",
@@ -321,6 +507,7 @@ const CORE_RU: CoreMessageTable = {
   "common.cancel": "Отмена",
   "common.delete": "Удалить",
   "common.close": "Закрыть",
+  "common.back": "Назад",
   "profile.myProfile": "Мой профиль",
   "profile.follow": "Подписаться",
   "profile.unfollow": "Отписаться",
@@ -330,11 +517,70 @@ const CORE_RU: CoreMessageTable = {
   "profile.posts": "Посты",
   "profile.spots": "Места",
   "profile.collections": "Коллекции",
+  "profile.channels": "Каналы",
   "profile.viewProfile": "Открыть профиль",
   "profile.openMyProfile": "Мой профиль",
   "profile.editProfile": "Редактировать",
   "profile.shareProfile": "Поделиться",
-  "profile.noPostsYet": "Пока нет постов.",
+  "profile.galleryTitle": "Галерея профиля",
+  "profile.gallerySubtitle": "Ваши фото, видео и текстовые карточки",
+  "profile.galleryMediaSubtitle": "Ваши личные фото и видео",
+  "profile.galleryEmpty": "Пока нет личных фото или видео.",
+  "profile.galleryEmptyHint": "Нажмите +, чтобы добавить фото или видео из библиотеки.",
+  "profile.galleryStatPhotoOne": "1 фото",
+  "profile.galleryStatPhotoMany": "{count} фото",
+  "profile.galleryStatVideoOne": "1 видео",
+  "profile.galleryStatVideoMany": "{count} видео",
+  "profile.galleryAdd": "Добавить в галерею",
+  "profile.galleryAddPhoto": "Добавить фото",
+  "profile.galleryAddVideo": "Добавить видео",
+  "profile.galleryUploading": "Загрузка…",
+  "profile.galleryUploadFailed": "Не удалось сохранить медиа.",
+  "profile.galleryOpenPhoto": "Открыть фото",
+  "profile.galleryOpenVideo": "Открыть видео",
+  "profile.galleryPhotoLabel": "Фото",
+  "profile.galleryVideoLabel": "Видео",
+  "profile.galleryPrevious": "Назад",
+  "profile.galleryNext": "Далее",
+  "profile.galleryUnavailable": "Медиа недоступно.",
+  "profile.galleryActions": "Действия галереи",
+  "profile.galleryLabel": "Галерея",
+  "profile.galleryTitleUser": "Галерея {user}",
+  "profile.galleryFriendsOnly": "Эта галерея профиля доступна только друзьям.",
+  "profile.galleryPrivate": "Эта галерея профиля закрыта.",
+  "profile.galleryItemActions": "Элемент галереи",
+  "profile.gallerySetProfilePhoto": "Сделать фото профиля",
+  "profile.galleryAddDescription": "Добавить описание",
+  "profile.galleryEditDescription": "Изменить описание",
+  "profile.galleryDescriptionPlaceholder": "Напишите описание…",
+  "profile.gallerySaveDescription": "Сохранить",
+  "profile.galleryDeleteConfirmTitle": "Удалить из галереи?",
+  "profile.galleryDeleteConfirmBody": "Удалить это из вашей галереи?",
+  "profile.galleryDescriptionSaved": "Описание сохранено.",
+  "profile.galleryDeleted": "Удалено из галереи.",
+  "profile.galleryVisibility.sectionTitle": "Видимость галереи профиля",
+  "profile.galleryVisibility.everyone": "Все",
+  "profile.galleryVisibility.friends": "Только друзья",
+  "profile.galleryVisibility.onlyMe": "Только я",
+  "profile.openGallery": "Открыть галерею профиля",
+  "channels.new": "Новый канал",
+  "channels.create": "Создать канал",
+  "channels.creating": "Создание…",
+  "channels.namePlaceholder": "Название канала",
+  "channels.descriptionPlaceholder": "Описание (необязательно)",
+  "channels.emptyTitle": "Пока нет каналов",
+  "channels.emptyOwner": "Создавайте каналы для подборок Spots, фото, видео и текстовых карточек.",
+  "channels.emptyViewer": "Этот пользователь не поделился каналами.",
+  "channels.emptyItems": "В этом канале пока пусто.",
+  "channels.invalid": "Канал не найден.",
+  "channels.itemCountOne": "1 элемент",
+  "channels.itemCountMany": "{count} элементов",
+  "channels.visibility.public": "Публичный",
+  "channels.visibility.private": "Личный",
+  "menu.channels": "Каналы",
+  "menu.channelsDesc": "Ваши тематические каналы",
+  "profile.noPostsYet": "Пока нет постов",
+  "profile.noPostsYetSubtitle": "Ваши опубликованные посты появятся здесь.",
   "profile.noPublicSpotsYet": "Пока нет публичных мест",
   "profile.loading": "Загрузка профиля…",
   "profile.updating": "Обновление…",
@@ -390,9 +636,9 @@ const CORE_RU: CoreMessageTable = {
   "collections.descriptionPlaceholder": "Описание (необязательно)",
   "collections.create": "Создать коллекцию",
   "collections.creating": "Создание…",
-  "collections.emptyTitle": "Пока нет коллекций",
-  "collections.emptyOwner": "Создайте коллекции, например «Семейные поездки» или «Скрытые места Европы».",
-  "collections.emptyViewer": "Этот пользователь не поделился коллекциями.",
+  "collections.emptyTitle": "Пока нет сохранённых мест",
+  "collections.emptyOwner": "Сохраняйте места, чтобы организовать и просматривать их здесь.",
+  "collections.emptyViewer": "Пока нет сохранённых мест.",
   "collections.spotCountOne": "1 место",
   "collections.spotCountMany": "{count} мест",
   "collections.visibility.public": "Публичная",
@@ -441,6 +687,36 @@ const CORE_RU: CoreMessageTable = {
   "map.noPreview": "Нет превью",
   "map.locationAvailable": "Местоположение доступно",
   "map.openSpot": "Открыть место",
+  "map.saveThisPlace": "Сохранить это место?",
+  "map.createTextCard": "Создать текстовую карточку",
+  "map.viewSpot": "Открыть Spot",
+  "map.seeSpot": "Смотреть Spot",
+  "map.placeActionsTitle": "Это место",
+  "map.actionSavePlace": "Сохранить это место",
+  "map.actionGoToPlace": "Проложить маршрут",
+  "map.actionMarkPlace": "Отметить это место",
+  "map.markTextPlaceholder": "Что здесь происходит?",
+  "map.markTextRequired": "Напишите короткую заметку для метки.",
+  "map.markAddPhotoCamera": "Сделать фото",
+  "map.markAddPhotoGallery": "Галерея",
+  "map.markRetakePhoto": "Переснять",
+  "map.markRemovePhoto": "Удалить",
+  "map.markDiscardConfirm": "Отменить эту метку?",
+  "map.markPublish": "Опубликовать",
+  "map.markEdit": "Изменить",
+  "map.markPublished": "Метка опубликована на карте",
+  "map.placeSaved": "Место сохранено",
+  "map.placeAlreadySaved": "Место уже сохранено",
+  "map.placeMarked": "Место отмечено на карте",
+  "map.placeAlreadyMarked": "Место уже отмечено",
+  "map.placeActionFailed": "Не удалось обновить это место",
+  "map.selectedLocation": "Выбранное место",
+  "map.resolvingAddress": "Определение адреса…",
+  "map.closeSavePlace": "Закрыть действия с местом",
+  "map.placesSearchPlaceholder": "Город, адрес или место…",
+  "map.placesSearchEmpty": "Места не найдены.",
+  "map.placesSearching": "Поиск…",
+  "map.placesSearchError": "Поиск мест недоступен.",
   "error.connection": "Проблема с подключением. Попробуйте ещё раз.",
   "error.loadUsers": "Не удалось загрузить пользователей.",
   "error.loadFollowers": "Не удалось загрузить подписчиков.",
@@ -459,11 +735,13 @@ const CORE_DE: CoreMessageTable = {
   "nav.spots": "Spots",
   "nav.visit": "Besuchen",
   "nav.search": "Suche",
+  "nav.friends": "Folge ich",
   "nav.map": "Karte",
   "nav.messages": "Nachrichten",
   "nav.myChats": "Meine Chats",
   "nav.myProfile": "Mein Profil",
   "nav.create": "Erstellen",
+  "nav.saveLocation": "Ort speichern",
   "auth.signIn": "Anmelden",
   "auth.signOut": "Abmelden",
   "common.loading": "Laden…",
@@ -471,6 +749,7 @@ const CORE_DE: CoreMessageTable = {
   "common.cancel": "Abbrechen",
   "common.delete": "Löschen",
   "common.close": "Schließen",
+  "common.back": "Zurück",
   "profile.myProfile": "Mein Profil",
   "profile.follow": "Folgen",
   "profile.unfollow": "Entfolgen",
@@ -480,11 +759,70 @@ const CORE_DE: CoreMessageTable = {
   "profile.posts": "Beiträge",
   "profile.spots": "Spots",
   "profile.collections": "Sammlungen",
+  "profile.channels": "Kanäle",
   "profile.viewProfile": "Profil ansehen",
   "profile.openMyProfile": "Mein Profil öffnen",
   "profile.editProfile": "Profil bearbeiten",
   "profile.shareProfile": "Profil teilen",
-  "profile.noPostsYet": "Noch keine Beiträge.",
+  "profile.galleryTitle": "Profilgalerie",
+  "profile.gallerySubtitle": "Deine Fotos, Videos und Textkarten",
+  "profile.galleryMediaSubtitle": "Deine persönlichen Fotos und Videos",
+  "profile.galleryEmpty": "Noch keine persönlichen Fotos oder Videos.",
+  "profile.galleryEmptyHint": "Tippe auf +, um Fotos oder Videos aus der Mediathek hinzuzufügen.",
+  "profile.galleryStatPhotoOne": "1 Foto",
+  "profile.galleryStatPhotoMany": "{count} Fotos",
+  "profile.galleryStatVideoOne": "1 Video",
+  "profile.galleryStatVideoMany": "{count} Videos",
+  "profile.galleryAdd": "Zur Galerie hinzufügen",
+  "profile.galleryAddPhoto": "Foto hinzufügen",
+  "profile.galleryAddVideo": "Video hinzufügen",
+  "profile.galleryUploading": "Wird hochgeladen…",
+  "profile.galleryUploadFailed": "Galerie-Medien konnten nicht gespeichert werden.",
+  "profile.galleryOpenPhoto": "Foto öffnen",
+  "profile.galleryOpenVideo": "Video öffnen",
+  "profile.galleryPhotoLabel": "Foto",
+  "profile.galleryVideoLabel": "Video",
+  "profile.galleryPrevious": "Zurück",
+  "profile.galleryNext": "Weiter",
+  "profile.galleryUnavailable": "Medien nicht verfügbar.",
+  "profile.galleryActions": "Galerie-Aktionen",
+  "profile.galleryLabel": "Galerie",
+  "profile.galleryTitleUser": "Galerie von {user}",
+  "profile.galleryFriendsOnly": "Diese Profilgalerie ist nur für Freunde verfügbar.",
+  "profile.galleryPrivate": "Diese Profilgalerie ist privat.",
+  "profile.galleryItemActions": "Galerie-Element",
+  "profile.gallerySetProfilePhoto": "Als Profilfoto festlegen",
+  "profile.galleryAddDescription": "Beschreibung hinzufügen",
+  "profile.galleryEditDescription": "Beschreibung bearbeiten",
+  "profile.galleryDescriptionPlaceholder": "Beschreibung schreiben…",
+  "profile.gallerySaveDescription": "Speichern",
+  "profile.galleryDeleteConfirmTitle": "Aus Galerie löschen?",
+  "profile.galleryDeleteConfirmBody": "Dies aus deiner Galerie löschen?",
+  "profile.galleryDescriptionSaved": "Beschreibung gespeichert.",
+  "profile.galleryDeleted": "Aus der Galerie entfernt.",
+  "profile.galleryVisibility.sectionTitle": "Sichtbarkeit der Profilgalerie",
+  "profile.galleryVisibility.everyone": "Alle",
+  "profile.galleryVisibility.friends": "Nur Freunde",
+  "profile.galleryVisibility.onlyMe": "Nur ich",
+  "profile.openGallery": "Profilgalerie öffnen",
+  "channels.new": "Neuer Kanal",
+  "channels.create": "Kanal erstellen",
+  "channels.creating": "Wird erstellt…",
+  "channels.namePlaceholder": "Kanalname",
+  "channels.descriptionPlaceholder": "Beschreibung (optional)",
+  "channels.emptyTitle": "Noch keine Kanäle",
+  "channels.emptyOwner": "Erstelle Kanäle für Spots, Fotos, Videos und Textkarten.",
+  "channels.emptyViewer": "Dieser Nutzer hat keine Kanäle geteilt.",
+  "channels.emptyItems": "Dieser Kanal ist leer.",
+  "channels.invalid": "Kanal nicht gefunden.",
+  "channels.itemCountOne": "1 Eintrag",
+  "channels.itemCountMany": "{count} Einträge",
+  "channels.visibility.public": "Öffentlich",
+  "channels.visibility.private": "Persönlich",
+  "menu.channels": "Kanäle",
+  "menu.channelsDesc": "Deine kuratierten Kanäle",
+  "profile.noPostsYet": "Noch keine Beiträge",
+  "profile.noPostsYetSubtitle": "Deine veröffentlichten Beiträge erscheinen hier.",
   "profile.noPublicSpotsYet": "Noch keine öffentlichen Spots",
   "profile.loading": "Profil wird geladen…",
   "profile.updating": "Wird aktualisiert…",
@@ -540,9 +878,9 @@ const CORE_DE: CoreMessageTable = {
   "collections.descriptionPlaceholder": "Beschreibung (optional)",
   "collections.create": "Sammlung erstellen",
   "collections.creating": "Wird erstellt…",
-  "collections.emptyTitle": "Noch keine Sammlungen",
-  "collections.emptyOwner": "Erstelle Sammlungen wie Familienreisen oder Versteckte Orte Europa.",
-  "collections.emptyViewer": "Dieser Nutzer hat keine Sammlungen geteilt.",
+  "collections.emptyTitle": "Noch keine gespeicherten Spots",
+  "collections.emptyOwner": "Speichere Spots, um sie hier zu organisieren und anzusehen.",
+  "collections.emptyViewer": "Noch keine gespeicherten Spots vorhanden.",
   "collections.spotCountOne": "1 Spot",
   "collections.spotCountMany": "{count} Spots",
   "collections.visibility.public": "Öffentlich",
@@ -591,6 +929,36 @@ const CORE_DE: CoreMessageTable = {
   "map.noPreview": "Keine Vorschau",
   "map.locationAvailable": "Standort verfügbar",
   "map.openSpot": "Spot öffnen",
+  "map.saveThisPlace": "Diesen Ort speichern?",
+  "map.createTextCard": "Textkarte erstellen",
+  "map.viewSpot": "Spot ansehen",
+  "map.seeSpot": "Spot ansehen",
+  "map.placeActionsTitle": "Dieser Ort",
+  "map.actionSavePlace": "Diesen Ort speichern",
+  "map.actionGoToPlace": "Zu diesem Ort navigieren",
+  "map.actionMarkPlace": "Diesen Ort markieren",
+  "map.markTextPlaceholder": "Was passiert hier?",
+  "map.markTextRequired": "Schreibe eine kurze Notiz für diese Markierung.",
+  "map.markAddPhotoCamera": "Foto aufnehmen",
+  "map.markAddPhotoGallery": "Galerie",
+  "map.markRetakePhoto": "Neu aufnehmen",
+  "map.markRemovePhoto": "Entfernen",
+  "map.markDiscardConfirm": "Diese Markierung verwerfen?",
+  "map.markPublish": "Veröffentlichen",
+  "map.markEdit": "Bearbeiten",
+  "map.markPublished": "Markierung auf der Karte veröffentlicht",
+  "map.placeSaved": "Ort gespeichert",
+  "map.placeAlreadySaved": "Ort bereits gespeichert",
+  "map.placeMarked": "Ort auf der Karte markiert",
+  "map.placeAlreadyMarked": "Ort bereits markiert",
+  "map.placeActionFailed": "Ort konnte nicht aktualisiert werden",
+  "map.selectedLocation": "Ausgewählter Ort",
+  "map.resolvingAddress": "Adresse wird ermittelt…",
+  "map.closeSavePlace": "Ort-Aktionen schließen",
+  "map.placesSearchPlaceholder": "Stadt, Adresse oder Ort suchen…",
+  "map.placesSearchEmpty": "Keine Orte gefunden.",
+  "map.placesSearching": "Suche…",
+  "map.placesSearchError": "Ortssuche ist nicht verfügbar.",
   "error.connection": "Verbindungsproblem. Bitte erneut versuchen.",
   "error.loadUsers": "Benutzer konnten nicht geladen werden.",
   "error.loadFollowers": "Follower konnten nicht geladen werden.",
