@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useParams, usePathname, useSearchParams } from "next/navigation";
+import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import type { RealtimeChannel, Session } from "@supabase/supabase-js";
@@ -29,6 +29,7 @@ import {
   shouldShowCityRoomSenderName,
 } from "@/lib/cityRoomChatGrouping";
 import { localizeUserMessage } from "@/lib/i18n/localizeUserMessage";
+import { toUserFacingError } from "@/lib/userFacingError";
 import { localizeCountryName, localizeCityName } from "@/lib/i18n/localizeGeo";
 import { CHATS_INBOX_REFRESH_EVENT } from "@/lib/chatsInbox";
 import { markRoomThreadOpened } from "@/lib/chatUnreadSync";
@@ -45,7 +46,8 @@ import {
 import { useChatScroll, useChatScrollEffect } from "@/lib/useChatScroll";
 import { isOnlineNow } from "@/lib/userPresence";
 import { usePresenceOnlineIds } from "@/lib/usePresenceOnlineIds";
-import { CHAT_MESSAGES_FLEX_PADDING } from "@/lib/useKeyboardInsets";
+import { CITY_ROOM_MESSAGES_FLEX_PADDING } from "@/lib/keyboardSystem";
+import { navigateBack } from "@/lib/navigateBack";
 
 type Country = {
   id: string;
@@ -304,7 +306,7 @@ export default function RoomChatPage() {
 
     if (fetchError) {
       console.error("Failed to load city messages:", fetchError);
-      setError(fetchError.message);
+      setError(toUserFacingError(fetchError, "Unable to load messages."));
       setMessages([]);
     } else {
       const rawMessages = (data ?? []) as RawCityMessage[];
@@ -687,6 +689,10 @@ export default function RoomChatPage() {
     setError(null);
     setSendError(null);
 
+    if (sending) {
+      return;
+    }
+
     if (!session?.user?.id || !cityId) {
       const nextError = "You must sign in to send messages.";
       setSendError(nextError);
@@ -703,7 +709,7 @@ export default function RoomChatPage() {
     if (ensureProfileResult.error) {
       const nextError = ensureProfileResult.needsOnboarding
         ? "Complete your profile first."
-        : ensureProfileResult.error;
+        : toUserFacingError(ensureProfileResult.error, "Unable to send your message.");
       setSendError(nextError);
       throw new Error(nextError);
     }
@@ -726,8 +732,8 @@ export default function RoomChatPage() {
       .single();
 
     if (insertError) {
-      console.error("Failed to send city message:", insertError);
-      const nextError = insertError.message || "Unable to send your message.";
+      console.error("Failed to send city message:", insertError.code ?? "unknown");
+      const nextError = toUserFacingError(insertError, "Unable to send your message.");
       setSendError(nextError);
       setSending(false);
       throw new Error(nextError);
@@ -743,13 +749,27 @@ export default function RoomChatPage() {
     setSending(false);
     markForceScroll();
 
-    void upsertRoomMembershipOnMessage(session.user.id, countrySlug, citySlug);
+    const membershipCountrySlug = country?.slug ?? countrySlug;
+    const membershipCitySlug = city?.slug ?? citySlug;
+    const membershipResult = await upsertRoomMembershipOnMessage(
+      session.user.id,
+      membershipCountrySlug,
+      membershipCitySlug
+    );
+
+    if (membershipResult.error) {
+      console.error("[CityRoomView] room membership upsert failed:", membershipResult.error);
+    }
+
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new Event(CHATS_INBOX_REFRESH_EVENT));
+    }
   };
 
   const handleSend = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
-    if (!newMessage.trim()) {
+    if (sending || !newMessage.trim()) {
       return;
     }
 
@@ -952,37 +972,13 @@ export default function RoomChatPage() {
     ? t("chats.title")
     : localizedCountryName;
 
-  useEffect(() => {
-    console.log("[Room back debug]", {
-      pathname,
-      searchParams: windowNavigation.windowSearch,
-      from: roomFrom,
-      returnTo: roomReturnTo,
-      fromParam: roomFromParam,
-      returnToParam: roomReturnToParam,
-      sessionReturnSource: sessionNavigation.sessionReturnSource,
-      sessionReturnHref: sessionNavigation.sessionReturnHref,
-      openedFromMessages,
-      backLabel: roomHeaderTitle,
-      backHref: roomBackHref,
-    });
-  }, [
-    openedFromMessages,
-    pathname,
-    roomBackHref,
-    roomFrom,
-    roomFromParam,
-    roomHeaderTitle,
-    roomReturnTo,
-    roomReturnToParam,
-    sessionNavigation.sessionReturnHref,
-    sessionNavigation.sessionReturnSource,
-    windowNavigation.windowSearch,
-  ]);
+  const router = useRouter();
 
   const handleRoomBack = useCallback(() => {
     clearRoomReturnNavigation();
-  }, []);
+    // Always use the explicit parent: country city list, or Messages when opened from inbox.
+    navigateBack(router, roomBackHref, { preferFallback: true });
+  }, [router, roomBackHref]);
 
   return (
     <Shell chatThread>
@@ -991,6 +987,7 @@ export default function RoomChatPage() {
           title={roomHeaderTitle}
           backHref={roomBackHref}
           onBack={handleRoomBack}
+          preferFallback
         />
 
         <div className="shrink-0 border-b border-white/10 bg-slate-900/95 px-4 py-2.5 backdrop-blur-xl">
@@ -1017,7 +1014,7 @@ export default function RoomChatPage() {
           </div>
         </div>
 
-        <section className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-[#080c18]">
+        <section className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-[#070b14]">
           <RoomWallpaper citySlug={citySlug} countrySlug={countrySlug} />
 
           {joinMessage && showJoinMessage ? (
@@ -1031,7 +1028,7 @@ export default function RoomChatPage() {
           <div
             ref={messagesContainerRef}
             onScroll={handleScroll}
-            className={`relative z-10 min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-3 py-3 ${CHAT_MESSAGES_FLEX_PADDING}`}
+            className={`relative z-10 min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-3 py-3 ${CITY_ROOM_MESSAGES_FLEX_PADDING}`}
           >
             {chatLoading ? (
               <div className="rounded-3xl border border-dashed border-white/10 bg-slate-950/55 p-8 text-center text-slate-300 backdrop-blur-md">

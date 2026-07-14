@@ -26,6 +26,7 @@ export default function ChangeEmailPage() {
   useEffect(() => {
     void getSafeAuthSession().then(({ session }) => {
       if (!session?.user) {
+        setLoading(false);
         router.replace("/auth/login");
         return;
       }

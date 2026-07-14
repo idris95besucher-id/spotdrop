@@ -8,8 +8,12 @@ import {
 } from "@/lib/mediaEditor/trimValidation";
 import { MAX_DIRECT_UPLOAD_BYTES } from "@/lib/spotUploadTiming";
 import { exportVideoFile } from "@/lib/videoExport";
-import { getVideoDurationSeconds, MAX_TRIM_CLIP_SECONDS } from "@/lib/videoTrim";
-import { logVideoQuality, probeVideoFile } from "@/lib/videoQualityDiagnostics";
+import {
+  getVideoDurationSeconds,
+  isVideoLongerThanMaxSeconds,
+  MAX_TRIM_CLIP_SECONDS,
+  normalizeVideoDurationSeconds,
+} from "@/lib/videoTrim";
 
 export type PreparedPublishMedia = {
   file: File;
@@ -17,13 +21,29 @@ export type PreparedPublishMedia = {
   audioMuted: boolean;
 };
 
-function resolveSourceDuration(item: MediaEditorItem) {
-  if (item.sourceDuration > 0) {
-    return item.sourceDuration;
+/**
+ * Resolve the real source duration for validation.
+ * Prefer a fresh file probe — never trust Infinity / trimEnd stand-ins.
+ */
+async function resolveActualVideoDurationSeconds(item: MediaEditorItem): Promise<number> {
+  const fromItem = normalizeVideoDurationSeconds(item.sourceDuration);
+  const probed = await getVideoDurationSeconds(item.file).catch(() => 0);
+  const fromProbe = normalizeVideoDurationSeconds(probed);
+
+  // Prefer the probed file duration when available — it is the upload source of truth.
+  if (fromProbe > 0) {
+    return fromProbe;
   }
 
-  if (item.trimEnd > 0) {
-    return item.trimEnd;
+  if (fromItem > 0) {
+    return fromItem;
+  }
+
+  // Last resort: trimEnd only when it looks like a real measured end, not the max-cap default.
+  const fromTrimEnd = normalizeVideoDurationSeconds(item.trimEnd);
+
+  if (fromTrimEnd > 0 && fromTrimEnd <= MAX_TRIM_CLIP_SECONDS + 0.05) {
+    return fromTrimEnd;
   }
 
   return 0;
@@ -83,28 +103,38 @@ export async function prepareMediaFileForPublish(item: MediaEditorItem): Promise
     return { file: item.file, audioMuted: false };
   }
 
-  const sourceProbe = await probeVideoFile(item.file);
-  logVideoQuality("publish source", {
-    ...sourceProbe,
-    exportedResolution:
-      sourceProbe.width && sourceProbe.height
-        ? `${sourceProbe.width}x${sourceProbe.height}`
-        : null,
-    keepSound: item.keepSound,
-  });
-
-  let sourceDuration = resolveSourceDuration(item);
-
-  if (sourceDuration <= 0) {
-    sourceDuration = await getVideoDurationSeconds(item.file).catch(() => 0);
-  }
-
+  // No SHA-256/MP4-box diagnostics here anymore — those read and hashed the
+  // *entire* file before upload even started (twice: once here, once again in
+  // uploadPostMedia) purely for now-resolved corruption debugging, and were
+  // the dominant cause of "Uploading video..." sitting for a long time before
+  // any network activity began. Duration is still measured for real
+  // validation (the 30s cap below); that's a lightweight `<video>` metadata
+  // load, not a full-file read.
+  const sourceDuration = await resolveActualVideoDurationSeconds(item);
   const trimEnd = getResolvedTrimEnd(item, sourceDuration);
-  const trimStart = item.trimStart;
-  const clipDuration = getClipDurationSeconds(item, sourceDuration);
+  const trimStart = Math.max(0, item.trimStart);
+  const clipDuration = sourceDuration > 0 ? getClipDurationSeconds(item, sourceDuration) : 0;
+
+  console.log("[UPLOAD] video duration check", {
+    detectedDurationSeconds: sourceDuration,
+    itemSourceDuration: item.sourceDuration,
+    itemTrimStart: item.trimStart,
+    itemTrimEnd: item.trimEnd,
+    resolvedTrimStart: trimStart,
+    resolvedTrimEnd: trimEnd,
+    clipDurationSeconds: clipDuration,
+    maxAllowedSeconds: MAX_TRIM_CLIP_SECONDS,
+    fileName: item.file.name,
+    fileSize: item.file.size,
+    fileType: item.file.type || "(unknown)",
+  });
 
   if (!item.keepSound) {
     if (clipDuration <= 0.05 && item.file.size > 0 && (isIosSafari() || isCapacitorNative())) {
+      if (isVideoLongerThanMaxSeconds(sourceDuration)) {
+        throw new Error(`Clip must be ${MAX_TRIM_CLIP_SECONDS} seconds or less.`);
+      }
+
       return { file: item.file, audioMuted: true };
     }
 
@@ -112,14 +142,21 @@ export async function prepareMediaFileForPublish(item: MediaEditorItem): Promise
       throw new Error("Choose a valid clip before publishing.");
     }
 
+    if (isVideoLongerThanMaxSeconds(clipDuration)) {
+      throw new Error(`Clip must be ${MAX_TRIM_CLIP_SECONDS} seconds or less.`);
+    }
+
     return exportMutedVideoForPublish(item, trimStart, trimEnd);
   }
 
-  if (clipDuration <= 0.05) {
-    if (item.trimConfirmed && item.file.size > 0 && (isIosSafari() || isCapacitorNative())) {
-      console.log("[UPLOAD] gallery video duration unknown — uploading full file", {
+  // Duration unknown: on iOS allow upload of camera/gallery files that already
+  // passed the in-app recorder / gallery gate, but never invent a false over-limit error.
+  if (sourceDuration <= 0 || clipDuration <= 0.05) {
+    if (item.file.size > 0 && (isIosSafari() || isCapacitorNative())) {
+      console.log("[UPLOAD] duration unavailable after probe — allowing native upload", {
         fileSizeMb: Math.round((item.file.size / (1024 * 1024)) * 100) / 100,
         fileType: item.file.type || "(unknown)",
+        trimConfirmed: item.trimConfirmed,
       });
       return { file: item.file, audioMuted: false };
     }
@@ -127,7 +164,13 @@ export async function prepareMediaFileForPublish(item: MediaEditorItem): Promise
     throw new Error("Choose a valid clip before publishing.");
   }
 
-  if (clipDuration > MAX_TRIM_CLIP_SECONDS + 0.01) {
+  // Only reject when the *real* clip length exceeds the max.
+  if (isVideoLongerThanMaxSeconds(clipDuration)) {
+    console.warn("[UPLOAD] video rejected — exceeds max duration", {
+      detectedDurationSeconds: sourceDuration,
+      clipDurationSeconds: clipDuration,
+      maxAllowedSeconds: MAX_TRIM_CLIP_SECONDS,
+    });
     throw new Error(`Clip must be ${MAX_TRIM_CLIP_SECONDS} seconds or less.`);
   }
 
@@ -136,20 +179,10 @@ export async function prepareMediaFileForPublish(item: MediaEditorItem): Promise
       reEncoded: false,
       fileSizeMb: Math.round((item.file.size / (1024 * 1024)) * 100) / 100,
       fileType: item.file.type || "(unknown)",
+      detectedDurationSeconds: sourceDuration,
       trimStart,
       trimEnd,
-      clipDuration,
-    });
-    logVideoQuality("publish export skipped", {
-      ...sourceProbe,
-      reEncoded: false,
-      exportedMimeType: item.file.type || null,
-      exportedResolution:
-        sourceProbe.width && sourceProbe.height
-          ? `${sourceProbe.width}x${sourceProbe.height}`
-          : null,
-      exportedBitrateMbps: sourceProbe.estimatedBitrateMbps,
-      finalUploadSizeBytes: item.file.size,
+      clipDurationSeconds: clipDuration,
     });
     return { file: item.file, audioMuted: false };
   }
@@ -157,9 +190,10 @@ export async function prepareMediaFileForPublish(item: MediaEditorItem): Promise
   console.log("[UPLOAD] export required (desktop trim re-encode)", {
     reEncoded: true,
     fileSizeMb: Math.round((item.file.size / (1024 * 1024)) * 100) / 100,
+    detectedDurationSeconds: sourceDuration,
     trimStart,
     trimEnd,
-    clipDuration,
+    clipDurationSeconds: clipDuration,
   });
 
   const exported = await exportVideoFile(item.file, {
@@ -168,16 +202,8 @@ export async function prepareMediaFileForPublish(item: MediaEditorItem): Promise
     mute: false,
   });
 
-  const exportProbe = await probeVideoFile(exported);
-  logVideoQuality("publish export complete", {
-    ...sourceProbe,
-    ...exportProbe,
+  console.log("[UPLOAD] export complete", {
     reEncoded: exported !== item.file,
-    exportedResolution:
-      exportProbe.width && exportProbe.height
-        ? `${exportProbe.width}x${exportProbe.height}`
-        : null,
-    exportedBitrateMbps: exportProbe.estimatedBitrateMbps,
     exportedMimeType: exported.type || null,
     finalUploadSizeBytes: exported.size,
   });

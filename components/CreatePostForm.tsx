@@ -9,14 +9,16 @@ import { canonicalizeGeoLocationFields } from "@/lib/i18n/canonicalGeo";
 import SpotLocationPicker from "@/components/SpotLocationPicker";
 import { setImmersiveOverlayActive } from "@/lib/immersiveOverlay";
 import { getPostMediaType, NOT_SIGNED_IN_UPLOAD_MESSAGE, uploadPostMedia } from "@/lib/postMedia";
-import { pickMediaFromGallery } from "@/lib/pickMediaFromGallery";
-import { uploadVideoCoverForPublish } from "@/lib/publishVideoCover";
+import { GALLERY_MEDIA_ACCEPT, pickMediaFromGallery } from "@/lib/pickMediaFromGallery";
 import {
   requestDeviceLocation,
   type PlaceSearchResult,
   type SpotGeoLocation,
 } from "@/lib/spotLocation";
 import { supabase } from "@/lib/supabaseClient";
+import { toUserFacingError } from "@/lib/userFacingError";
+import { resolveVideoCoverFile } from "@/lib/videoCover";
+import { getVideoDurationSeconds, isVideoLongerThanMaxSeconds, MAX_TRIM_CLIP_SECONDS } from "@/lib/videoTrim";
 
 export type CreatedProfilePost = {
   id: string;
@@ -197,7 +199,7 @@ export default function CreatePostForm({
   const applySelectedFile = (file: File) => {
     const nextMediaType = getPostMediaType(file);
 
-    if (!nextMediaType) {
+    if (nextMediaType !== "image" && nextMediaType !== "video") {
       setError("Only photos and videos are allowed.");
       return false;
     }
@@ -220,7 +222,7 @@ export default function CreatePostForm({
     setError(null);
 
     try {
-      const file = await pickMediaFromGallery();
+      const file = await pickMediaFromGallery({ accept: GALLERY_MEDIA_ACCEPT });
 
       if (pickSessionRef.current !== sessionId) {
         return;
@@ -266,7 +268,7 @@ export default function CreatePostForm({
       const detected = await requestDeviceLocation();
       setLocation(detected);
     } catch (caught) {
-      setLocationHint(caught instanceof Error ? caught.message : "Unable to get your location.");
+      setLocationHint(toUserFacingError(caught, "Unable to get your location."));
     } finally {
       setLocating(false);
     }
@@ -308,6 +310,15 @@ export default function CreatePostForm({
     setError(null);
 
     try {
+      if (mediaType === "video") {
+        const durationSeconds = await getVideoDurationSeconds(mediaFile).catch(() => 0);
+
+        if (durationSeconds > 0 && isVideoLongerThanMaxSeconds(durationSeconds)) {
+          setError(`Clip must be ${MAX_TRIM_CLIP_SECONDS} seconds or less.`);
+          return;
+        }
+      }
+
       const {
         data: { user },
         error: authError,
@@ -340,10 +351,13 @@ export default function CreatePostForm({
       }
 
       const uploadResult = await uploadPostMedia(user.id, mediaFile);
+
       let videoCoverUrl: string | null = null;
 
       if (uploadResult.mediaType === "video") {
-        videoCoverUrl = await uploadVideoCoverForPublish(user.id, mediaFile, null);
+        const coverFile = await resolveVideoCoverFile(mediaFile, null, 1);
+        const coverUpload = await uploadPostMedia(user.id, coverFile);
+        videoCoverUrl = coverUpload.mediaUrl;
       }
 
       const postLocation = showLocation ? location : null;
@@ -386,7 +400,7 @@ export default function CreatePostForm({
 
       if (insertError) {
         console.error("Failed to create post:", insertError);
-        throw new Error(insertError.message || "Unable to publish your post.");
+        throw new Error(toUserFacingError(insertError, "Unable to publish your post."));
       }
 
       if (!insertedPost) {
@@ -397,7 +411,7 @@ export default function CreatePostForm({
       resetForm();
       closeForm();
     } catch (publishError) {
-      setError(publishError instanceof Error ? publishError.message : "Unable to publish your post.");
+      setError(toUserFacingError(publishError, "Unable to publish your post."));
     } finally {
       setPublishing(false);
     }
@@ -471,6 +485,7 @@ export default function CreatePostForm({
                 src={mediaPreviewUrl}
                 controls
                 playsInline
+                preload="auto"
                 className="max-h-[50dvh] w-full object-contain"
               />
             ) : (

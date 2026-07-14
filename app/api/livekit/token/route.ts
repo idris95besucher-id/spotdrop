@@ -1,4 +1,5 @@
 import { AccessToken } from "livekit-server-sdk";
+import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 
 type TokenRequestBody = {
@@ -7,6 +8,34 @@ type TokenRequestBody = {
   canPublish?: boolean;
 };
 
+async function resolveAuthenticatedUserId(request: Request) {
+  const authHeader = request.headers.get("authorization") ?? "";
+  const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
+
+  if (!token) {
+    return null;
+  }
+
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
+
+  if (!supabaseUrl || !anonKey) {
+    return null;
+  }
+
+  const client = createClient(supabaseUrl, anonKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+
+  const { data, error } = await client.auth.getUser(token);
+
+  if (error || !data.user?.id) {
+    return null;
+  }
+
+  return data.user.id;
+}
+
 export async function POST(request: Request) {
   const livekitUrl = process.env.NEXT_PUBLIC_LIVEKIT_URL ?? process.env.LIVEKIT_URL ?? "";
   const apiKey = process.env.LIVEKIT_API_KEY ?? "";
@@ -14,9 +43,15 @@ export async function POST(request: Request) {
 
   if (!livekitUrl || !apiKey || !apiSecret) {
     return NextResponse.json(
-      { error: "LiveKit is not configured. Set LIVEKIT_URL, LIVEKIT_API_KEY, and LIVEKIT_API_SECRET." },
+      { error: "LiveKit is not configured." },
       { status: 503 }
     );
+  }
+
+  const userId = await resolveAuthenticatedUserId(request);
+
+  if (!userId) {
+    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   }
 
   let body: TokenRequestBody;
@@ -27,12 +62,13 @@ export async function POST(request: Request) {
   }
 
   const roomName = body.roomName?.trim() ?? "";
-  const identity = body.identity?.trim() ?? "";
 
-  if (!roomName || !identity) {
-    return NextResponse.json({ error: "roomName and identity are required." }, { status: 400 });
+  if (!roomName) {
+    return NextResponse.json({ error: "roomName is required." }, { status: 400 });
   }
 
+  // Always bind LiveKit identity to the authenticated user — never trust client identity.
+  const identity = userId;
   const canPublish = body.canPublish === true;
 
   const token = new AccessToken(apiKey, apiSecret, {

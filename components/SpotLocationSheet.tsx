@@ -16,14 +16,9 @@ import {
   inferSpotRegionFromAddress,
   type SpotLocationDisplayFields,
 } from "@/lib/spotLocationDisplay";
+import { getDisplayStreetName } from "@/lib/spotStreetName";
 
 function getCopyableAddress(spot: SpotLocationDisplayFields, locale: import("@/lib/i18n/locales").I18nLocale) {
-  const address = spot.spot_address?.trim();
-
-  if (address) {
-    return address;
-  }
-
   return formatSpotLocationDisplay(spot, locale);
 }
 
@@ -36,7 +31,7 @@ function buildMapsUrl(location: SpotLocationDisplayFields) {
   }
 
   const query =
-    location.spot_address?.trim() ||
+    getDisplayStreetName(location.spot_address) ||
     [location.spot_city, location.spot_country].filter(Boolean).join(", ");
 
   if (query) {
@@ -120,8 +115,9 @@ export default function SpotLocationSheet({
     : null;
 
   const mapsUrl = buildMapsUrl(spot);
+  const displayStreet = getDisplayStreetName(spot.spot_address);
   const hasAnyDetails = Boolean(
-    spot.spot_address?.trim() ||
+    displayStreet ||
       spot.spot_city?.trim() ||
       spot.spot_country?.trim() ||
       hasSpotCoordinates(spot)
@@ -167,7 +163,7 @@ export default function SpotLocationSheet({
             </div>
           ) : null}
 
-          {spot.spot_address ? (
+          {displayStreet ? (
             <div className="rounded-2xl border border-accent/20 bg-accent/[0.06] px-4 py-3">
               <div className="flex items-center justify-between gap-3">
                 <p className="text-[11px] font-semibold uppercase tracking-wider text-accent">Address</p>
@@ -183,7 +179,7 @@ export default function SpotLocationSheet({
                   </button>
                 ) : null}
               </div>
-              <p className="mt-1 text-sm leading-relaxed text-white/90">{spot.spot_address}</p>
+              <p className="mt-1 text-sm leading-relaxed text-white/90">{displayStreet}</p>
             </div>
           ) : null}
 

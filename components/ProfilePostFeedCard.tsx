@@ -1,7 +1,7 @@
 "use client";
 
-import Link from "next/link";
 import { UserRound } from "lucide-react";
+import PublicationAuthorHeader from "@/components/PublicationAuthorHeader";
 import SpotPostMeta from "@/components/SpotPostMeta";
 import SpotStatsBar from "@/components/SpotStatsBar";
 import PostCardMedia from "@/components/PostCardMedia";
@@ -14,10 +14,21 @@ import type { ViewerPostListItem } from "@/lib/postViewer";
 
 type ProfilePostFeedCardProps = {
   post: ViewerPostListItem;
+  viewerUserId?: string | null;
   onCommentsClick: (postId: string) => void;
+  onEdit?: () => void;
+  onDelete: () => Promise<{ ok: boolean; error: string | null }>;
+  onDeleted?: () => void;
 };
 
-export default function ProfilePostFeedCard({ post, onCommentsClick }: ProfilePostFeedCardProps) {
+export default function ProfilePostFeedCard({
+  post,
+  viewerUserId = null,
+  onCommentsClick,
+  onEdit,
+  onDelete,
+  onDeleted,
+}: ProfilePostFeedCardProps) {
   const { t } = useI18n();
   const { mediaUrl } = getPostMedia(post);
   const username = post.profiles?.username || t("common.user");
@@ -40,28 +51,38 @@ export default function ProfilePostFeedCard({ post, onCommentsClick }: ProfilePo
     shouldShowSpotLocation(locationFields) ||
     Boolean(post.created_at);
   const stats = normalizeSpotPublicStats(post);
+  const isOwner = Boolean(viewerUserId && post.user_id === viewerUserId);
 
   return (
     <article
       data-profile-feed-post-id={post.id}
       className="select-none touch-manipulation overflow-hidden border-b border-white/[0.08] bg-black"
     >
-      <header className="flex items-center gap-3 px-4 py-3">
-        <Link
-          href={`/user?id=${encodeURIComponent(post.user_id)}`}
-          className="flex min-w-0 flex-1 items-center gap-3 transition hover:opacity-90"
-        >
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/10 bg-slate-800">
-            {post.profiles?.avatar_url ? (
-              <img src={post.profiles.avatar_url} alt="" className="h-full w-full object-cover" />
-            ) : (
-              <UserRound className="h-4 w-4 text-slate-400" strokeWidth={1.5} aria-hidden />
-            )}
+      <header className="flex items-center gap-2 px-4 py-3">
+        {isOwner ? (
+          <PublicationAuthorHeader
+            authorUserId={post.user_id}
+            authorUsername={username}
+            avatarUrl={post.profiles?.avatar_url}
+            viewerUserId={viewerUserId}
+            menuTriggerClassName="bg-white/5 ring-1 ring-white/10"
+            onEdit={onEdit}
+            onDelete={onDelete}
+            onDeleted={onDeleted}
+            className="w-full"
+          />
+        ) : (
+          <div className="flex min-w-0 flex-1 items-center gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/10 bg-slate-800">
+              {post.profiles?.avatar_url ? (
+                <img src={post.profiles.avatar_url} alt="" className="h-full w-full object-cover" />
+              ) : (
+                <UserRound className="h-4 w-4 text-slate-400" strokeWidth={1.5} aria-hidden />
+              )}
+            </div>
+            <p className="min-w-0 flex-1 truncate text-sm font-semibold text-white">{username}</p>
           </div>
-          <div className="min-w-0 flex-1 text-left">
-            <p className="truncate text-sm font-semibold text-white">{username}</p>
-          </div>
-        </Link>
+        )}
       </header>
 
       {mediaUrl ? (

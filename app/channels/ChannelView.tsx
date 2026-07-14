@@ -69,6 +69,7 @@ export default function ChannelView({ channelId }: { channelId: string }) {
     <Shell showHeader={false} flushTop>
       <MobileSecondaryHeader
         title={channel?.name ?? t("profile.channels")}
+        preferFallback
         backHref={
           owner
             ? viewerId === owner.id

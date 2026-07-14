@@ -2,6 +2,7 @@ import type { I18nLocale } from "@/lib/i18n/locales";
 import { normalizePostId } from "@/lib/postIds";
 import { isExplorePublishedSpot } from "@/lib/publishedToSpots";
 import { formatSpotLocationDisplay } from "@/lib/spotLocationDisplay";
+import { getDisplayStreetName } from "@/lib/spotStreetName";
 import { normalizeSpotPublicStats } from "@/lib/spotRanking";
 import { supabase } from "@/lib/supabaseClient";
 
@@ -230,7 +231,9 @@ function buildLocationLabel(row: Record<string, unknown>, placeName: string | nu
     return placeName;
   }
 
-  const parts = [row.spot_address, row.spot_city, row.spot_country].filter(
+  const street =
+    typeof row.spot_address === "string" ? getDisplayStreetName(row.spot_address) : null;
+  const parts = [street, row.spot_city, row.spot_country].filter(
     (part): part is string => typeof part === "string" && part.trim().length > 0
   );
 

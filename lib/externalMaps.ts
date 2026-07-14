@@ -1,4 +1,25 @@
+import { Capacitor } from "@capacitor/core";
 import { isIOSDevice } from "@/lib/pickMediaFromGallery";
+
+export function buildGoogleMapsSearchWebUrl(latitude: number, longitude: number) {
+  return `https://www.google.com/maps/search/?api=1&query=${latitude},${longitude}`;
+}
+
+function isAndroidDevice() {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  try {
+    if (Capacitor.getPlatform() === "android") {
+      return true;
+    }
+  } catch {
+    // Fall through to UA detection.
+  }
+
+  return /Android/i.test(navigator.userAgent);
+}
 
 export function buildExternalMapsUrl(latitude: number, longitude: number, label?: string | null) {
   const name = label?.trim() || "Location";
@@ -7,7 +28,57 @@ export function buildExternalMapsUrl(latitude: number, longitude: number, label?
     return `maps://?ll=${latitude},${longitude}&q=${encodeURIComponent(name)}`;
   }
 
-  return `https://www.google.com/maps/search/?api=1&query=${latitude},${longitude}`;
+  return buildGoogleMapsSearchWebUrl(latitude, longitude);
+}
+
+/**
+ * Open Google Maps at exact coordinates.
+ * iOS: comgooglemaps:// when installed, else Google Maps web.
+ * Android: geo: intent when available, else Google Maps web.
+ * Web: Google Maps search URL.
+ */
+export function openGoogleMapsAtCoordinates(latitude: number, longitude: number) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const lat = Number(latitude);
+  const lng = Number(longitude);
+
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    return;
+  }
+
+  const webUrl = buildGoogleMapsSearchWebUrl(lat, lng);
+
+  if (isIOSDevice()) {
+    const appUrl = `comgooglemaps://?q=${lat},${lng}`;
+    const startedAt = Date.now();
+    window.location.href = appUrl;
+
+    window.setTimeout(() => {
+      if (Date.now() - startedAt < 1600) {
+        window.location.href = webUrl;
+      }
+    }, 700);
+    return;
+  }
+
+  if (isAndroidDevice()) {
+    const encodedWeb = encodeURIComponent(webUrl);
+    const intentUrl = `intent://maps.google.com/maps?q=${lat},${lng}#Intent;scheme=https;package=com.google.android.apps.maps;S.browser_fallback_url=${encodedWeb};end`;
+    const startedAt = Date.now();
+    window.location.href = intentUrl;
+
+    window.setTimeout(() => {
+      if (Date.now() - startedAt < 1600) {
+        window.location.href = webUrl;
+      }
+    }, 700);
+    return;
+  }
+
+  window.open(webUrl, "_blank", "noopener,noreferrer");
 }
 
 /**

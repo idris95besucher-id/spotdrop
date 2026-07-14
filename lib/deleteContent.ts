@@ -2,7 +2,9 @@ import { normalizePostId, postIdForQuery } from "@/lib/postIds";
 import { dispatchSpotDeleted } from "@/lib/spotDeletedEvents";
 import { POST_MEDIA_BUCKET } from "@/lib/storageUpload";
 import { isStoriesRelationMissing } from "@/lib/stories";
+import { isSpotContent, type SpotLocationDisplayFields } from "@/lib/spotLocationDisplay";
 import { supabase } from "@/lib/supabaseClient";
+import { loadPostMediaCarouselItems } from "@/lib/postMediaItems";
 
 const MEDIA_URL_FIELDS = [
   "media_url",
@@ -17,6 +19,7 @@ const STORY_CONTENT_KINDS = new Set(["story", "video"]);
 const RELATED_DELETE_TABLES = [
   "post_comments",
   "post_reactions",
+  "post_media_items",
   "collection_spots",
   "spot_collection_saves",
   "spot_visits",
@@ -75,6 +78,23 @@ export function collectMediaUrls(record: Record<string, unknown>) {
 
     if (typeof value === "string" && value.trim()) {
       urls.add(value.trim());
+    }
+  }
+
+  return [...urls];
+}
+
+async function collectOwnedPostMediaUrls(postId: string, row: Record<string, unknown>) {
+  const urls = new Set(collectMediaUrls(row));
+  const carouselItems = await loadPostMediaCarouselItems(postId);
+
+  for (const item of carouselItems) {
+    if (item.media_url?.trim()) {
+      urls.add(item.media_url.trim());
+    }
+
+    if (item.video_cover_url?.trim()) {
+      urls.add(item.video_cover_url.trim());
     }
   }
 
@@ -240,7 +260,7 @@ async function deletePostRowDirect(
   }
 
   const message =
-    'Delete failed — 0 rows deleted. Run database/ensure-spot-delete.sql in Supabase (policy: "Users can delete own posts" USING (user_id = auth.uid())).';
+    'Unable to delete this Spot. Please try again.';
   const result = { ok: false as const, error: message };
   console.log("DIRECT DELETE RESULT", result);
   return result;
@@ -403,7 +423,7 @@ async function deleteOwnedSpotInternal(postId: string) {
     return { ok: false as const, error: "This item is a story, not a Spot." };
   }
 
-  const mediaUrls = collectMediaUrls(row as Record<string, unknown>);
+  const mediaUrls = await collectOwnedPostMediaUrls(row.id, row as Record<string, unknown>);
 
   // 1) RPC first — bypasses RLS when deployed
   const rpcResult = await deletePostViaRpc(row.id, authUserId);
@@ -475,7 +495,7 @@ export async function deleteOwnedPost(postId: string, userId: string) {
       return deleteOwnedStory(normalizedId, authUserId);
     }
 
-    const mediaUrls = row ? collectMediaUrls(row) : [];
+    const mediaUrls = row ? await collectOwnedPostMediaUrls(normalizedId, row) : [];
     const rpcResult = await deletePostViaRpc(normalizedId, authUserId);
 
     if (rpcResult.ok) {
@@ -545,4 +565,21 @@ export async function deleteOwnedStory(storyId: string, userId: string) {
     console.error("DELETE CRASH:", err);
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
+}
+
+/** Delete any owned publication — routes to spot or generic post delete. */
+export async function deleteOwnedPublication(
+  postId: string,
+  post: Pick<SpotLocationDisplayFields, "content_kind" | "spot_latitude" | "spot_longitude">,
+  userId?: string | null
+) {
+  if (isSpotContent(post)) {
+    return deleteOwnedSpot(postId, userId ?? undefined);
+  }
+
+  if (!userId) {
+    return { ok: false as const, error: "Sign in required." };
+  }
+
+  return deleteOwnedPost(postId, userId);
 }

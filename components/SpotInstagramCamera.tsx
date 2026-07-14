@@ -1,72 +1,64 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Camera, Loader2, RotateCcw, Video, X, Zap, ZapOff } from "lucide-react";
+import { Camera, ImageIcon, Loader2, RotateCcw, X, Zap, ZapOff } from "lucide-react";
 import { useI18n } from "@/components/I18nProvider";
 import { localizeUserMessage } from "@/lib/i18n/localizeUserMessage";
 import { isCapacitorNative } from "@/lib/capacitorUtils";
 import {
-  CAMERA_MAX_VIDEO_SECONDS,
-  CAMERA_PERMISSION_MESSAGE,
-  MIC_PERMISSION_MESSAGE,
-  RECORDING_BROWSER_UNSAVED_MESSAGE,
   capturePhotoFromVideo,
-  captureVideoFrameDataUrl,
-  recordVideoFromStream,
   cameraSupportsTorch,
   setTorchEnabled,
   mapCameraPermissionError,
   startCameraStream,
   stopCameraStream,
-  validateRecordingStream,
-  isMediaRecorderSupported,
-  streamHasAudio,
-  requestAudioOnlyStream,
-  mergeAudioIntoStream,
-  logAudioTrackSettings,
-  HOLD_THRESHOLD_MS,
   type CameraFacingMode,
-  type VideoRecorderHandle,
 } from "@/lib/cameraCapture";
-import {
-  RECORDING_CSS_ZOOM_RANGE,
-  clampRecordingCssZoom,
-  formatRecordingZoomLabel,
-  smoothZoomToward,
-  ZOOM_SETTLE_EPSILON,
-  zoomFromVerticalDrag,
-} from "@/lib/cameraZoom";
 import {
   createSpotCaptureGpsSession,
   freezeCameraSpotLocation,
 } from "@/lib/captureDeviceSpotLocation";
 import type { SpotGeoLocation } from "@/lib/spotLocation";
+import { openSpotDropCamera } from "@/lib/spotDropCamera";
+
+export type SpotCreateCameraMode = "photo" | "video" | "text";
+
+/** Tab order for the web-fallback mode switcher and its swipe gesture. On
+ * native builds the same PHOTO | VIDEO | TEXT row is rendered *inside* the
+ * unified native camera screen instead — see `openSpotDropCamera`. */
+const CREATE_MODE_ORDER: SpotCreateCameraMode[] = ["photo", "video", "text"];
 
 type SpotInstagramCameraProps = {
   onClose: () => void;
-  onCapture: (file: File, mediaType: "image" | "video", location: SpotGeoLocation | null) => void;
-  /** When true, only photos are allowed (Spot creation first step). */
-  photoOnly?: boolean;
+  onCapture: (
+    file: File,
+    mediaType: "image" | "video",
+    location: SpotGeoLocation | null,
+    /** Native camera video only: `Capacitor.convertFileSrc` path to the file still on disk. */
+    nativeWebPath?: string
+  ) => void;
+  showCreateModes?: boolean;
+  createMode?: SpotCreateCameraMode;
+  onCreateModeChange?: (mode: SpotCreateCameraMode) => void;
+  onPickGallery?: () => void;
+  galleryDisabled?: boolean;
 };
 
 /**
- * Native camera fallback used when getUserMedia is not available in the
- * Capacitor WKWebView (e.g. first launch before permission is granted, or
- * iOS < 14.3). Uses the standard <input capture> API which opens the native
- * iOS camera / video recorder and returns a File.
+ * Native camera fallback when the unified native camera screen can't be
+ * opened (permission denied, plugin unavailable, or a genuine capture
+ * failure). Photo capture only, via the system file picker — never opens a
+ * video recorder.
  */
 function NativeCameraFallback({
   onCapture,
   onClose,
-  photoOnly = false,
 }: {
   onCapture: SpotInstagramCameraProps["onCapture"];
   onClose: () => void;
-  photoOnly?: boolean;
 }) {
   const { t } = useI18n();
   const photoInputRef = useRef<HTMLInputElement>(null);
-  const videoInputRef = useRef<HTMLInputElement>(null);
   const gpsSessionRef = useRef(createSpotCaptureGpsSession());
 
   useEffect(() => {
@@ -79,7 +71,7 @@ function NativeCameraFallback({
   }, []);
 
   const emitCapture = useCallback(
-    async (file: File, mediaType: "image" | "video") => {
+    async (file: File) => {
       let location: SpotGeoLocation | null = null;
 
       try {
@@ -88,7 +80,7 @@ function NativeCameraFallback({
         location = null;
       }
 
-      onCapture(file, mediaType, location);
+      onCapture(file, "image", location);
     },
     [onCapture]
   );
@@ -97,16 +89,7 @@ function NativeCameraFallback({
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
       e.target.value = "";
-      if (file) void emitCapture(file, "image");
-    },
-    [emitCapture]
-  );
-
-  const handleVideoChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0];
-      e.target.value = "";
-      if (file) void emitCapture(file, "video");
+      if (file) void emitCapture(file);
     },
     [emitCapture]
   );
@@ -116,10 +99,8 @@ function NativeCameraFallback({
       className="fixed inset-0 z-[130] flex flex-col bg-black text-white select-none touch-manipulation"
       style={{ WebkitTapHighlightColor: "transparent" }}
     >
-      {/* Black safe-area top spacer */}
       <div aria-hidden className="shrink-0 bg-black" style={{ height: "env(safe-area-inset-top)" }} />
 
-      {/* Hidden native inputs */}
       <input
         ref={photoInputRef}
         type="file"
@@ -128,17 +109,11 @@ function NativeCameraFallback({
         className="sr-only"
         onChange={handlePhotoChange}
       />
-      <input
-        ref={videoInputRef}
-        type="file"
-        accept="video/*"
-        capture="environment"
-        className="sr-only"
-        onChange={handleVideoChange}
-      />
 
-      {/* Close */}
-      <div className="absolute left-0 right-0 z-10 flex items-center px-4 pt-3" style={{ top: "env(safe-area-inset-top)" }}>
+      <div
+        className="absolute left-0 right-0 z-10 flex items-center px-4 pt-3"
+        style={{ top: "env(safe-area-inset-top)" }}
+      >
         <button
           type="button"
           onClick={onClose}
@@ -149,7 +124,6 @@ function NativeCameraFallback({
         </button>
       </div>
 
-      {/* Content */}
       <div
         className="flex flex-1 flex-col items-center justify-center gap-10 px-8"
         style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
@@ -158,214 +132,71 @@ function NativeCameraFallback({
           <Camera className="h-16 w-16 text-white/20" strokeWidth={1} aria-hidden />
           <p className="text-lg font-semibold text-white">{t("spotCamera.createTitle")}</p>
           <p className="max-w-xs text-sm leading-relaxed text-white/50">
-            {photoOnly ? t("spotCamera.createPhotoOnlyBody") : t("spotCamera.createBody")}
+            {t("spotCamera.createPhotoOnlyBody")}
           </p>
         </div>
 
-        <div className="flex w-full max-w-xs flex-col gap-3">
-          <button
-            type="button"
-            onClick={() => photoInputRef.current?.click()}
-            className="flex w-full items-center justify-center gap-3 rounded-2xl bg-white py-4 text-[15px] font-semibold text-black transition active:scale-[0.98]"
-          >
-            <Camera className="h-5 w-5" strokeWidth={2} aria-hidden />
-            {t("spotCamera.takePhoto")}
-          </button>
-          {!photoOnly ? (
-            <button
-              type="button"
-              onClick={() => videoInputRef.current?.click()}
-              className="flex w-full items-center justify-center gap-3 rounded-2xl bg-primary py-4 text-[15px] font-semibold text-[#050816] transition active:scale-[0.98]"
-            >
-              <Video className="h-5 w-5" strokeWidth={2} aria-hidden />
-              {t("spotCamera.recordVideo")}
-            </button>
-          ) : null}
-        </div>
+        <button
+          type="button"
+          onClick={() => photoInputRef.current?.click()}
+          className="flex w-full max-w-xs items-center justify-center gap-3 rounded-2xl bg-white py-4 text-[15px] font-semibold text-black transition active:scale-[0.98]"
+        >
+          <Camera className="h-5 w-5" strokeWidth={2} aria-hidden />
+          {t("spotCamera.takePhoto")}
+        </button>
       </div>
     </div>
   );
 }
 
-/** Grace period after hold threshold for pointer-up photo vs video decision. */
-const TAP_PHOTO_GRACE_MS = 80;
-
-function formatRecordingSeconds(elapsedMs: number) {
-  const total = Math.min(Math.floor(elapsedMs / 1000), CAMERA_MAX_VIDEO_SECONDS);
-  const minutes = Math.floor(total / 60);
-  const seconds = total % 60;
-  return `${minutes}:${seconds.toString().padStart(2, "0")}`;
-}
-
 export default function SpotInstagramCamera({
   onClose,
   onCapture,
-  photoOnly = false,
+  showCreateModes = false,
+  createMode = "photo",
+  onCreateModeChange,
+  onPickGallery,
+  galleryDisabled = false,
 }: SpotInstagramCameraProps) {
   const { t } = useI18n();
+  const native = isCapacitorNative();
+
   const [facingMode, setFacingMode] = useState<CameraFacingMode>("environment");
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [cameraStarting, setCameraStarting] = useState(true);
   const [cameraReady, setCameraReady] = useState(false);
   const [torchOn, setTorchOn] = useState(false);
   const [torchSupported, setTorchSupported] = useState(false);
-  const [isRecording, setIsRecording] = useState(false);
-  const [recordingElapsedMs, setRecordingElapsedMs] = useState(0);
-  const [recordingCssZoom, setRecordingCssZoom] = useState(1);
   const [captureBusy, setCaptureBusy] = useState(false);
-  const [isProcessingVideo, setIsProcessingVideo] = useState(false);
-  const [processingFrameUrl, setProcessingFrameUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [nativeFallback, setNativeFallback] = useState(false);
-  const [micWarning, setMicWarning] = useState<string | null>(null);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const shutterRef = useRef<HTMLButtonElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const audioStreamRef = useRef<MediaStream | null>(null);
-  const recorderRef = useRef<VideoRecorderHandle | null>(null);
-  const recordingStartedRef = useRef(false);
-  const pendingStopRef = useRef(false);
-  const recordingTickRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const recordingStartedAtRef = useRef<number | null>(null);
   const startAttemptedRef = useRef(false);
-  const holdToRecordTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const holdRecordingStartedRef = useRef(false);
-  const pointerDownAtRef = useRef(0);
+  const nativeOpenAttemptedRef = useRef(false);
   const shutterPressActiveRef = useRef(false);
   const shutterPointerIdRef = useRef<number | null>(null);
   const shutterDocumentListenersRef = useRef<{
     onMove: (event: PointerEvent) => void;
     onEnd: (event: PointerEvent) => void;
   } | null>(null);
-  const recordingCssZoomRef = useRef(1);
-  const recordingZoomTargetRef = useRef(1);
-  const recordingZoomDisplayRef = useRef(1);
-  const recordingZoomStartYRef = useRef(0);
-  const recordingZoomBaseRef = useRef(1);
-  const zoomRafRef = useRef<number | null>(null);
-  const lastZoomIndicatorRef = useRef(1);
-  const videoTransformLayerRef = useRef<HTMLDivElement>(null);
   const gpsSessionRef = useRef(createSpotCaptureGpsSession());
   const frozenCaptureLocationRef = useRef<SpotGeoLocation | null>(null);
-  const freezeLocationPromiseRef = useRef<Promise<SpotGeoLocation | null> | null>(null);
-
-  const clearRecordingTick = useCallback(() => {
-    if (recordingTickRef.current) {
-      clearInterval(recordingTickRef.current);
-      recordingTickRef.current = null;
-    }
-  }, []);
-
-  const clearHoldToRecordTimer = useCallback(() => {
-    if (holdToRecordTimerRef.current) {
-      clearTimeout(holdToRecordTimerRef.current);
-      holdToRecordTimerRef.current = null;
-    }
-  }, []);
 
   const detachShutterDocumentListeners = useCallback(() => {
     const listeners = shutterDocumentListenersRef.current;
+
     if (!listeners) {
       return;
     }
 
-    document.removeEventListener("pointermove", listeners.onMove, { capture: true });
-    document.removeEventListener("pointerup", listeners.onEnd, { capture: true });
-    document.removeEventListener("pointercancel", listeners.onEnd, { capture: true });
+    document.removeEventListener("pointermove", listeners.onMove, true);
+    document.removeEventListener("pointerup", listeners.onEnd, true);
+    document.removeEventListener("pointercancel", listeners.onEnd, true);
     shutterDocumentListenersRef.current = null;
   }, []);
-
-  const setZoomIndicatorVisible = useCallback((_visible: boolean) => {
-    // Zoom label is always visible while recording.
-  }, []);
-
-  const paintRecordingCssZoom = useCallback((zoom: number) => {
-    const layer = videoTransformLayerRef.current;
-    if (!layer) {
-      return;
-    }
-
-    const clamped = clampRecordingCssZoom(zoom);
-    recordingCssZoomRef.current = clamped;
-    recordingZoomDisplayRef.current = clamped;
-    layer.style.transformOrigin = "center center";
-    layer.style.transform = `scale(${clamped})`;
-  }, []);
-
-  const syncZoomIndicatorState = useCallback((zoom: number) => {
-    const clamped = clampRecordingCssZoom(zoom);
-    const rounded = Math.round(clamped * 10) / 10;
-
-    if (Math.abs(rounded - lastZoomIndicatorRef.current) < 0.05) {
-      return;
-    }
-
-    lastZoomIndicatorRef.current = rounded;
-    setRecordingCssZoom(rounded);
-  }, []);
-
-  const runZoomAnimationFrame = useCallback(() => {
-    zoomRafRef.current = null;
-
-    const target = recordingZoomTargetRef.current;
-    const current = recordingZoomDisplayRef.current;
-    const next = smoothZoomToward(current, target, 0.22);
-
-    paintRecordingCssZoom(next);
-    syncZoomIndicatorState(next);
-
-    const stillDragging = shutterPressActiveRef.current;
-    const needsMoreFrames =
-      stillDragging || Math.abs(next - target) > ZOOM_SETTLE_EPSILON;
-
-    if (needsMoreFrames) {
-      zoomRafRef.current = window.requestAnimationFrame(runZoomAnimationFrame);
-    }
-  }, [paintRecordingCssZoom, syncZoomIndicatorState]);
-
-  const scheduleZoomAnimationFrame = useCallback(() => {
-    if (zoomRafRef.current !== null) {
-      return;
-    }
-
-    zoomRafRef.current = window.requestAnimationFrame(runZoomAnimationFrame);
-  }, [runZoomAnimationFrame]);
-
-  const startZoomLoop = useCallback(() => {
-    scheduleZoomAnimationFrame();
-  }, [scheduleZoomAnimationFrame]);
-
-  const stopZoomLoop = useCallback(() => {
-    if (zoomRafRef.current !== null) {
-      window.cancelAnimationFrame(zoomRafRef.current);
-      zoomRafRef.current = null;
-    }
-  }, []);
-
-  const clearPreviewZoomTransform = useCallback(() => {
-    recordingCssZoomRef.current = 1;
-    recordingZoomTargetRef.current = 1;
-    recordingZoomDisplayRef.current = 1;
-    lastZoomIndicatorRef.current = 1;
-    setRecordingCssZoom(1);
-    paintRecordingCssZoom(1);
-  }, [paintRecordingCssZoom]);
-
-  const syncZoomFromTrack = useCallback((stream: MediaStream | null) => {
-    const track = stream?.getVideoTracks()[0];
-    if (!track) {
-      return;
-    }
-
-    console.log("[SpotDrop camera] video track ready", track.getSettings());
-  }, []);
-
-  const resetRecordingZoom = useCallback(() => {
-    stopZoomLoop();
-    setZoomIndicatorVisible(false);
-    clearPreviewZoomTransform();
-  }, [clearPreviewZoomTransform, setZoomIndicatorVisible, stopZoomLoop]);
 
   const attachStreamToVideo = useCallback(async (stream: MediaStream) => {
     const video = videoRef.current;
@@ -374,11 +205,6 @@ export default function SpotInstagramCamera({
       return;
     }
 
-    video.setAttribute("playsinline", "true");
-    video.setAttribute("webkit-playsinline", "true");
-    video.muted = true;
-    video.playsInline = true;
-    video.autoplay = true;
     video.srcObject = stream;
 
     try {
@@ -393,107 +219,145 @@ export default function SpotInstagramCamera({
       setCameraStarting(true);
       setCameraError(null);
       setCameraReady(false);
-      setIsProcessingVideo(false);
-      setProcessingFrameUrl(null);
 
       stopCameraStream(streamRef.current);
-      stopCameraStream(audioStreamRef.current);
       streamRef.current = null;
-      audioStreamRef.current = null;
 
       try {
-        // Stable 1080p @ 30fps rear camera — single stream, no 4K on iOS.
+        // Photo preview only — never request microphone / audio tracks.
         const stream = await startCameraStream(nextFacing, {
           quality: "hd",
-          includeAudio: true,
+          includeAudio: false,
         });
         streamRef.current = stream;
         await attachStreamToVideo(stream);
-        syncZoomFromTrack(stream);
         setTorchSupported(cameraSupportsTorch(stream));
         setTorchOn(false);
         setCameraReady(true);
-
-        if (streamHasAudio(stream)) {
-          setMicWarning(null);
-          console.log("[SpotDrop camera] combined audio+video stream ready", {
-            audioTrackCount: stream.getAudioTracks().length,
-            videoSettings: stream.getVideoTracks()[0]?.getSettings(),
-          });
-        } else {
-          // Mic not in combined stream — request a dedicated audio track.
-          console.log("[SpotDrop camera] requesting dedicated audio stream…");
-          const audioStream = await requestAudioOnlyStream();
-
-          if (audioStream) {
-            audioStreamRef.current = audioStream;
-            setMicWarning(null);
-          } else {
-            console.warn("[SpotDrop camera] mic unavailable — video will be recorded without sound");
-            setMicWarning(MIC_PERMISSION_MESSAGE);
-          }
-        }
       } catch (caught) {
         console.error("[SpotDrop camera] startCamera failed", caught);
-
-        // Last resort on Capacitor: native iPhone camera via <input capture>.
-        if (isCapacitorNative()) {
-          setNativeFallback(true);
-          return;
-        }
-
         setCameraError(mapCameraPermissionError(caught));
         setCameraReady(false);
       } finally {
         setCameraStarting(false);
       }
     },
-    [attachStreamToVideo, facingMode, syncZoomFromTrack]
+    [attachStreamToVideo, facingMode]
   );
 
+  // Shared GPS freeze session — used by both the native and web capture paths.
   useEffect(() => {
     document.body.style.overflow = "hidden";
     document.documentElement.style.overflow = "hidden";
-    setIsProcessingVideo(false);
-    setProcessingFrameUrl(null);
 
     const gpsSession = gpsSessionRef.current;
     gpsSession.start();
     frozenCaptureLocationRef.current = null;
-    freezeLocationPromiseRef.current = null;
 
     return () => {
       gpsSession.stop();
       frozenCaptureLocationRef.current = null;
-      freezeLocationPromiseRef.current = null;
       document.body.style.overflow = "";
       document.documentElement.style.overflow = "";
-      clearRecordingTick();
-      clearHoldToRecordTimer();
       detachShutterDocumentListeners();
-      recorderRef.current?.cancel();
-      recorderRef.current = null;
-      stopZoomLoop();
       stopCameraStream(streamRef.current);
       streamRef.current = null;
-      stopCameraStream(audioStreamRef.current);
-      audioStreamRef.current = null;
-      setMicWarning(null);
     };
-  }, [clearHoldToRecordTimer, clearRecordingTick, detachShutterDocumentListeners, stopZoomLoop]);
+  }, [detachShutterDocumentListeners]);
+
+  const freezeLocation = useCallback(async () => {
+    let location: SpotGeoLocation | null = frozenCaptureLocationRef.current;
+
+    try {
+      location = await freezeCameraSpotLocation(gpsSessionRef.current);
+      frozenCaptureLocationRef.current = location;
+    } catch {
+      // Keep prior freeze if any.
+    }
+
+    return location;
+  }, []);
+
+  // --- Native path -----------------------------------------------------
+  //
+  // On a native build this is the *only* camera surface: one native
+  // AVCaptureSession, opened once, handling PHOTO and VIDEO internally.
+  // `getUserMedia` is never started here — there is deliberately no native
+  // controller presented on top of a web preview.
+  useEffect(() => {
+    if (!native || nativeOpenAttemptedRef.current) {
+      return;
+    }
+
+    nativeOpenAttemptedRef.current = true;
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        const outcome = await openSpotDropCamera({
+          photoOnly: !showCreateModes,
+          initialMode: createMode === "video" ? "video" : "photo",
+        });
+
+        if (cancelled) {
+          return;
+        }
+
+        if (outcome.kind === "text") {
+          onCreateModeChange?.("text");
+          return;
+        }
+
+        const location = await freezeLocation();
+        if (cancelled) {
+          return;
+        }
+
+        if (outcome.kind === "photo") {
+          onCapture(outcome.file, "image", location);
+        } else {
+          onCapture(outcome.file, "video", location, outcome.webPath);
+        }
+      } catch (caught) {
+        if (cancelled) {
+          return;
+        }
+
+        const code = (caught as { code?: string } | undefined)?.code;
+        const message = caught instanceof Error ? caught.message : "";
+        const wasCancelled = code === "USER_CANCELLED" || message.toLowerCase().includes("cancel");
+
+        if (wasCancelled) {
+          onClose();
+          return;
+        }
+
+        console.error("[SpotDrop camera] openSpotDropCamera failed", caught);
+        setNativeFallback(true);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+    // Intentionally mount-once: the native screen owns PHOTO ⇄ VIDEO
+    // switching internally, so nothing here should re-trigger a re-open.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [native]);
+
+  // --- Web fallback path -------------------------------------------------
 
   useLayoutEffect(() => {
-    if (startAttemptedRef.current) {
+    if (native || startAttemptedRef.current) {
       return;
     }
 
     startAttemptedRef.current = true;
     void startCamera("environment");
-  }, [startCamera]);
+  }, [native, startCamera]);
 
-  // Video must stay mounted while loading — re-bind when stream becomes ready.
   useEffect(() => {
-    if (isProcessingVideo || !cameraReady) {
+    if (!cameraReady) {
       return;
     }
 
@@ -504,256 +368,12 @@ export default function SpotInstagramCamera({
     }
 
     void attachStreamToVideo(stream);
-  }, [attachStreamToVideo, cameraReady, isProcessingVideo]);
-
-  const clearProcessingPreview = useCallback(() => {
-    setIsProcessingVideo(false);
-    setProcessingFrameUrl(null);
-  }, []);
-
-  const resumeLivePreview = useCallback(() => {
-    const video = videoRef.current;
-
-    if (video && streamRef.current) {
-      void video.play().catch(() => {
-        // Autoplay may require a gesture on some browsers.
-      });
-    }
-  }, []);
-
-  const enterVideoProcessingState = useCallback(() => {
-    const video = videoRef.current;
-
-    if (video) {
-      video.pause();
-      const frameUrl = captureVideoFrameDataUrl(video);
-      setProcessingFrameUrl(frameUrl);
-    }
-
-    setIsProcessingVideo(true);
-    setCaptureBusy(true);
-  }, []);
-
-  const resetRecordingUi = useCallback(() => {
-    clearRecordingTick();
-    recordingStartedRef.current = false;
-    recordingStartedAtRef.current = null;
-    pendingStopRef.current = false;
-    holdRecordingStartedRef.current = false;
-    recorderRef.current = null;
-    frozenCaptureLocationRef.current = null;
-    freezeLocationPromiseRef.current = null;
-    setIsRecording(false);
-    setRecordingElapsedMs(0);
-    clearProcessingPreview();
-    void resetRecordingZoom();
-  }, [clearProcessingPreview, clearRecordingTick, resetRecordingZoom]);
-
-  const endRecording = useCallback(async () => {
-    if (!recorderRef.current) {
-      return;
-    }
-
-    if (!recordingStartedRef.current) {
-      pendingStopRef.current = true;
-      return;
-    }
-
-    console.log("[SpotDrop camera] RECORD RELEASE", {
-      elapsedMs: Date.now() - (recordingStartedAtRef.current ?? Date.now()),
-      chunkCount: recorderRef.current.getChunkCount(),
-    });
-
-    const recorder = recorderRef.current;
-    recorderRef.current = null;
-    clearRecordingTick();
-    setIsRecording(false);
-    holdRecordingStartedRef.current = false;
-
-    void resetRecordingZoom();
-    enterVideoProcessingState();
-
-    try {
-      const file = await recorder.stop();
-      recordingStartedRef.current = false;
-      recordingStartedAtRef.current = null;
-      pendingStopRef.current = false;
-      setRecordingElapsedMs(0);
-
-      console.log("[SpotDrop camera] recording finished", {
-        fileSize: file.size,
-        fileType: file.type,
-      });
-
-      if (file.size === 0) {
-        resetRecordingUi();
-        resumeLivePreview();
-        setError(RECORDING_BROWSER_UNSAVED_MESSAGE);
-        return;
-      }
-
-      clearProcessingPreview();
-      stopCameraStream(streamRef.current);
-      streamRef.current = null;
-      stopCameraStream(audioStreamRef.current);
-      audioStreamRef.current = null;
-      setCameraReady(false);
-
-      let location = frozenCaptureLocationRef.current;
-
-      if (freezeLocationPromiseRef.current) {
-        try {
-          location = (await freezeLocationPromiseRef.current) ?? location;
-        } catch {
-          // Keep prior freeze if any.
-        }
-      }
-
-      onCapture(file, "video", location);
-    } catch (caught) {
-      console.error("[SpotDrop camera] endRecording failed", caught);
-      resetRecordingUi();
-      resumeLivePreview();
-      setError(
-        caught instanceof Error && caught.message
-          ? caught.message
-          : RECORDING_BROWSER_UNSAVED_MESSAGE
-      );
-    } finally {
-      setCaptureBusy(false);
-    }
-  }, [
-    clearProcessingPreview,
-    clearRecordingTick,
-    enterVideoProcessingState,
-    onCapture,
-    resetRecordingUi,
-    resetRecordingZoom,
-    resumeLivePreview,
-  ]);
-
-  const beginRecording = useCallback(() => {
-    const videoStream = streamRef.current;
-
-    if (!videoStream || recorderRef.current) {
-      return;
-    }
-
-    if (!isMediaRecorderSupported()) {
-      console.error("[SpotDrop camera] MediaRecorder not supported");
-      setError(t("spotCamera.error.videoUnsupported"));
-      return;
-    }
-
-    const streamError = validateRecordingStream(videoStream);
-
-    if (streamError) {
-      console.error("[SpotDrop camera] Invalid recording stream", streamError);
-      setError(streamError);
-      return;
-    }
-
-    setError(null);
-    pendingStopRef.current = false;
-
-    freezeLocationPromiseRef.current = freezeCameraSpotLocation(gpsSessionRef.current)
-      .then((location) => {
-        frozenCaptureLocationRef.current = location;
-        return location;
-      })
-      .catch(() => null);
-
-    // Prefer the combined audio+video stream (same getUserMedia call).
-    // Only merge a separate mic stream when the camera stream lacks audio.
-    const audioStream = audioStreamRef.current;
-    const recordStream =
-      streamHasAudio(videoStream)
-        ? videoStream
-        : audioStream
-          ? mergeAudioIntoStream(videoStream, audioStream)
-          : videoStream;
-
-    const audioTracks = recordStream.getAudioTracks();
-    const hasAudioForRecording = audioTracks.some((t) => t.readyState === "live" && !t.muted);
-
-    console.log("[SpotCamera] audio tracks", audioTracks.map((t) => ({
-      readyState: t.readyState,
-      muted: t.muted,
-      enabled: t.enabled,
-      label: t.label,
-    })));
-    logAudioTrackSettings("before record", recordStream);
-    console.log("[SpotCamera] video tracks", recordStream.getVideoTracks().map((t) => ({
-      readyState: t.readyState,
-      muted: t.muted,
-      enabled: t.enabled,
-      label: t.label,
-    })));
-
-    if (audioTracks.length === 0) {
-      console.warn("[SpotDrop camera] recording without audio tracks");
-      setMicWarning(MIC_PERMISSION_MESSAGE);
-    }
-
-    try {
-      console.log("[SpotDrop camera] beginRecording (hold)", {
-        mediaRecorderSupported: isMediaRecorderSupported(),
-        videoTrackState: videoStream.getVideoTracks()[0]?.readyState,
-        streamActive: videoStream.active,
-        audioTrackCount: audioTracks.length,
-        hasAudioForRecording,
-      });
-
-      const recorder = recordVideoFromStream(recordStream, CAMERA_MAX_VIDEO_SECONDS, {
-        onStart: () => {
-          recordingStartedRef.current = true;
-          recordingStartedAtRef.current = Date.now();
-          setIsRecording(true);
-          setRecordingElapsedMs(0);
-          setError(null);
-          startZoomLoop();
-
-          clearRecordingTick();
-          recordingTickRef.current = setInterval(() => {
-            if (!recordingStartedAtRef.current) {
-              return;
-            }
-
-            const elapsed = Date.now() - recordingStartedAtRef.current;
-            setRecordingElapsedMs(elapsed);
-
-            if (elapsed >= CAMERA_MAX_VIDEO_SECONDS * 1000) {
-              void endRecording();
-            }
-          }, 250);
-
-          if (pendingStopRef.current) {
-            void endRecording();
-          }
-        },
-        onChunk: (chunkCount) => {
-          console.log("[SpotDrop camera] UI chunk update", { chunkCount });
-        },
-      });
-
-      recorderRef.current = recorder;
-    } catch (caught) {
-      console.error("[SpotDrop camera] beginRecording failed", caught);
-      resetRecordingUi();
-      setError(caught instanceof Error ? caught.message : t("spotCamera.error.recordFailed"));
-    }
-  }, [clearRecordingTick, endRecording, resetRecordingUi, startZoomLoop, t]);
+  }, [attachStreamToVideo, cameraReady]);
 
   const takePhoto = useCallback(async () => {
     const video = videoRef.current;
 
-    if (
-      !video ||
-      !streamRef.current ||
-      isRecording ||
-      recorderRef.current ||
-      holdRecordingStartedRef.current
-    ) {
+    if (!video || !streamRef.current || captureBusy) {
       return;
     }
 
@@ -761,15 +381,7 @@ export default function SpotInstagramCamera({
     setError(null);
 
     try {
-      let location: SpotGeoLocation | null = frozenCaptureLocationRef.current;
-
-      try {
-        location = await freezeCameraSpotLocation(gpsSessionRef.current);
-        frozenCaptureLocationRef.current = location;
-      } catch {
-        // Keep prior freeze if any.
-      }
-
+      const location = await freezeLocation();
       const file = await capturePhotoFromVideo(video);
       stopCameraStream(streamRef.current);
       streamRef.current = null;
@@ -779,10 +391,10 @@ export default function SpotInstagramCamera({
     } finally {
       setCaptureBusy(false);
     }
-  }, [isRecording, onCapture, t]);
+  }, [captureBusy, freezeLocation, onCapture, t]);
 
   const isShutterDisabled =
-    cameraStarting || !cameraReady || captureBusy || isProcessingVideo;
+    cameraStarting || captureBusy || createMode === "video" || !cameraReady;
 
   const finishShutterPress = useCallback(() => {
     if (!shutterPressActiveRef.current) {
@@ -792,64 +404,18 @@ export default function SpotInstagramCamera({
     shutterPressActiveRef.current = false;
     shutterPointerIdRef.current = null;
     detachShutterDocumentListeners();
-    clearHoldToRecordTimer();
-    stopZoomLoop();
-    setZoomIndicatorVisible(false);
-
-    const pressDuration = Date.now() - pointerDownAtRef.current;
-    const recordingActive =
-      holdRecordingStartedRef.current ||
-      recorderRef.current !== null ||
-      recordingStartedRef.current;
-
-    if (photoOnly) {
-      void takePhoto();
-      holdRecordingStartedRef.current = false;
-      return;
-    }
-
-    if (recordingActive) {
-      holdRecordingStartedRef.current = false;
-
-      if (pressDuration < HOLD_THRESHOLD_MS + TAP_PHOTO_GRACE_MS) {
-        console.log("[SpotDrop camera] RECORD RELEASE (quick tap → photo)", { pressDuration });
-        recorderRef.current?.cancel();
-        resetRecordingUi();
-        void takePhoto();
-        return;
-      }
-
-      void endRecording();
-      return;
-    }
-
-    if (pressDuration < HOLD_THRESHOLD_MS + TAP_PHOTO_GRACE_MS) {
-      void takePhoto();
-    }
-
-    holdRecordingStartedRef.current = false;
-  }, [clearHoldToRecordTimer, detachShutterDocumentListeners, endRecording, photoOnly, resetRecordingUi, setZoomIndicatorVisible, stopZoomLoop, takePhoto]);
+    void takePhoto();
+  }, [detachShutterDocumentListeners, takePhoto]);
 
   const handleShutterPointerDown = (event: React.PointerEvent<HTMLButtonElement>) => {
     event.preventDefault();
 
-    if (isShutterDisabled || isRecording) {
+    if (isShutterDisabled) {
       return;
     }
 
-    pointerDownAtRef.current = Date.now();
-    recordingZoomStartYRef.current = event.clientY;
-    recordingZoomBaseRef.current = 1;
-    recordingZoomTargetRef.current = 1;
-    recordingZoomDisplayRef.current = 1;
-    recordingCssZoomRef.current = 1;
-    lastZoomIndicatorRef.current = 1;
-    setRecordingCssZoom(1);
-    paintRecordingCssZoom(1);
-    holdRecordingStartedRef.current = false;
     shutterPressActiveRef.current = true;
     shutterPointerIdRef.current = event.pointerId;
-    clearHoldToRecordTimer();
     detachShutterDocumentListeners();
 
     try {
@@ -860,20 +426,6 @@ export default function SpotInstagramCamera({
 
     const onMove = (moveEvent: PointerEvent) => {
       moveEvent.preventDefault();
-
-      if (!shutterPressActiveRef.current) {
-        return;
-      }
-
-      const nextZoom = zoomFromVerticalDrag(
-        recordingZoomBaseRef.current,
-        recordingZoomStartYRef.current,
-        moveEvent.clientY,
-        RECORDING_CSS_ZOOM_RANGE
-      );
-
-      recordingZoomTargetRef.current = nextZoom;
-      scheduleZoomAnimationFrame();
     };
 
     const onEnd = (endEvent: PointerEvent) => {
@@ -899,15 +451,6 @@ export default function SpotInstagramCamera({
     document.addEventListener("pointermove", onMove, { passive: false, capture: true });
     document.addEventListener("pointerup", onEnd, { capture: true });
     document.addEventListener("pointercancel", onEnd, { capture: true });
-
-    if (photoOnly) {
-      return;
-    }
-
-    holdRecordingStartedRef.current = true;
-    console.log("[SpotDrop camera] RECORD START (pointer down)");
-    beginRecording();
-    startZoomLoop();
   };
 
   const handleShutterPointerUp = (event: React.PointerEvent<HTMLButtonElement>) => {
@@ -921,9 +464,7 @@ export default function SpotInstagramCamera({
   };
 
   const handleSwitchCamera = async () => {
-    console.log("BUTTON_CLICKED: switch_camera");
-
-    if (isRecording) {
+    if (captureBusy) {
       return;
     }
 
@@ -934,10 +475,6 @@ export default function SpotInstagramCamera({
   };
 
   const handleToggleTorch = async () => {
-    if (isRecording) {
-      return;
-    }
-
     const stream = streamRef.current;
 
     if (!stream) {
@@ -950,52 +487,43 @@ export default function SpotInstagramCamera({
   };
 
   const handleClose = () => {
-    if (isProcessingVideo) {
-      return;
-    }
-
-    console.log("BUTTON_CLICKED: close");
-    clearHoldToRecordTimer();
-
-    if (isRecording || recorderRef.current) {
-      recorderRef.current?.cancel();
-      resetRecordingUi();
-    }
-
     detachShutterDocumentListeners();
     stopCameraStream(streamRef.current);
     streamRef.current = null;
-    stopCameraStream(audioStreamRef.current);
-    audioStreamRef.current = null;
     onClose();
   };
 
   if (nativeFallback) {
-    return <NativeCameraFallback onCapture={onCapture} onClose={onClose} photoOnly={photoOnly} />;
+    return <NativeCameraFallback onCapture={onCapture} onClose={onClose} />;
+  }
+
+  if (native) {
+    // The native camera screen is presented full-screen over the app; this
+    // component has nothing of its own to show while that's open besides a
+    // plain black backdrop (avoids a white flash during the modal's
+    // present/dismiss animation).
+    return <div className="fixed inset-0 z-[130] bg-black" aria-hidden />;
   }
 
   const localizedError = localizeUserMessage(t, error);
   const localizedCameraError = localizeUserMessage(t, cameraError);
-  const localizedMicWarning = localizeUserMessage(t, micWarning);
 
   return (
     <div
       className="fixed inset-0 z-[130] flex min-h-[100dvh] flex-col bg-black text-white select-none touch-manipulation [-webkit-user-select:none] [-webkit-touch-callout:none]"
       style={{ WebkitUserSelect: "none", userSelect: "none", WebkitTapHighlightColor: "transparent" }}
     >
-      {/* Black safe-area top spacer — keeps iPhone status bar / Dynamic Island visible above camera */}
       <div aria-hidden className="shrink-0 bg-black" style={{ height: "env(safe-area-inset-top)" }} />
 
       <div className="relative min-h-0 flex-1 overflow-hidden bg-black">
         {cameraError && !cameraReady ? (
           <div className="flex h-full flex-col items-center justify-center gap-4 px-6 text-center">
-            <p className="text-sm text-white/80">{localizedCameraError ?? t("spotCamera.error.cameraRequired")}</p>
+            <p className="text-sm text-white/80">
+              {localizedCameraError ?? t("spotCamera.error.cameraRequired")}
+            </p>
             <button
               type="button"
-              onClick={() => {
-                console.log("BUTTON_CLICKED: enable_camera");
-                void startCamera();
-              }}
+              onClick={() => void startCamera()}
               className="rounded-full bg-white px-5 py-2.5 text-sm font-semibold text-black"
             >
               {t("spotCamera.enableCamera")}
@@ -1003,42 +531,19 @@ export default function SpotInstagramCamera({
           </div>
         ) : (
           <>
-            {!isProcessingVideo ? (
-              <div className="pointer-events-none absolute inset-0 overflow-hidden bg-black">
-                <div
-                  ref={videoTransformLayerRef}
-                  className="absolute inset-0 h-full w-full will-change-transform [transform-origin:center_center]"
-                >
-                  <video
-                    ref={videoRef}
-                    autoPlay
-                    playsInline
-                    muted
-                    disablePictureInPicture
-                    preload="auto"
-                    className={`pointer-events-none absolute inset-0 h-full w-full object-cover object-center ${
-                      facingMode === "user" ? "scale-x-[-1]" : ""
-                    }`}
-                  />
-                </div>
-              </div>
-            ) : null}
-            {processingFrameUrl ? (
-              <img
-                src={processingFrameUrl}
-                alt=""
-                aria-hidden
+            <div className="pointer-events-none absolute inset-0 overflow-hidden bg-black">
+              <video
+                ref={videoRef}
+                autoPlay
+                playsInline
+                muted
+                disablePictureInPicture
+                preload="auto"
                 className={`pointer-events-none absolute inset-0 h-full w-full object-cover object-center ${
                   facingMode === "user" ? "scale-x-[-1]" : ""
                 }`}
               />
-            ) : null}
-            {isProcessingVideo ? (
-              <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/55 backdrop-blur-[2px]">
-                <Loader2 className="h-10 w-10 animate-spin text-white" aria-hidden />
-                <p className="text-sm font-semibold text-white">{t("spotCamera.processingSpot")}</p>
-              </div>
-            ) : null}
+            </div>
             {cameraStarting ? (
               <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/60">
                 <Loader2 className="h-9 w-9 animate-spin text-white" aria-hidden />
@@ -1047,20 +552,6 @@ export default function SpotInstagramCamera({
             ) : null}
           </>
         )}
-
-        {isRecording ? (
-          <div className="absolute left-1/2 top-3 z-10 flex -translate-x-1/2 flex-col items-center gap-2">
-            <div className="flex items-center gap-2 rounded-full bg-red-600 px-3 py-1.5">
-              <span className="h-2 w-2 animate-pulse rounded-full bg-white" aria-hidden />
-              <span className="text-xs font-semibold tabular-nums tracking-wide">
-                {formatRecordingSeconds(recordingElapsedMs)}
-              </span>
-            </div>
-            <span className="rounded-full bg-black/55 px-2.5 py-1 text-[11px] font-semibold tabular-nums text-white/90 backdrop-blur-sm">
-              {formatRecordingZoomLabel(recordingCssZoom)}
-            </span>
-          </div>
-        ) : null}
 
         <div className="pointer-events-none absolute inset-x-0 top-0 z-30 flex items-center justify-between px-4 pb-2 pt-3">
           <button
@@ -1077,7 +568,6 @@ export default function SpotInstagramCamera({
               <button
                 type="button"
                 onClick={() => void handleToggleTorch()}
-                disabled={isRecording}
                 className="flex h-11 w-11 items-center justify-center rounded-full bg-black/50 text-white disabled:opacity-40"
                 aria-label={torchOn ? t("spotCamera.flashOff") : t("spotCamera.flashOn")}
               >
@@ -1092,7 +582,7 @@ export default function SpotInstagramCamera({
             <button
               type="button"
               onClick={() => void handleSwitchCamera()}
-              disabled={cameraStarting || captureBusy || isRecording}
+              disabled={cameraStarting || captureBusy}
               className="flex h-11 w-11 items-center justify-center rounded-full bg-black/50 text-white disabled:opacity-40"
               aria-label={t("spotCamera.switchCamera")}
             >
@@ -1102,13 +592,95 @@ export default function SpotInstagramCamera({
         </div>
       </div>
 
-      <div className="relative z-30 shrink-0 bg-gradient-to-t from-black via-black/95 to-transparent px-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-8">
+      <div
+        className="relative z-30 shrink-0 bg-gradient-to-t from-black via-black/95 to-transparent px-4 pt-8"
+        style={{
+          paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 1.75rem)",
+        }}
+        onTouchStart={(event) => {
+          if (!showCreateModes) {
+            return;
+          }
+
+          (event.currentTarget as HTMLElement).dataset.swipeX = String(
+            event.changedTouches[0]?.clientX ?? 0
+          );
+        }}
+        onTouchEnd={(event) => {
+          if (!showCreateModes || !onCreateModeChange) {
+            return;
+          }
+
+          const startX = Number((event.currentTarget as HTMLElement).dataset.swipeX ?? NaN);
+          const endX = event.changedTouches[0]?.clientX ?? startX;
+
+          if (!Number.isFinite(startX)) {
+            return;
+          }
+
+          const delta = endX - startX;
+          const currentIndex = CREATE_MODE_ORDER.indexOf(createMode);
+
+          if (currentIndex === -1) {
+            return;
+          }
+
+          if (delta < -70 && currentIndex < CREATE_MODE_ORDER.length - 1) {
+            onCreateModeChange(CREATE_MODE_ORDER[currentIndex + 1]!);
+          } else if (delta > 70 && currentIndex > 0) {
+            onCreateModeChange(CREATE_MODE_ORDER[currentIndex - 1]!);
+          }
+        }}
+      >
         {localizedError ? <p className="mb-3 text-center text-sm text-red-300">{localizedError}</p> : null}
-        {!localizedError && localizedMicWarning ? (
-          <p className="mb-3 text-center text-xs leading-snug text-amber-300">{localizedMicWarning}</p>
+
+        {showCreateModes ? (
+          <div className="mb-5 flex items-center justify-center gap-6 overflow-x-auto px-2 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            {(
+              [
+                { id: "photo" as const, label: "PHOTO" },
+                { id: "video" as const, label: "VIDEO" },
+                { id: "text" as const, label: "TEXT" },
+              ] as const
+            ).map((mode) => (
+              <button
+                key={mode.id}
+                type="button"
+                onClick={() => onCreateModeChange?.(mode.id)}
+                className={`relative shrink-0 pb-1.5 text-[11px] font-bold uppercase tracking-[0.22em] transition ${
+                  createMode === mode.id ? "text-white" : "text-white/45"
+                }`}
+              >
+                {mode.label}
+                {createMode === mode.id ? (
+                  <span className="absolute inset-x-0 -bottom-0.5 mx-auto h-0.5 w-5 rounded-full bg-white" />
+                ) : null}
+              </button>
+            ))}
+          </div>
         ) : null}
 
-        <div className="flex items-center justify-center">
+        {createMode === "video" ? (
+          <div className="mb-4">
+            <p className="text-center text-xs text-white/70">{t("spotCamera.videoWebOnly")}</p>
+          </div>
+        ) : null}
+
+        <div className="flex items-center justify-between px-3">
+          {onPickGallery && createMode !== "video" ? (
+            <button
+              type="button"
+              onClick={() => onPickGallery()}
+              disabled={galleryDisabled || captureBusy || cameraStarting}
+              className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-[0.875rem] border-2 border-white/90 bg-white/10 transition active:scale-95 disabled:opacity-40"
+              aria-label={t("spotLocationCard.optionChoosePhoto")}
+            >
+              <ImageIcon className="h-5 w-5 text-white" aria-hidden />
+            </button>
+          ) : (
+            <span className="h-12 w-12" aria-hidden />
+          )}
+
           <button
             ref={shutterRef}
             type="button"
@@ -1120,38 +692,17 @@ export default function SpotInstagramCamera({
             disabled={isShutterDisabled}
             className="relative z-30 flex h-[5.25rem] w-[5.25rem] touch-none select-none items-center justify-center disabled:opacity-50"
             style={{ touchAction: "none", WebkitUserSelect: "none", userSelect: "none" }}
-            aria-label={
-              photoOnly
-                ? t("spotCamera.shutterAriaPhotoOnly")
-                : isRecording
-                  ? t("spotCamera.shutterAriaRecording")
-                  : t("spotCamera.shutterAriaIdle")
-            }
+            aria-label={t("spotCamera.shutterAriaPhotoOnly")}
           >
-            <span
-              className={`absolute inset-0 rounded-full border-[3.5px] transition-colors ${
-                isRecording ? "border-red-500" : "border-white"
-              }`}
-            />
-            <span
-              className={`rounded-full transition-all duration-150 ${
-                isRecording ? "h-9 w-9 bg-red-500" : "h-[3.5rem] w-[3.5rem] bg-white"
-              }`}
-            />
+            <span className="absolute inset-0 rounded-full border-[3.5px] border-white" />
+            <span className="h-[3.5rem] w-[3.5rem] rounded-full bg-white" />
           </button>
+
+          <span className="h-12 w-12" aria-hidden />
         </div>
 
-        <p className="mt-4 text-center text-xs text-white/55">
-          {isProcessingVideo
-            ? t("spotCamera.processingSpot")
-            : photoOnly
-              ? t("spotCamera.hintPhotoOnly")
-              : isRecording
-                ? t("spotCamera.hintRecording")
-                : t("spotCamera.hintIdle", {
-                    holdSeconds: HOLD_THRESHOLD_MS / 1000,
-                    maxSeconds: CAMERA_MAX_VIDEO_SECONDS,
-                  })}
+        <p className="mt-5 text-center text-[11px] leading-snug text-white/55">
+          {t("spotCamera.hintPhotoOnly")}
         </p>
       </div>
     </div>

@@ -42,10 +42,25 @@ export function isStaleSessionError(error: unknown) {
     message.includes("jwt expired") ||
     message.includes("session not found") ||
     message.includes("user not found") ||
+    message.includes("user_not_found") ||
+    message.includes("user from sub claim") ||
+    message.includes("sub claim in jwt does not exist") ||
     message.includes("token is invalid") ||
     message.includes("invalid claim") ||
     message.includes("refresh_token") ||
     message.includes("session has expired")
+  );
+}
+
+/** Account deleted / removed while a local session still exists. */
+export function isDeletedAccountError(error: unknown) {
+  const message = errorText(error);
+
+  return (
+    message.includes("user from sub claim") ||
+    message.includes("sub claim in jwt does not exist") ||
+    message.includes("user_not_found") ||
+    (message.includes("user not found") && message.includes("jwt"))
   );
 }
 

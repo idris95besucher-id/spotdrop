@@ -1,6 +1,11 @@
 import {
+  getSpotTextCardTemplate,
   spotLocationCardCanvasFont,
+  spotTextCardFontSizePx,
   type SpotLocationCardFontStyle,
+  type SpotTextCardAlign,
+  type SpotTextCardFontSize,
+  type SpotTextCardTemplateId,
 } from "@/lib/spotLocationCardStyles";
 import type { SpotGeoLocation } from "@/lib/spotLocation";
 import { formatSpotGeoLocationShortLabel } from "@/lib/spotLocationDisplay";
@@ -13,6 +18,9 @@ export type RenderSpotLocationCardInput = {
   cardText: string;
   fontStyle: SpotLocationCardFontStyle;
   locationLabel: string;
+  templateId?: SpotTextCardTemplateId;
+  fontSize?: SpotTextCardFontSize;
+  align?: SpotTextCardAlign;
 };
 
 function wrapCanvasText(
@@ -44,11 +52,33 @@ function wrapCanvasText(
   return { lines, lineHeight };
 }
 
-function drawPinIcon(ctx: CanvasRenderingContext2D, x: number, y: number, size: number) {
+function fillCardBackground(
+  ctx: CanvasRenderingContext2D,
+  background: string | [string, string, string?]
+) {
+  if (typeof background === "string") {
+    ctx.fillStyle = background;
+    ctx.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
+    return;
+  }
+
+  const gradient = ctx.createLinearGradient(0, 0, CARD_WIDTH, CARD_HEIGHT);
+  gradient.addColorStop(0, background[0]);
+  gradient.addColorStop(background[2] ? 0.5 : 1, background[1]);
+
+  if (background[2]) {
+    gradient.addColorStop(1, background[2]);
+  }
+
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
+}
+
+function drawPinIcon(ctx: CanvasRenderingContext2D, x: number, y: number, size: number, color: string) {
   ctx.save();
   ctx.translate(x, y);
-  ctx.strokeStyle = "rgba(34, 211, 238, 0.95)";
-  ctx.fillStyle = "rgba(34, 211, 238, 0.95)";
+  ctx.strokeStyle = color;
+  ctx.fillStyle = color;
   ctx.lineWidth = size * 0.08;
   ctx.lineCap = "round";
   ctx.lineJoin = "round";
@@ -80,18 +110,15 @@ export async function renderSpotLocationCardBlob(
     throw new Error("Unable to render location card.");
   }
 
-  const gradient = ctx.createLinearGradient(0, 0, CARD_WIDTH, CARD_HEIGHT);
-  gradient.addColorStop(0, "#0f172a");
-  gradient.addColorStop(0.45, "#111827");
-  gradient.addColorStop(1, "#050816");
-  ctx.fillStyle = gradient;
-  ctx.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
+  const template = getSpotTextCardTemplate(input.templateId ?? "classic");
+  const align = input.align ?? template.defaultAlign;
+  const fontSize = spotTextCardFontSizePx(input.fontSize ?? "md");
 
-  /** Compact branding, nudged down from the top edge (safe from Dynamic Island crop). */
+  fillCardBackground(ctx, template.background);
+
   const pinSize = 80;
   const pinY = CARD_HEIGHT * 0.155 + 50;
   const logoY = pinY + pinSize * 0.42 + 18;
-  /** Footer lifted further so location stays clear of viewer chrome. */
   const footerY = CARD_HEIGHT - 310;
   const footerDividerY = footerY - 44;
 
@@ -103,8 +130,8 @@ export async function renderSpotLocationCardBlob(
     pinY,
     CARD_WIDTH * 0.42
   );
-  glow.addColorStop(0, "rgba(34, 211, 238, 0.12)");
-  glow.addColorStop(1, "rgba(34, 211, 238, 0)");
+  glow.addColorStop(0, `${template.accentColor.replace(/[\d.]+\)$/, "0.14)")}`);
+  glow.addColorStop(1, "rgba(0,0,0,0)");
   ctx.fillStyle = glow;
   ctx.fillRect(0, 0, CARD_WIDTH, CARD_HEIGHT);
 
@@ -112,36 +139,38 @@ export async function renderSpotLocationCardBlob(
   ctx.lineWidth = 2;
   ctx.strokeRect(48, 48, CARD_WIDTH - 96, CARD_HEIGHT - 96);
 
-  drawPinIcon(ctx, CARD_WIDTH * 0.5, pinY, pinSize);
+  drawPinIcon(ctx, CARD_WIDTH * 0.5, pinY, pinSize, template.accentColor);
 
-  ctx.fillStyle = "rgba(203, 213, 225, 0.88)";
+  ctx.fillStyle = template.mutedColor;
   ctx.font = "700 39px system-ui, -apple-system, sans-serif";
   ctx.textAlign = "center";
   ctx.fillText("SpotDrop", CARD_WIDTH / 2, logoY);
 
   const message = input.cardText.trim() || " ";
-  spotLocationCardCanvasFont(ctx, input.fontStyle, 54);
-  ctx.fillStyle = "rgba(255, 255, 255, 0.96)";
-  ctx.textAlign = "center";
+  spotLocationCardCanvasFont(ctx, input.fontStyle, fontSize);
+  ctx.fillStyle = template.textColor;
+  ctx.textAlign = align === "left" ? "left" : align === "right" ? "right" : "center";
 
-  const { lines, lineHeight } = wrapCanvasText(ctx, message, CARD_WIDTH - 180, 64);
-  /** Sit message just below branding so it owns the visual center. */
+  const textX =
+    align === "left" ? 96 : align === "right" ? CARD_WIDTH - 96 : CARD_WIDTH / 2;
+  const { lines, lineHeight } = wrapCanvasText(ctx, message, CARD_WIDTH - 180, fontSize + 10);
   const messageTop = logoY + 52;
   let textY = messageTop + lineHeight * 0.35;
 
-  for (const line of lines.slice(0, 6)) {
-    ctx.fillText(line, CARD_WIDTH / 2, textY);
+  for (const line of lines.slice(0, 8)) {
+    ctx.fillText(line, textX, textY);
     textY += lineHeight;
   }
 
-  ctx.fillStyle = "rgba(255, 255, 255, 0.28)";
+  ctx.fillStyle = "rgba(255, 255, 255, 0.22)";
   ctx.fillRect(96, footerDividerY, CARD_WIDTH - 192, 1);
 
-  ctx.fillStyle = "rgba(255, 255, 255, 0.5)";
+  ctx.textAlign = "center";
+  ctx.fillStyle = template.mutedColor;
   ctx.font = "500 26px system-ui, -apple-system, sans-serif";
   ctx.fillText("Saved at", CARD_WIDTH / 2, footerY);
 
-  ctx.fillStyle = "rgba(255, 255, 255, 0.88)";
+  ctx.fillStyle = template.textColor;
   ctx.font = "600 32px system-ui, -apple-system, sans-serif";
   const locationLines = wrapCanvasText(ctx, input.locationLabel, CARD_WIDTH - 160, 40).lines;
 

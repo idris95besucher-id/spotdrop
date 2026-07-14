@@ -18,6 +18,7 @@ export type CoreTranslationKey =
   | "auth.signOut"
   | "common.loading"
   | "common.tryAgain"
+  | "common.somethingWentWrong"
   | "common.cancel"
   | "common.delete"
   | "common.close"
@@ -31,6 +32,9 @@ export type CoreTranslationKey =
   | "profile.posts"
   | "profile.spots"
   | "profile.collections"
+  | "profile.saved"
+  | "profile.noSavedSpotsYet"
+  | "profile.noSavedSpotsYetSubtitle"
   | "profile.channels"
   | "profile.viewProfile"
   | "profile.openMyProfile"
@@ -165,6 +169,16 @@ export type CoreTranslationKey =
   | "content.deleteBody"
   | "content.deleteSpotTitle"
   | "content.deleteSpotBody"
+  | "content.editPublication"
+  | "content.deletePublication"
+  | "content.deletePublicationTitle"
+  | "content.deletePublicationBody"
+  | "content.publicationActions"
+  | "content.saveChanges"
+  | "content.savingChanges"
+  | "content.editCaptionLabel"
+  | "content.editCaptionPlaceholder"
+  | "content.unableToSaveEdit"
   | "content.spotDeleted"
   | "content.unableToDelete"
   | "map.loading"
@@ -218,7 +232,26 @@ export type CoreTranslationKey =
   | "map.markDiscardConfirm"
   | "map.markPublish"
   | "map.markEdit"
+  | "map.markOpenInGoogleMaps"
   | "map.markPublished"
+  | "map.markCategory.traffic"
+  | "map.markCategory.roadClosed"
+  | "map.markCategory.police"
+  | "map.markCategory.parking"
+  | "map.markCategory.danger"
+  | "map.markCategory.event"
+  | "map.markCategory.viewpoint"
+  | "map.markCategory.restaurant"
+  | "map.markCategory.cafe"
+  | "map.markCategory.question"
+  | "map.markCategory.general"
+  | "map.markCategoryLabel"
+  | "map.markRoomCard.heading"
+  | "map.markRoomCard.placeCanton"
+  | "map.markRoomCard.placeRegion"
+  | "map.markRoomCard.placeRegionCountry"
+  | "map.markOpenMap"
+  | "map.markUnavailable"
   | "map.placeSaved"
   | "map.placeAlreadySaved"
   | "map.placeMarked"
@@ -272,6 +305,7 @@ const CORE_EN: CoreMessageTable = {
   "auth.signOut": "Sign out",
   "common.loading": "Loading…",
   "common.tryAgain": "Try again",
+  "common.somethingWentWrong": "Something went wrong. Please try again.",
   "common.cancel": "Cancel",
   "common.delete": "Delete",
   "common.close": "Close",
@@ -285,6 +319,9 @@ const CORE_EN: CoreMessageTable = {
   "profile.posts": "Posts",
   "profile.spots": "Spots",
   "profile.collections": "Collections",
+  "profile.saved": "Saved",
+  "profile.noSavedSpotsYet": "No saved spots yet",
+  "profile.noSavedSpotsYetSubtitle": "Save spots to view them here.",
   "profile.channels": "Channels",
   "profile.viewProfile": "View profile",
   "profile.openMyProfile": "Open my profile",
@@ -419,6 +456,16 @@ const CORE_EN: CoreMessageTable = {
   "content.deleteBody": "This cannot be undone. Your photo, video, or story will be removed.",
   "content.deleteSpotTitle": "Delete this Spot?",
   "content.deleteSpotBody": "This cannot be undone.",
+  "content.editPublication": "Edit publication",
+  "content.deletePublication": "Delete publication",
+  "content.deletePublicationTitle": "Delete this publication?",
+  "content.deletePublicationBody": "This action cannot be undone.",
+  "content.publicationActions": "Publication actions",
+  "content.saveChanges": "Save changes",
+  "content.savingChanges": "Saving…",
+  "content.editCaptionLabel": "Caption",
+  "content.editCaptionPlaceholder": "Write a caption…",
+  "content.unableToSaveEdit": "Unable to save changes.",
   "content.spotDeleted": "Spot deleted",
   "content.unableToDelete": "Unable to delete.",
   "map.loading": "Loading map…",
@@ -472,7 +519,26 @@ const CORE_EN: CoreMessageTable = {
   "map.markDiscardConfirm": "Discard this mark?",
   "map.markPublish": "Publish",
   "map.markEdit": "Edit",
+  "map.markOpenInGoogleMaps": "Open in Google Maps",
   "map.markPublished": "Mark published on the map",
+  "map.markCategory.traffic": "Traffic",
+  "map.markCategory.roadClosed": "Road closed",
+  "map.markCategory.police": "Police",
+  "map.markCategory.parking": "Parking",
+  "map.markCategory.danger": "Danger",
+  "map.markCategory.event": "Event",
+  "map.markCategory.viewpoint": "Viewpoint",
+  "map.markCategory.restaurant": "Restaurant",
+  "map.markCategory.cafe": "Cafe",
+  "map.markCategory.question": "Question",
+  "map.markCategory.general": "General",
+  "map.markCategoryLabel": "Category",
+  "map.markRoomCard.heading": "marked a place on the map",
+  "map.markRoomCard.placeCanton": "{place} · {canton}",
+  "map.markRoomCard.placeRegion": "{place} · {region}",
+  "map.markRoomCard.placeRegionCountry": "{place} · {region}, {country}",
+  "map.markOpenMap": "Open Map",
+  "map.markUnavailable": "This map update is no longer available",
   "map.placeSaved": "Place saved",
   "map.placeAlreadySaved": "Place already saved",
   "map.placeMarked": "Place marked on map",
@@ -524,6 +590,7 @@ const CORE_RU: CoreMessageTable = {
   "auth.signOut": "Выйти",
   "common.loading": "Загрузка…",
   "common.tryAgain": "Повторить",
+  "common.somethingWentWrong": "Что-то пошло не так. Попробуйте ещё раз.",
   "common.cancel": "Отмена",
   "common.delete": "Удалить",
   "common.close": "Закрыть",
@@ -537,6 +604,9 @@ const CORE_RU: CoreMessageTable = {
   "profile.posts": "Посты",
   "profile.spots": "Места",
   "profile.collections": "Коллекции",
+  "profile.saved": "Сохранённое",
+  "profile.noSavedSpotsYet": "Пока нет сохранённых мест",
+  "profile.noSavedSpotsYetSubtitle": "Сохраняйте места, чтобы видеть их здесь.",
   "profile.channels": "Каналы",
   "profile.viewProfile": "Открыть профиль",
   "profile.openMyProfile": "Мой профиль",
@@ -671,6 +741,16 @@ const CORE_RU: CoreMessageTable = {
   "content.deleteBody": "Это нельзя отменить. Фото, видео или история будут удалены.",
   "content.deleteSpotTitle": "Удалить этот Spot?",
   "content.deleteSpotBody": "Это нельзя отменить.",
+  "content.editPublication": "Редактировать публикацию",
+  "content.deletePublication": "Удалить публикацию",
+  "content.deletePublicationTitle": "Удалить эту публикацию?",
+  "content.deletePublicationBody": "Это действие нельзя отменить.",
+  "content.publicationActions": "Действия с публикацией",
+  "content.saveChanges": "Сохранить",
+  "content.savingChanges": "Сохранение…",
+  "content.editCaptionLabel": "Подпись",
+  "content.editCaptionPlaceholder": "Напишите подпись…",
+  "content.unableToSaveEdit": "Не удалось сохранить изменения.",
   "content.spotDeleted": "Spot удалён",
   "content.unableToDelete": "Не удалось удалить.",
   "map.loading": "Загрузка карты…",
@@ -724,7 +804,26 @@ const CORE_RU: CoreMessageTable = {
   "map.markDiscardConfirm": "Отменить эту метку?",
   "map.markPublish": "Опубликовать",
   "map.markEdit": "Изменить",
+  "map.markOpenInGoogleMaps": "Открыть в Google Maps",
   "map.markPublished": "Метка опубликована на карте",
+  "map.markCategory.traffic": "Трафик",
+  "map.markCategory.roadClosed": "Дорога закрыта",
+  "map.markCategory.police": "Полиция",
+  "map.markCategory.parking": "Парковка",
+  "map.markCategory.danger": "Опасность",
+  "map.markCategory.event": "Событие",
+  "map.markCategory.viewpoint": "Смотровая",
+  "map.markCategory.restaurant": "Ресторан",
+  "map.markCategory.cafe": "Кафе",
+  "map.markCategory.question": "Вопрос",
+  "map.markCategory.general": "Общее",
+  "map.markCategoryLabel": "Категория",
+  "map.markRoomCard.heading": "отметил место на карте",
+  "map.markRoomCard.placeCanton": "{place} · {canton}",
+  "map.markRoomCard.placeRegion": "{place} · {region}",
+  "map.markRoomCard.placeRegionCountry": "{place} · {region}, {country}",
+  "map.markOpenMap": "Открыть карту",
+  "map.markUnavailable": "Это обновление карты больше недоступно",
   "map.placeSaved": "Место сохранено",
   "map.placeAlreadySaved": "Место уже сохранено",
   "map.placeMarked": "Место отмечено на карте",
@@ -776,6 +875,7 @@ const CORE_DE: CoreMessageTable = {
   "auth.signOut": "Abmelden",
   "common.loading": "Laden…",
   "common.tryAgain": "Erneut versuchen",
+  "common.somethingWentWrong": "Etwas ist schiefgelaufen. Bitte erneut versuchen.",
   "common.cancel": "Abbrechen",
   "common.delete": "Löschen",
   "common.close": "Schließen",
@@ -789,6 +889,9 @@ const CORE_DE: CoreMessageTable = {
   "profile.posts": "Beiträge",
   "profile.spots": "Spots",
   "profile.collections": "Sammlungen",
+  "profile.saved": "Gespeichert",
+  "profile.noSavedSpotsYet": "Noch keine gespeicherten Spots",
+  "profile.noSavedSpotsYetSubtitle": "Speichere Spots, um sie hier zu sehen.",
   "profile.channels": "Kanäle",
   "profile.viewProfile": "Profil ansehen",
   "profile.openMyProfile": "Mein Profil öffnen",
@@ -923,6 +1026,16 @@ const CORE_DE: CoreMessageTable = {
   "content.deleteBody": "Das kann nicht rückgängig gemacht werden. Foto, Video oder Story werden entfernt.",
   "content.deleteSpotTitle": "Diesen Spot löschen?",
   "content.deleteSpotBody": "Das kann nicht rückgängig gemacht werden.",
+  "content.editPublication": "Beitrag bearbeiten",
+  "content.deletePublication": "Beitrag löschen",
+  "content.deletePublicationTitle": "Diesen Beitrag löschen?",
+  "content.deletePublicationBody": "Diese Aktion kann nicht rückgängig gemacht werden.",
+  "content.publicationActions": "Beitragsaktionen",
+  "content.saveChanges": "Änderungen speichern",
+  "content.savingChanges": "Wird gespeichert…",
+  "content.editCaptionLabel": "Beschreibung",
+  "content.editCaptionPlaceholder": "Beschreibung schreiben…",
+  "content.unableToSaveEdit": "Änderungen konnten nicht gespeichert werden.",
   "content.spotDeleted": "Spot gelöscht",
   "content.unableToDelete": "Löschen nicht möglich.",
   "map.loading": "Karte wird geladen…",
@@ -976,7 +1089,26 @@ const CORE_DE: CoreMessageTable = {
   "map.markDiscardConfirm": "Diese Markierung verwerfen?",
   "map.markPublish": "Veröffentlichen",
   "map.markEdit": "Bearbeiten",
+  "map.markOpenInGoogleMaps": "In Google Maps öffnen",
   "map.markPublished": "Markierung auf der Karte veröffentlicht",
+  "map.markCategory.traffic": "Verkehr",
+  "map.markCategory.roadClosed": "Strasse gesperrt",
+  "map.markCategory.police": "Polizei",
+  "map.markCategory.parking": "Parken",
+  "map.markCategory.danger": "Gefahr",
+  "map.markCategory.event": "Event",
+  "map.markCategory.viewpoint": "Aussichtspunkt",
+  "map.markCategory.restaurant": "Restaurant",
+  "map.markCategory.cafe": "Café",
+  "map.markCategory.question": "Frage",
+  "map.markCategory.general": "Allgemein",
+  "map.markCategoryLabel": "Kategorie",
+  "map.markRoomCard.heading": "hat einen Ort auf der Karte markiert",
+  "map.markRoomCard.placeCanton": "{place} · {canton}",
+  "map.markRoomCard.placeRegion": "{place} · {region}",
+  "map.markRoomCard.placeRegionCountry": "{place} · {region}, {country}",
+  "map.markOpenMap": "Karte öffnen",
+  "map.markUnavailable": "Dieses Karten-Update ist nicht mehr verfügbar",
   "map.placeSaved": "Ort gespeichert",
   "map.placeAlreadySaved": "Ort bereits gespeichert",
   "map.placeMarked": "Ort auf der Karte markiert",

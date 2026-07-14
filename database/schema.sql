@@ -486,6 +486,7 @@ insert into countries (name, code, slug, emoji) values
   ('Italy', 'IT', 'italy', '🇮🇹'),
   ('Spain', 'ES', 'spain', '🇪🇸'),
   ('United Kingdom', 'GB', 'united-kingdom', '🇬🇧'),
+  ('United States', 'US', 'united-states', '🇺🇸'),
   ('Netherlands', 'NL', 'netherlands', '🇳🇱'),
   ('Belgium', 'BE', 'belgium', '🇧🇪'),
   ('Austria', 'AT', 'austria', '🇦🇹'),
@@ -544,6 +545,7 @@ set emoji = case slug
   when 'italy' then '🇮🇹'
   when 'spain' then '🇪🇸'
   when 'united-kingdom' then '🇬🇧'
+  when 'united-states' then '🇺🇸'
   when 'netherlands' then '🇳🇱'
   when 'belgium' then '🇧🇪'
   when 'austria' then '🇦🇹'

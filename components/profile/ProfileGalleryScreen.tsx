@@ -17,7 +17,7 @@ import { useI18n } from "@/components/I18nProvider";
 import { getSafeAuthSession } from "@/lib/authSession";
 import { localizeError } from "@/lib/i18n/localizeError";
 import { MOBILE_WIDTH_SAFE_CLASS } from "@/lib/mobileLayout";
-import { pickSpotGalleryPhoto, pickSpotGalleryVideo } from "@/lib/pickMediaFromGallery";
+import { pickSpotGalleryPhoto } from "@/lib/pickMediaFromGallery";
 import { loadOwnProfileContent, type ProfileContentPost } from "@/lib/profileContent";
 import {
   createProfileGalleryMedia,
@@ -206,7 +206,7 @@ export default function ProfileGalleryScreen({
     [personalPosts]
   );
 
-  const uploadMedia = async (kind: "photo" | "video") => {
+  const uploadPhoto = async () => {
     if (!isOwner || uploading) {
       return;
     }
@@ -214,7 +214,7 @@ export default function ProfileGalleryScreen({
     setAddSheetOpen(false);
     setError(null);
 
-    const file = kind === "photo" ? await pickSpotGalleryPhoto() : await pickSpotGalleryVideo();
+    const file = await pickSpotGalleryPhoto();
 
     if (!file) {
       return;
@@ -349,6 +349,7 @@ export default function ProfileGalleryScreen({
         <MobileSecondaryHeader
           title={title}
           backHref={backHref}
+          preferFallback
           trailing={
             isOwner && canViewGallery ? (
               <button
@@ -422,8 +423,7 @@ export default function ProfileGalleryScreen({
         isOpen={addSheetOpen}
         uploading={uploading}
         onClose={() => setAddSheetOpen(false)}
-        onAddPhoto={() => void uploadMedia("photo")}
-        onAddVideo={() => void uploadMedia("video")}
+        onAddPhoto={() => void uploadPhoto()}
       />
 
       <ProfileGalleryItemActionSheet

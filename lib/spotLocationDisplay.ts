@@ -7,6 +7,7 @@ import {
 } from "@/lib/i18n/localizeGeo";
 import { auditLocationLocaleOutput } from "@/lib/i18n/localizeGeoAudit";
 import type { SpotGeoLocation } from "@/lib/spotLocation";
+import { getDisplayStreetName } from "@/lib/spotStreetName";
 
 export type SpotLocationDisplayFields = {
   id?: string | null;
@@ -44,28 +45,21 @@ function uniqueLocationParts(parts: Array<string | null | undefined>) {
 function localizeSpotCityField(
   locale: I18nLocale,
   city: string | null | undefined,
-  country: string | null | undefined,
-  address?: string | null
+  country: string | null | undefined
 ) {
   const { countryNameEn, cityNameEn } = canonicalizeSpotLocationFields({
     spot_country: country,
     spot_city: city,
   });
 
-  const fallbackCity =
-    cityNameEn ??
-    inferSpotRegionFromAddress({ address, city: countryNameEn ?? city, country: countryNameEn ?? country }) ??
-    address?.split(",")[0]?.trim() ??
-    null;
-
-  if (!fallbackCity) {
+  if (!cityNameEn) {
     return null;
   }
 
   return (
-    localizeCityByEnglishName(locale, fallbackCity, countryNameEn ?? country) ??
-    localizeRegionByEnglishName(locale, fallbackCity, countryNameEn ?? country) ??
-    fallbackCity
+    localizeCityByEnglishName(locale, cityNameEn, countryNameEn ?? country) ??
+    localizeRegionByEnglishName(locale, cityNameEn, countryNameEn ?? country) ??
+    cityNameEn
   );
 }
 
@@ -79,22 +73,19 @@ function localizeSpotCountryField(locale: I18nLocale, country: string | null | u
   return localizeCountryByEnglishName(locale, countryNameEn) ?? countryNameEn;
 }
 
+/** Street, City, Country — or City, Country when street is not confident. */
 export function formatSpotLocationDisplay(
   post: SpotLocationDisplayFields,
   locale: I18nLocale = "en"
 ) {
-  const localizedCity = localizeSpotCityField(
-    locale,
-    post.spot_city,
-    post.spot_country,
-    post.spot_address
-  );
+  const street = getDisplayStreetName(post.spot_address);
+  const localizedCity = localizeSpotCityField(locale, post.spot_city, post.spot_country);
   const localizedCountry = localizeSpotCountryField(locale, post.spot_country);
 
   const parts = uniqueLocationParts([
     post.spot_name,
     post.placeName,
-    post.spot_address,
+    street,
     localizedCity,
     localizedCountry,
   ]);
@@ -121,9 +112,10 @@ export function formatSpotLocationShortLocalized(
 }
 
 export function formatSpotLocationLabelLocalized(location: SpotGeoLocation, locale: I18nLocale) {
-  const city = localizeSpotCityField(locale, location.city, location.country, location.address);
+  const street = getDisplayStreetName(location.address);
+  const city = localizeSpotCityField(locale, location.city, location.country);
   const country = localizeSpotCountryField(locale, location.country);
-  const parts = [location.address, city, country].filter(Boolean);
+  const parts = uniqueLocationParts([street, city, country]);
 
   if (parts.length > 0) {
     const line = parts.join(", ");
@@ -158,12 +150,7 @@ export function formatSpotLocationShort(
   post: SpotLocationDisplayFields,
   locale: I18nLocale = "en"
 ) {
-  const localizedCity = localizeSpotCityField(
-    locale,
-    post.spot_city,
-    post.spot_country,
-    post.spot_address
-  );
+  const localizedCity = localizeSpotCityField(locale, post.spot_city, post.spot_country);
   const localizedCountry = localizeSpotCountryField(locale, post.spot_country);
   const parts = uniqueLocationParts([localizedCity, localizedCountry]);
 

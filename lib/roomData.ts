@@ -16,6 +16,7 @@ export const countries: CountryEntry[] = [
   { slug: "italy", name: "Italy", emoji: "🇮🇹" },
   { slug: "spain", name: "Spain", emoji: "🇪🇸" },
   { slug: "united-kingdom", name: "United Kingdom", emoji: "🇬🇧" },
+  { slug: "canada", name: "Canada", emoji: "🇨🇦" },
   { slug: "netherlands", name: "Netherlands", emoji: "🇳🇱" },
   { slug: "belgium", name: "Belgium", emoji: "🇧🇪" },
   { slug: "austria", name: "Austria", emoji: "🇦🇹" },
@@ -112,6 +113,13 @@ export const citiesByCountry: Record<string, CityEntry[]> = {
     { slug: "birmingham", name: "Birmingham" },
     { slug: "glasgow", name: "Glasgow" },
     { slug: "bristol", name: "Bristol" },
+  ],
+  canada: [
+    { slug: "ontario", name: "Ontario" },
+    { slug: "quebec", name: "Quebec" },
+    { slug: "british-columbia", name: "British Columbia" },
+    { slug: "alberta", name: "Alberta" },
+    { slug: "manitoba", name: "Manitoba" },
   ],
   netherlands: [
     { slug: "amsterdam", name: "Amsterdam" },

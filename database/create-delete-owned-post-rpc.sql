@@ -60,6 +60,10 @@ begin
   delete from public.post_comments where post_id = v_row.id;
   delete from public.post_reactions where post_id = v_row.id;
 
+  if to_regclass('public.post_media_items') is not null then
+    delete from public.post_media_items where post_id = v_row.id;
+  end if;
+
   if to_regclass('public.collection_spots') is not null then
     delete from public.collection_spots where post_id = v_row.id;
   end if;

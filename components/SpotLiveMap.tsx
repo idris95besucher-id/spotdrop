@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Crosshair, Minus, Plus, Radio } from "lucide-react";
-import { useCreateMenu } from "@/components/CreateMenuProvider";
 import { useI18n } from "@/components/I18nProvider";
 import LiveMapUserSheet from "@/components/LiveMapUserSheet";
 import MapMarkClusterSheet from "@/components/MapMarkClusterSheet";
@@ -30,12 +29,17 @@ import {
   type MapMarkCluster,
 } from "@/lib/mapMarkMarkers";
 import {
+  bindMapMarkerTapShield,
+  isMapInteractiveMarkerTarget,
+} from "@/lib/mapMarkerTapGuard";
+import {
   mapPlaceZoomForKind,
   type MapPlaceSearchResult,
 } from "@/lib/mapPlacesSearch";
-import { loadMapMarks, type MapMark } from "@/lib/mapMarks";
+import { loadMapMarkById, loadMapMarks, type MapMark } from "@/lib/mapMarks";
 import { MAP_SPOT_PUBLISHED_EVENT } from "@/lib/mapSpotEvents";
 import { getMapSpotPinPreviewUrl, getMapSpotPinTitle, resolveSpotMapLngLat } from "@/lib/mapSpotPin";
+import { resolveMapLngLat } from "@/lib/mapMarkerCoords";
 import { spotLocationFromCoordinates, type SpotGeoLocation } from "@/lib/spotLocation";
 import { loadNearbyMapSpotPins, loadSavedMapSpotPinIds, type MapSpotPin } from "@/lib/spots";
 import { supabase } from "@/lib/supabaseClient";
@@ -58,6 +62,8 @@ import "maplibre-gl/dist/maplibre-gl.css";
 type SpotLiveMapProps = {
   userId: string | null;
   embedded?: boolean;
+  /** Deep-link focus: /visit?tab=map&mark=<id> */
+  focusMarkId?: string | null;
 };
 
 type UserCoords = {
@@ -136,7 +142,23 @@ function showMapPlaceBoundary(map: import("maplibre-gl").Map, geometry: GeoJSON.
   });
 }
 
+/**
+ * MapLibre HTML markers use `position:absolute; top:0; left:0` + an inline
+ * `transform: translate(...)` on the root element. Any CSS animation/transition
+ * that sets `transform` on that same node wipes the geographic placement and
+ * pins the marker to the map container's top-left corner.
+ *
+ * Always pass a plain anchor wrapper to `new maplibregl.Marker({ element })`
+ * and keep visual animations / :active scale on an inner child only.
+ */
+function createMapLibreMarkerAnchor(className: string) {
+  const anchor = document.createElement("div");
+  anchor.className = className;
+  return anchor;
+}
+
 function createUserMarkerElement(avatarUrl: string | null, label: string, isSelf = false) {
+  const anchor = createMapLibreMarkerAnchor("spot-live-user-marker-anchor");
   const root = document.createElement("div");
   root.className = isSelf ? "spot-live-user-marker spot-live-user-marker--self" : "spot-live-user-marker";
   root.setAttribute("aria-label", label);
@@ -158,10 +180,17 @@ function createUserMarkerElement(avatarUrl: string | null, label: string, isSelf
   }
 
   root.appendChild(avatar);
-  return root;
+  anchor.appendChild(root);
+  return anchor;
 }
 
-function createLiveUserMarkerElement(user: LiveMapUser, ariaLabel: string, onSelect: (user: LiveMapUser) => void) {
+function createLiveUserMarkerElement(
+  user: LiveMapUser,
+  ariaLabel: string,
+  onSelect: (user: LiveMapUser) => void,
+  onGuard?: () => void
+) {
+  const anchor = createMapLibreMarkerAnchor("spot-live-share-marker-anchor");
   const button = document.createElement("button");
   button.type = "button";
   button.className = "spot-live-share-marker";
@@ -171,22 +200,30 @@ function createLiveUserMarkerElement(user: LiveMapUser, ariaLabel: string, onSel
     const image = document.createElement("img");
     image.src = user.avatar_url;
     image.alt = "";
+    image.draggable = false;
     button.appendChild(image);
   } else {
     button.textContent = user.username.charAt(0).toUpperCase();
   }
 
-  button.addEventListener("click", (event) => {
-    event.stopPropagation();
-    onSelect(user);
+  anchor.appendChild(button);
+
+  bindMapMarkerTapShield(anchor, {
+    onGuard,
+    onActivate: () => onSelect(user),
   });
 
-  return button;
+  return anchor;
 }
 
-function createSpotMarkerElement(pin: MapSpotPin, isSaved: boolean, animateIn = false) {
-  const anchor = document.createElement("div");
-  anchor.className = "spot-live-spot-marker-anchor";
+function createSpotMarkerElement(
+  pin: MapSpotPin,
+  isSaved: boolean,
+  animateIn = false,
+  onSelect?: (pin: MapSpotPin) => void,
+  onGuard?: () => void
+) {
+  const anchor = createMapLibreMarkerAnchor("spot-live-spot-marker-anchor");
 
   const button = document.createElement("button");
   button.type = "button";
@@ -206,6 +243,7 @@ function createSpotMarkerElement(pin: MapSpotPin, isSaved: boolean, animateIn = 
     image.src = previewUrl;
     image.alt = "";
     image.loading = "lazy";
+    image.draggable = false;
     button.appendChild(image);
   } else {
     const icon = document.createElement("span");
@@ -215,6 +253,14 @@ function createSpotMarkerElement(pin: MapSpotPin, isSaved: boolean, animateIn = 
   }
 
   anchor.appendChild(button);
+
+  if (onSelect) {
+    bindMapMarkerTapShield(anchor, {
+      onGuard,
+      onActivate: () => onSelect(pin),
+    });
+  }
+
   return anchor;
 }
 
@@ -222,8 +268,10 @@ function createCombinedOverlapMarkerElement(
   clusterId: string,
   cluster: MapOverlapCluster,
   ariaLabel: string,
-  onSelect: (clusterId: string) => void
+  onSelect: (clusterId: string) => void,
+  onGuard?: () => void
 ) {
+  const anchor = createMapLibreMarkerAnchor("spot-map-overlap-marker-anchor");
   const button = document.createElement("button");
   button.type = "button";
   button.className = "spot-map-overlap-marker spot-map-overlap-marker--appear";
@@ -248,6 +296,7 @@ function createCombinedOverlapMarkerElement(
     image.src = faceUrl;
     image.alt = "";
     image.loading = "lazy";
+    image.draggable = false;
     face.appendChild(image);
   } else {
     const fallback = document.createElement("span");
@@ -267,6 +316,7 @@ function createCombinedOverlapMarkerElement(
       const badgeImage = document.createElement("img");
       badgeImage.src = primaryUser.avatar_url;
       badgeImage.alt = "";
+      badgeImage.draggable = false;
       userBadge.appendChild(badgeImage);
     } else {
       userBadge.textContent = primaryUser.username.charAt(0).toUpperCase();
@@ -295,12 +345,14 @@ function createCombinedOverlapMarkerElement(
     button.appendChild(count);
   }
 
-  button.addEventListener("click", (event) => {
-    event.stopPropagation();
-    onSelect(clusterId);
+  anchor.appendChild(button);
+
+  bindMapMarkerTapShield(anchor, {
+    onGuard,
+    onActivate: () => onSelect(clusterId),
   });
 
-  return button;
+  return anchor;
 }
 
 function updateSpotMarkerSavedState(anchor: HTMLElement, isSaved: boolean) {
@@ -309,14 +361,21 @@ function updateSpotMarkerSavedState(anchor: HTMLElement, isSaved: boolean) {
 }
 
 function createMapTapPinMarkerElement() {
+  const anchor = createMapLibreMarkerAnchor("spot-map-tap-pin-marker-anchor");
   const root = document.createElement("div");
   root.className = "spot-map-tap-pin-marker";
   root.setAttribute("aria-hidden", "true");
   root.innerHTML = SPOT_PIN_SVG;
-  return root;
+  anchor.appendChild(root);
+  return anchor;
 }
 
-function createPublicMapMarkElement(mark: MapMark, onSelect: (markId: string) => void) {
+function createPublicMapMarkElement(
+  mark: MapMark,
+  onSelect: (markId: string) => void,
+  onGuard?: () => void
+) {
+  const anchor = createMapLibreMarkerAnchor("spot-map-public-mark-anchor");
   const button = document.createElement("button");
   button.type = "button";
   button.className = "spot-map-public-mark";
@@ -334,6 +393,7 @@ function createPublicMapMarkElement(mark: MapMark, onSelect: (markId: string) =>
     image.src = mark.avatar_url;
     image.alt = "";
     image.loading = "lazy";
+    image.draggable = false;
     avatar.appendChild(image);
   } else {
     avatar.textContent = mapMarkAvatarInitial(mark.username);
@@ -347,18 +407,22 @@ function createPublicMapMarkElement(mark: MapMark, onSelect: (markId: string) =>
   badge.innerHTML = MAP_MARK_SPEECH_BUBBLE_SVG;
   button.appendChild(badge);
 
-  button.addEventListener("click", (event) => {
-    event.stopPropagation();
-    onSelect(mark.id);
+  anchor.appendChild(button);
+
+  bindMapMarkerTapShield(anchor, {
+    onGuard,
+    onActivate: () => onSelect(mark.id),
   });
 
-  return button;
+  return anchor;
 }
 
 function createPublicMapMarkClusterElement(
   cluster: MapMarkCluster,
-  onSelect: (clusterId: string) => void
+  onSelect: (clusterId: string) => void,
+  onGuard?: () => void
 ) {
+  const anchor = createMapLibreMarkerAnchor("spot-map-public-mark-cluster-anchor");
   const button = document.createElement("button");
   button.type = "button";
   button.className = "spot-map-public-mark-cluster";
@@ -381,6 +445,7 @@ function createPublicMapMarkClusterElement(
       image.src = mark.avatar_url;
       image.alt = "";
       image.loading = "lazy";
+      image.draggable = false;
       avatar.appendChild(image);
     } else {
       avatar.textContent = mapMarkAvatarInitial(mark.username);
@@ -402,12 +467,14 @@ function createPublicMapMarkClusterElement(
   count.textContent = String(cluster.marks.length);
   button.appendChild(count);
 
-  button.addEventListener("click", (event) => {
-    event.stopPropagation();
-    onSelect(cluster.id);
+  anchor.appendChild(button);
+
+  bindMapMarkerTapShield(anchor, {
+    onGuard,
+    onActivate: () => onSelect(cluster.id),
   });
 
-  return button;
+  return anchor;
 }
 
 function formatLiveLocationError(t: (key: TranslationKey) => string, error: string | null) {
@@ -431,12 +498,11 @@ function formatLiveLocationError(t: (key: TranslationKey) => string, error: stri
     return t("map.error.invalidCoords");
   }
 
-  return error;
+  return t("map.error.loadFailed");
 }
 
-export default function SpotLiveMap({ userId, embedded = false }: SpotLiveMapProps) {
+export default function SpotLiveMap({ userId, embedded = false, focusMarkId = null }: SpotLiveMapProps) {
   const { t } = useI18n();
-  const { openTextCardAtMapLocation } = useCreateMenu();
   const { presenceOnlineIds, freshnessTick } = usePresenceOnlineIds();
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<import("maplibre-gl").Map | null>(null);
@@ -468,6 +534,25 @@ export default function SpotLiveMap({ userId, embedded = false }: SpotLiveMapPro
   const overlapClustersByIdRef = useRef<Map<string, MapOverlapCluster>>(new Map());
   const handleMapTapRef = useRef<(latitude: number, longitude: number) => void>(() => {});
   const mapTapRequestRef = useRef(0);
+  /** Ignore map background tap until this timestamp (marker just handled the gesture). */
+  const markerTapGuardUntilRef = useRef(0);
+
+  const armMarkerTapGuard = useCallback(() => {
+    markerTapGuardUntilRef.current = Date.now() + 450;
+  }, []);
+
+  const shouldIgnoreMapBackgroundTap = useCallback((originalEvent?: Event | null) => {
+    if (Date.now() < markerTapGuardUntilRef.current) {
+      return true;
+    }
+
+    const target =
+      originalEvent && "target" in originalEvent
+        ? (originalEvent as Event).target
+        : null;
+
+    return isMapInteractiveMarkerTarget(target);
+  }, []);
 
   const [userCoords, setUserCoords] = useState<UserCoords | null>(null);
   const [userAvatarUrl, setUserAvatarUrl] = useState<string | null>(null);
@@ -594,13 +679,22 @@ export default function SpotLiveMap({ userId, embedded = false }: SpotLiveMapPro
         return;
       }
 
+      const placeLngLat = resolveMapLngLat(place.latitude, place.longitude, {
+        kind: "search-place",
+        id: place.id,
+      });
+
+      if (!placeLngLat) {
+        return;
+      }
+
       const element = createMapTapPinMarkerElement();
       searchMarkerRef.current = new maplibregl.Marker({ element, anchor: "bottom" })
-        .setLngLat([place.longitude, place.latitude])
+        .setLngLat(placeLngLat)
         .addTo(map);
 
       map.flyTo({
-        center: [place.longitude, place.latitude],
+        center: placeLngLat,
         zoom: mapPlaceZoomForKind(place.kind),
         duration: 1100,
         essential: true,
@@ -671,18 +765,12 @@ export default function SpotLiveMap({ userId, embedded = false }: SpotLiveMapPro
         return;
       }
 
-      if (action === "text-card") {
-        clearTapSave();
-        await openTextCardAtMapLocation(location);
-        return;
-      }
-
       if (action === "mark") {
         clearTapSave();
         setMarkCreateLocation({ location, placeLabel });
       }
     },
-    [clearTapSave, openTextCardAtMapLocation, t, tapActionBusy, tapSave, userId]
+    [clearTapSave, t, tapActionBusy, tapSave, userId]
   );
 
   useEffect(() => {
@@ -854,6 +942,10 @@ export default function SpotLiveMap({ userId, embedded = false }: SpotLiveMapPro
         };
 
         map.on("click", (event) => {
+          if (shouldIgnoreMapBackgroundTap(event.originalEvent)) {
+            return;
+          }
+
           if (selectedPinRef.current) {
             setSelectedPin(null);
             return;
@@ -884,6 +976,11 @@ export default function SpotLiveMap({ userId, embedded = false }: SpotLiveMapPro
 
         map.on("contextmenu", (event) => {
           event.preventDefault();
+
+          if (shouldIgnoreMapBackgroundTap(event.originalEvent)) {
+            return;
+          }
+
           handleMapTapRef.current(event.lngLat.lat, event.lngLat.lng);
         });
 
@@ -892,10 +989,20 @@ export default function SpotLiveMap({ userId, embedded = false }: SpotLiveMapPro
             return;
           }
 
+          if (shouldIgnoreMapBackgroundTap(event.originalEvent)) {
+            clearLongPressTimer();
+            return;
+          }
+
           const { lat, lng } = event.lngLat;
           clearLongPressTimer();
           longPressTimer = window.setTimeout(() => {
             longPressTimer = null;
+
+            if (Date.now() < markerTapGuardUntilRef.current) {
+              return;
+            }
+
             handleMapTapRef.current(lat, lng);
           }, 550);
         });
@@ -937,7 +1044,7 @@ export default function SpotLiveMap({ userId, embedded = false }: SpotLiveMapPro
       mapRef.current = null;
       setMapReady(false);
     };
-  }, [mapStyle]);
+  }, [mapStyle, shouldIgnoreMapBackgroundTap]);
 
   useEffect(() => {
     const container = mapContainerRef.current;
@@ -1145,29 +1252,46 @@ export default function SpotLiveMap({ userId, embedded = false }: SpotLiveMapPro
       return;
     }
 
+    const selfLngLat = resolveMapLngLat(userCoords.latitude, userCoords.longitude, {
+      kind: "self-live-user",
+    });
+
+    if (!selfLngLat) {
+      if (userMarkerRef.current) {
+        userMarkerRef.current.remove();
+        userMarkerRef.current = null;
+      }
+      return;
+    }
+
     if (!centeredOnUserRef.current) {
       centeredOnUserRef.current = true;
       map.flyTo({
-        center: [userCoords.longitude, userCoords.latitude],
+        center: selfLngLat,
         zoom: 14,
         essential: true,
       });
     }
 
     if (userMarkerRef.current) {
-      userMarkerRef.current.setLngLat([userCoords.longitude, userCoords.latitude]);
+      userMarkerRef.current.setLngLat(selfLngLat);
       return;
     }
 
     const element = createUserMarkerElement(userAvatarUrl, userLabel, true);
 
     userMarkerRef.current = new maplibregl.Marker({ element, anchor: "center" })
-      .setLngLat([userCoords.longitude, userCoords.latitude])
+      .setLngLat(selfLngLat)
       .addTo(map);
   }, [isLive, mapReady, userAvatarUrl, userCoords, userLabel]);
 
   const handleSelectLiveUser = useCallback((user: LiveMapUser) => {
+    armMarkerTapGuard();
+    mapTapRequestRef.current += 1;
+    clearTapSave();
     setOverlapSheet(null);
+    setMarkClusterSheet(null);
+    setSelectedMapMark(null);
     setSelectedLiveUser(user);
     setSelectedPin(null);
 
@@ -1179,10 +1303,15 @@ export default function SpotLiveMap({ userId, embedded = false }: SpotLiveMapPro
         essential: true,
       });
     }
-  }, []);
+  }, [armMarkerTapGuard, clearTapSave]);
 
   const handleSelectSpotPin = useCallback((pin: MapSpotPin) => {
+    armMarkerTapGuard();
+    mapTapRequestRef.current += 1;
+    clearTapSave();
     setOverlapSheet(null);
+    setMarkClusterSheet(null);
+    setSelectedMapMark(null);
     setSelectedPin(pin);
     setSelectedLiveUser(null);
 
@@ -1196,11 +1325,15 @@ export default function SpotLiveMap({ userId, embedded = false }: SpotLiveMapPro
         essential: true,
       });
     }
-  }, []);
+  }, [armMarkerTapGuard, clearTapSave]);
 
   const handleSelectOverlapCluster = useCallback((cluster: MapOverlapCluster) => {
+    armMarkerTapGuard();
+    mapTapRequestRef.current += 1;
     setSelectedPin(null);
     setSelectedLiveUser(null);
+    setSelectedMapMark(null);
+    setMarkClusterSheet(null);
     clearTapSave();
     setOverlapSheet(cluster);
 
@@ -1212,7 +1345,7 @@ export default function SpotLiveMap({ userId, embedded = false }: SpotLiveMapPro
         essential: true,
       });
     }
-  }, [clearTapSave]);
+  }, [armMarkerTapGuard, clearTapSave]);
 
   const handleSelectOverlapClusterId = useCallback(
     (clusterId: string) => {
@@ -1305,11 +1438,20 @@ export default function SpotLiveMap({ userId, embedded = false }: SpotLiveMapPro
             longitude: cluster.longitude,
             latitude: cluster.latitude,
           };
+          const offsetLngLat = resolveMapLngLat(offset.latitude, offset.longitude, {
+            kind: "spiderfy-offset",
+            id: item.key,
+          });
+
+          if (!offsetLngLat) {
+            return;
+          }
+
           nextSpiderIds.add(item.key);
           const existing = spiderMarkersRef.current.get(item.key);
 
           if (existing) {
-            existing.setLngLat([offset.longitude, offset.latitude]);
+            existing.setLngLat(offsetLngLat);
 
             if (item.kind === "spot") {
               updateSpotMarkerSavedState(existing.getElement(), savedIds.has(item.pin.id));
@@ -1322,10 +1464,11 @@ export default function SpotLiveMap({ userId, embedded = false }: SpotLiveMapPro
             const element = createLiveUserMarkerElement(
               item.user,
               t("map.userIsLive", { username: item.user.username }),
-              handleSelectLiveUser
+              handleSelectLiveUser,
+              armMarkerTapGuard
             );
             const marker = new maplibregl.Marker({ element, anchor: "center" })
-              .setLngLat([offset.longitude, offset.latitude])
+              .setLngLat(offsetLngLat)
               .addTo(map);
             spiderMarkersRef.current.set(item.key, marker);
             return;
@@ -1336,23 +1479,34 @@ export default function SpotLiveMap({ userId, embedded = false }: SpotLiveMapPro
             seenSpotPinIdsRef.current.add(item.pin.id);
           }
 
-          const element = createSpotMarkerElement(item.pin, savedIds.has(item.pin.id), animateIn);
-          element.addEventListener("click", (event) => {
-            event.stopPropagation();
-            handleSelectSpotPin(item.pin);
-          });
+          const element = createSpotMarkerElement(
+            item.pin,
+            savedIds.has(item.pin.id),
+            animateIn,
+            handleSelectSpotPin,
+            armMarkerTapGuard
+          );
 
           const marker = new maplibregl.Marker({ element, anchor: "center" })
-            .setLngLat([offset.longitude, offset.latitude])
+            .setLngLat(offsetLngLat)
             .addTo(map);
           spiderMarkersRef.current.set(item.key, marker);
         });
       } else {
+        const clusterLngLat = resolveMapLngLat(cluster.latitude, cluster.longitude, {
+          kind: "overlap-cluster",
+          id: cluster.id,
+        });
+
+        if (!clusterLngLat) {
+          continue;
+        }
+
         nextCombinedIds.add(cluster.id);
         const existing = combinedOverlapMarkersRef.current.get(cluster.id);
 
         if (existing) {
-          existing.setLngLat([cluster.longitude, cluster.latitude]);
+          existing.setLngLat(clusterLngLat);
           continue;
         }
 
@@ -1360,31 +1514,42 @@ export default function SpotLiveMap({ userId, embedded = false }: SpotLiveMapPro
           cluster.id,
           cluster,
           t("map.overlapCombinedLabel"),
-          handleSelectOverlapClusterId
+          handleSelectOverlapClusterId,
+          armMarkerTapGuard
         );
         const marker = new maplibregl.Marker({ element, anchor: "center" })
-          .setLngLat([cluster.longitude, cluster.latitude])
+          .setLngLat(clusterLngLat)
           .addTo(map);
         combinedOverlapMarkersRef.current.set(cluster.id, marker);
       }
     }
 
     for (const liveUser of freeUsers) {
+      const lngLat = resolveMapLngLat(liveUser.latitude, liveUser.longitude, {
+        kind: "live-user",
+        id: liveUser.user_id,
+      });
+
+      if (!lngLat) {
+        continue;
+      }
+
       const markerKey = liveUser.user_id;
       const existing = liveMarkersRef.current.get(markerKey);
 
       if (existing) {
-        existing.setLngLat([liveUser.longitude, liveUser.latitude]);
+        existing.setLngLat(lngLat);
         continue;
       }
 
       const element = createLiveUserMarkerElement(
         liveUser,
         t("map.userIsLive", { username: liveUser.username }),
-        handleSelectLiveUser
+        handleSelectLiveUser,
+        armMarkerTapGuard
       );
       const marker = new maplibregl.Marker({ element, anchor: "center" })
-        .setLngLat([liveUser.longitude, liveUser.latitude])
+        .setLngLat(lngLat)
         .addTo(map);
       liveMarkersRef.current.set(markerKey, marker);
     }
@@ -1409,11 +1574,13 @@ export default function SpotLiveMap({ userId, embedded = false }: SpotLiveMapPro
         seenSpotPinIdsRef.current.add(pin.id);
       }
 
-      const element = createSpotMarkerElement(pin, isSaved, animateIn);
-      element.addEventListener("click", (event) => {
-        event.stopPropagation();
-        handleSelectSpotPin(pin);
-      });
+      const element = createSpotMarkerElement(
+        pin,
+        isSaved,
+        animateIn,
+        handleSelectSpotPin,
+        armMarkerTapGuard
+      );
 
       const marker = new maplibregl.Marker({ element, anchor: "center" })
         .setLngLat(lngLat)
@@ -1449,6 +1616,7 @@ export default function SpotLiveMap({ userId, embedded = false }: SpotLiveMapPro
       }
     });
   }, [
+    armMarkerTapGuard,
     handleSelectLiveUser,
     handleSelectOverlapClusterId,
     handleSelectSpotPin,
@@ -1476,6 +1644,69 @@ export default function SpotLiveMap({ userId, embedded = false }: SpotLiveMapPro
       cancelled = true;
     };
   }, []);
+
+  const focusMarkHandledRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const markId = focusMarkId?.trim() || null;
+
+    if (!markId || !mapReady) {
+      return;
+    }
+
+    if (focusMarkHandledRef.current === markId) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const focus = async () => {
+      const result = await loadMapMarkById(markId);
+
+      if (cancelled) {
+        return;
+      }
+
+      focusMarkHandledRef.current = markId;
+
+      if (!result.mark) {
+        setError(t("map.markUnavailable"));
+        return;
+      }
+
+      const loaded = result.mark;
+
+      setMapMarks((current) => {
+        if (current.some((mark) => mark.id === loaded.id)) {
+          return current;
+        }
+
+        return [loaded, ...current];
+      });
+
+      setSelectedPin(null);
+      setSelectedLiveUser(null);
+      setOverlapSheet(null);
+      setTapSave(null);
+      setMarkClusterSheet(null);
+      setSelectedMapMark(loaded);
+
+      const map = mapRef.current;
+      if (map) {
+        map.flyTo({
+          center: [loaded.longitude, loaded.latitude],
+          zoom: Math.max(map.getZoom(), 16),
+          essential: true,
+        });
+      }
+    };
+
+    void focus();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [focusMarkId, mapReady, t]);
 
   useEffect(() => {
     const refreshPinsAround = async () => {
@@ -1526,6 +1757,9 @@ export default function SpotLiveMap({ userId, embedded = false }: SpotLiveMapPro
         return;
       }
 
+      armMarkerTapGuard();
+      mapTapRequestRef.current += 1;
+      clearTapSave();
       setMarkClusterSheet(null);
       setSelectedMapMark(mark);
       setSelectedPin(null);
@@ -1545,6 +1779,9 @@ export default function SpotLiveMap({ userId, embedded = false }: SpotLiveMapPro
         return;
       }
 
+      armMarkerTapGuard();
+      mapTapRequestRef.current += 1;
+      clearTapSave();
       setSelectedMapMark(null);
       setSelectedPin(null);
       setSelectedLiveUser(null);
@@ -1566,49 +1803,80 @@ export default function SpotLiveMap({ userId, embedded = false }: SpotLiveMapPro
             longitude: cluster.longitude,
             latitude: cluster.latitude,
           };
+          const offsetLngLat = resolveMapLngLat(offset.latitude, offset.longitude, {
+            kind: "mark-spiderfy",
+            id: mark.id,
+          });
+
+          if (!offsetLngLat) {
+            return;
+          }
+
           const spiderKey = mark.id;
           nextSpiderIds.add(spiderKey);
           const existing = publicMarkSpiderMarkersRef.current.get(spiderKey);
 
           if (existing) {
-            existing.setLngLat([offset.longitude, offset.latitude]);
+            existing.setLngLat(offsetLngLat);
             return;
           }
 
-          const element = createPublicMapMarkElement(mark, openMarkById);
+          const element = createPublicMapMarkElement(mark, openMarkById, armMarkerTapGuard);
           const marker = new maplibregl.Marker({ element, anchor: "center" })
-            .setLngLat([offset.longitude, offset.latitude])
+            .setLngLat(offsetLngLat)
             .addTo(map);
           publicMarkSpiderMarkersRef.current.set(spiderKey, marker);
         });
       } else {
+        const clusterLngLat = resolveMapLngLat(cluster.latitude, cluster.longitude, {
+          kind: "mark-cluster",
+          id: cluster.id,
+        });
+
+        if (!clusterLngLat) {
+          continue;
+        }
+
         nextClusterIds.add(cluster.id);
         const existing = publicMarkClusterMarkersRef.current.get(cluster.id);
 
         if (existing) {
-          existing.setLngLat([cluster.longitude, cluster.latitude]);
+          existing.setLngLat(clusterLngLat);
           continue;
         }
 
-        const element = createPublicMapMarkClusterElement(cluster, openMarkClusterById);
+        const element = createPublicMapMarkClusterElement(
+          cluster,
+          openMarkClusterById,
+          armMarkerTapGuard
+        );
         const marker = new maplibregl.Marker({ element, anchor: "center" })
-          .setLngLat([cluster.longitude, cluster.latitude])
+          .setLngLat(clusterLngLat)
           .addTo(map);
         publicMarkClusterMarkersRef.current.set(cluster.id, marker);
       }
     }
 
     for (const mark of freeMarks) {
-      const existing = publicMarkMarkersRef.current.get(mark.id);
+      const lngLat = resolveMapLngLat(mark.latitude, mark.longitude, {
+        kind: "public-mark",
+        id: mark.id,
+      });
 
-      if (existing) {
-        existing.setLngLat([mark.longitude, mark.latitude]);
+      if (!lngLat) {
         continue;
       }
 
-      const element = createPublicMapMarkElement(mark, openMarkById);
+      const existing = publicMarkMarkersRef.current.get(mark.id);
+
+      if (existing) {
+        existing.setLngLat(lngLat);
+        continue;
+      }
+
+      const element = createPublicMapMarkElement(mark, openMarkById, armMarkerTapGuard);
       const marker = new maplibregl.Marker({ element, anchor: "center" })
-        .setLngLat([mark.longitude, mark.latitude])
+        .setLngLat(lngLat)
         .addTo(map);
       publicMarkMarkersRef.current.set(mark.id, marker);
     }
@@ -1633,7 +1901,7 @@ export default function SpotLiveMap({ userId, embedded = false }: SpotLiveMapPro
         publicMarkSpiderMarkersRef.current.delete(spiderId);
       }
     });
-  }, [mapReady, mapMarks, markerLayoutTick]);
+  }, [mapReady, mapMarks, markerLayoutTick, armMarkerTapGuard, clearTapSave]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -1649,7 +1917,15 @@ export default function SpotLiveMap({ userId, embedded = false }: SpotLiveMapPro
       return;
     }
 
-    const lngLat: [number, number] = [tapSave.location.longitude, tapSave.location.latitude];
+    const lngLat = resolveMapLngLat(tapSave.location.latitude, tapSave.location.longitude, {
+      kind: "tap-pin",
+    });
+
+    if (!lngLat) {
+      tapMarkerRef.current?.remove();
+      tapMarkerRef.current = null;
+      return;
+    }
 
     if (tapMarkerRef.current) {
       tapMarkerRef.current.setLngLat(lngLat);

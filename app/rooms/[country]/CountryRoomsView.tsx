@@ -44,7 +44,7 @@ export default function CountryRoomsPage() {
   return (
     <Shell showHeader={false} flushTop>
       <div className={`flex min-h-0 flex-1 flex-col ${MOBILE_WIDTH_SAFE_CLASS}`}>
-        <MobileSecondaryHeader title={headerTitle} backHref="/visit" />
+        <MobileSecondaryHeader title={headerTitle} backHref="/visit" preferFallback />
         <div className="space-y-8 px-4 py-6 sm:px-0">
           <CountryCitiesPanel
             countrySlug={countrySlug}

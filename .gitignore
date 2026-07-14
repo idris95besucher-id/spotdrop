@@ -42,3 +42,8 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# local native package build artifacts
+packages/spotdrop-pano/.derivedData/
+packages/spotdrop-pano/.build/
+packages/spotdrop-pano/.swiftpm/

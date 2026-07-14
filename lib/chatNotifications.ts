@@ -112,50 +112,19 @@ export async function countUnreadSpotShareRequests(userId: string) {
 }
 
 export async function markDirectMessagesReadInThread(recipientId: string, partnerId: string) {
-  const readAt = new Date().toISOString();
+  void recipientId;
 
-  const { data, error: readError } = await supabase
-    .from("direct_messages")
-    .update({ read_at: readAt })
-    .eq("recipient_id", recipientId)
-    .eq("sender_id", partnerId)
-    .is("read_at", null)
-    .select("id");
+  const { data: rpcCount, error: rpcError } = await supabase.rpc("mark_dm_thread_read", {
+    p_sender_id: partnerId,
+  });
 
-  if (readError) {
-    console.log("[DM read] supabase update result=", { error: readError.message, updatedCount: 0 });
-    return { error: readError.message, updatedCount: 0 };
+  if (rpcError) {
+    console.log("[DM read] mark_dm_thread_read failed", { error: rpcError.message });
+    return { error: "Unable to mark messages as read.", updatedCount: 0 };
   }
 
-  let updatedCount = data?.length ?? 0;
-
-  if (updatedCount === 0) {
-    const { data: rpcCount, error: rpcError } = await supabase.rpc("mark_dm_thread_read", {
-      p_sender_id: partnerId,
-    });
-
-    if (rpcError) {
-      console.log("[DM read] supabase update result=", { error: rpcError.message, updatedCount: 0 });
-      return { error: rpcError.message, updatedCount: 0 };
-    }
-
-    updatedCount = typeof rpcCount === "number" ? rpcCount : 0;
-    console.log("[DM read] supabase update result=", { rpcFallback: true, updatedCount });
-  } else {
-    console.log("[DM read] supabase update result=", { updatedCount });
-  }
-
-  const { error: deliveredError } = await supabase
-    .from("direct_messages")
-    .update({ delivered_at: readAt })
-    .eq("recipient_id", recipientId)
-    .eq("sender_id", partnerId)
-    .is("delivered_at", null);
-
-  if (deliveredError) {
-    console.warn("[DM read] delivered_at backfill failed", deliveredError.message);
-  }
-
+  const updatedCount = typeof rpcCount === "number" ? rpcCount : 0;
+  console.log("[DM read] mark_dm_thread_read result=", { updatedCount });
   return { error: null as string | null, updatedCount };
 }
 

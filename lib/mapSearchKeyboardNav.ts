@@ -1,18 +1,8 @@
-const BODY_ATTR = "data-map-search-keyboard";
+import { setChromeNavHidden } from "@/lib/keyboardSystem";
 
 /**
- * Map page only: hide the mobile bottom nav while map search is focused
- * or the software keyboard is open (Capacitor WKWebView / iOS).
+ * @deprecated Prefer `useChromeNavHidden("map-search-focus", …)` from `@/lib/keyboardSystem`.
  */
 export function setMapSearchKeyboardNavHidden(hidden: boolean) {
-  if (typeof document === "undefined") {
-    return;
-  }
-
-  if (hidden) {
-    document.body.setAttribute(BODY_ATTR, "true");
-    return;
-  }
-
-  document.body.removeAttribute(BODY_ATTR);
+  setChromeNavHidden("map-search-focus", hidden);
 }

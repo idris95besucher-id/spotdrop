@@ -57,6 +57,10 @@ export function normalizeCountrySlug(countrySlug: string, countryName?: string |
     return "united-kingdom";
   }
 
+  if (slug === "us" || slug === "usa" || slug === "america") {
+    return "united-states";
+  }
+
   const name = countryName?.trim().toLowerCase() ?? "";
 
   if (name === "switzerland" || name === "schweiz" || name === "suisse") {
@@ -77,6 +81,15 @@ export function normalizeCountrySlug(countrySlug: string, countryName?: string |
 
   if (name === "united kingdom" || name === "uk") {
     return "united-kingdom";
+  }
+
+  if (
+    name === "united states" ||
+    name === "united states of america" ||
+    name === "usa" ||
+    name === "us"
+  ) {
+    return "united-states";
   }
 
   return slug;

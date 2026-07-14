@@ -19,7 +19,6 @@ import {
   DEFAULT_SPOT_CREATE_LAUNCH,
   type SpotCreateLaunch,
 } from "@/lib/createSpotLaunch";
-import type { SpotGeoLocation } from "@/lib/spotLocation";
 import { getSafeAuthSession } from "@/lib/authSession";
 import { dispatchProfileContentRefresh } from "@/lib/profileContentRefresh";
 import { supabase } from "@/lib/supabaseClient";
@@ -29,7 +28,6 @@ type CreateFlow = "spot" | "post" | null;
 type CreateMenuContextValue = {
   openCreateMenu: () => void;
   openLocationSpot: () => void;
-  openTextCardAtMapLocation: (location: SpotGeoLocation) => void;
 };
 
 const CreateMenuContext = createContext<CreateMenuContextValue | null>(null);
@@ -225,42 +223,17 @@ export default function CreateMenuProvider({ children }: { children: ReactNode }
     setActiveFlow("spot");
   }, [router, session]);
 
-  const openTextCardAtMapLocation = useCallback(
-    async (location: SpotGeoLocation) => {
-      let activeSession = session;
-
-      if (!activeSession?.user) {
-        const result = await getSafeAuthSession();
-
-        if (result.session) {
-          setSession(result.session);
-          activeSession = result.session;
-        }
-      }
-
-      if (!activeSession?.user) {
-        router.push("/auth/login");
-        return;
-      }
-
-      setMenuOpen(false);
-      setSpotLaunch({ kind: "map-text-card", location });
-      setActiveFlow("spot");
-    },
-    [router, session]
-  );
-
   const handleContentCreated = useCallback(() => {
-    dispatchProfileContentRefresh();
+    // Refresh is also triggered by finishSpotPublishToProfile for Spot publishes.
+    // Keep this for CreatePostForm and any caller that only uses onCreated.
+    dispatchProfileContentRefresh({ tab: "spots" });
     closeAll();
   }, [closeAll]);
 
   const userId = session?.user?.id;
 
   return (
-    <CreateMenuContext.Provider
-      value={{ openCreateMenu, openLocationSpot, openTextCardAtMapLocation }}
-    >
+    <CreateMenuContext.Provider value={{ openCreateMenu, openLocationSpot }}>
       {children}
 
       {menuOpen ? (

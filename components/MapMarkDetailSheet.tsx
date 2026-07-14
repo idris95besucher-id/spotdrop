@@ -2,19 +2,30 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { Loader2, MapPinned, Pencil, Trash2, X } from "lucide-react";
+import { Loader2, MapPinned, X } from "lucide-react";
 import { useI18n } from "@/components/I18nProvider";
 import { usePostViewerOptional } from "@/components/PostViewerProvider";
+import { openGoogleMapsAtCoordinates } from "@/lib/externalMaps";
 import {
   deleteMapMark,
   resolveRelatedSpotPostIdForMapMark,
   updateMapMark,
   type MapMark,
 } from "@/lib/mapMarks";
+import {
+  mapMarkCategoryIcon,
+  mapMarkCategoryLabelKey,
+  normalizeMapMarkCategory,
+} from "@/lib/mapMarkCategories";
 import { mapMarkAvatarInitial } from "@/lib/mapMarkMarkers";
 import { getViewerSpotMediaUrl } from "@/lib/postViewer";
 import { pickSpotGalleryPhoto } from "@/lib/pickMediaFromGallery";
 import { loadSpotMessagePreview } from "@/lib/spotMessagePreview";
+import {
+  composerPaddingBottom,
+  useChromeNavHidden,
+  useKeyboard,
+} from "@/lib/keyboardSystem";
 
 type MapMarkDetailSheetProps = {
   mark: MapMark;
@@ -53,6 +64,7 @@ export default function MapMarkDetailSheet({
   const [text, setText] = useState(mark.text);
   const [photoPreview, setPhotoPreview] = useState(mark.photo_url);
   const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [localPhotoObjectUrl, setLocalPhotoObjectUrl] = useState<string | null>(null);
   const [clearPhoto, setClearPhoto] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -70,6 +82,14 @@ export default function MapMarkDetailSheet({
     locale === "de" ? "de-CH" : locale === "ru" ? "ru-RU" : "en-GB"
   );
 
+  const { isKeyboardOpen } = useKeyboard();
+  useChromeNavHidden("map-sheet", embedded || editing);
+
+  const footerPadding =
+    embedded && !isKeyboardOpen
+      ? composerPaddingBottom("cityRoom", false)
+      : composerPaddingBottom("sheet", isKeyboardOpen);
+
   useEffect(() => {
     let cancelled = false;
     setRelatedSpotId(null);
@@ -86,6 +106,14 @@ export default function MapMarkDetailSheet({
       cancelled = true;
     };
   }, [mark]);
+
+  useEffect(() => {
+    return () => {
+      if (localPhotoObjectUrl) {
+        URL.revokeObjectURL(localPhotoObjectUrl);
+      }
+    };
+  }, [localPhotoObjectUrl]);
 
   const handleSeeSpot = async () => {
     if (!relatedSpotId || openingSpot) {
@@ -209,7 +237,18 @@ export default function MapMarkDetailSheet({
 
     setPhotoFile(file);
     setClearPhoto(false);
-    setPhotoPreview(URL.createObjectURL(file));
+
+    if (localPhotoObjectUrl) {
+      URL.revokeObjectURL(localPhotoObjectUrl);
+    }
+
+    const nextUrl = URL.createObjectURL(file);
+    setLocalPhotoObjectUrl(nextUrl);
+    setPhotoPreview(nextUrl);
+  };
+
+  const handleOpenGoogleMaps = () => {
+    openGoogleMapsAtCoordinates(mark.latitude, mark.longitude);
   };
 
   if (fullscreenPhoto && photoPreview) {
@@ -241,15 +280,10 @@ export default function MapMarkDetailSheet({
       <div
         role="dialog"
         aria-modal="true"
-        className="relative z-10 max-h-[88vh] w-full max-w-lg overflow-y-auto rounded-t-3xl border border-white/10 bg-[#0B1026] shadow-2xl"
-        style={{
-          paddingBottom: embedded
-            ? "max(1rem, calc(env(safe-area-inset-bottom) + 54px))"
-            : "max(1rem, env(safe-area-inset-bottom))",
-        }}
+        className="relative z-10 flex max-h-[88vh] w-full max-w-lg flex-col overflow-hidden rounded-t-3xl border border-white/10 bg-[#0B1026] shadow-2xl"
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="flex items-start justify-between gap-3 border-b border-white/10 px-4 py-3">
+        <div className="flex shrink-0 items-start justify-between gap-3 border-b border-white/10 px-4 py-3">
           <Link href={profileHref} onClick={onClose} className="flex min-w-0 items-center gap-3">
             <span className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full border border-cyan-400/35 bg-slate-800 text-sm font-bold text-white">
               {mark.avatar_url ? (
@@ -273,7 +307,7 @@ export default function MapMarkDetailSheet({
           </button>
         </div>
 
-        <div className="space-y-4 px-4 py-4">
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-4">
           {editing ? (
             <textarea
               value={text}
@@ -285,6 +319,17 @@ export default function MapMarkDetailSheet({
           ) : (
             <p className="whitespace-pre-wrap text-sm leading-relaxed text-white">{mark.text}</p>
           )}
+
+          {(() => {
+            const category = normalizeMapMarkCategory(mark.category);
+            const Icon = mapMarkCategoryIcon(category);
+            return (
+              <div className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1 text-[11px] font-medium text-cyan-100">
+                <Icon className="h-3.5 w-3.5 text-cyan-300" aria-hidden />
+                {t(mapMarkCategoryLabelKey(category))}
+              </div>
+            );
+          })()}
 
           {photoPreview ? (
             <button
@@ -309,6 +354,11 @@ export default function MapMarkDetailSheet({
                 <button
                   type="button"
                   onClick={() => {
+                    if (localPhotoObjectUrl) {
+                      URL.revokeObjectURL(localPhotoObjectUrl);
+                      setLocalPhotoObjectUrl(null);
+                    }
+
                     setPhotoFile(null);
                     setClearPhoto(true);
                     setPhotoPreview(null);
@@ -338,48 +388,62 @@ export default function MapMarkDetailSheet({
               type="button"
               onClick={() => void handleSeeSpot()}
               disabled={openingSpot}
-              className="flex w-full items-center justify-center gap-2 rounded-full bg-cyan-500 py-3.5 text-sm font-bold text-slate-950 shadow-lg shadow-cyan-500/20 transition hover:bg-cyan-400 active:scale-[0.99] disabled:opacity-60"
+              className="flex w-full items-center justify-center gap-2 rounded-full border border-cyan-400/30 bg-cyan-500/10 py-3 text-sm font-semibold text-cyan-100 transition hover:bg-cyan-500/15 active:scale-[0.99] disabled:opacity-60"
             >
               {openingSpot ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : null}
               {t("map.seeSpot")}
             </button>
           ) : null}
+        </div>
 
-          {isOwner ? (
-            <div className="flex flex-wrap gap-2 pt-1">
-              {editing ? (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => void handleSaveEdit()}
-                    disabled={busy}
-                    className="inline-flex flex-1 items-center justify-center gap-2 rounded-full bg-cyan-500 px-4 py-3 text-sm font-semibold text-slate-950 disabled:opacity-50"
-                  >
-                    {busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : null}
-                    {t("common.saving")}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setEditing(false);
-                      setText(mark.text);
-                      setPhotoPreview(mark.photo_url);
-                      setPhotoFile(null);
-                      setClearPhoto(false);
-                    }}
-                    className="rounded-full border border-white/12 px-4 py-3 text-sm font-semibold text-slate-200"
-                  >
-                    {t("common.cancel")}
-                  </button>
-                </>
-              ) : (
-                <>
+        <div
+          className="shrink-0 space-y-2 border-t border-white/10 bg-[#0B1026] px-4 pt-3"
+          style={{ paddingBottom: footerPadding }}
+        >
+          {editing ? (
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => void handleSaveEdit()}
+                disabled={busy}
+                className="inline-flex flex-1 items-center justify-center gap-2 rounded-full bg-cyan-500 px-4 py-3.5 text-sm font-bold text-slate-950 shadow-lg shadow-cyan-500/20 disabled:opacity-50"
+              >
+                {busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden /> : null}
+                {t("common.saving")}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setEditing(false);
+                  setText(mark.text);
+                  setPhotoPreview(mark.photo_url);
+                  setPhotoFile(null);
+                  setClearPhoto(false);
+                }}
+                className="rounded-full border border-white/12 px-4 py-3.5 text-sm font-semibold text-slate-200"
+              >
+                {t("common.cancel")}
+              </button>
+            </div>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={handleOpenGoogleMaps}
+                className="flex w-full items-center justify-center gap-2 rounded-full bg-cyan-500 py-3.5 text-sm font-bold text-slate-950 shadow-lg shadow-cyan-500/20 transition hover:bg-cyan-400 active:scale-[0.99]"
+              >
+                <span aria-hidden>🗺️</span>
+                {t("map.markOpenInGoogleMaps")}
+              </button>
+
+              {isOwner ? (
+                <div className="flex gap-2">
                   <button
                     type="button"
                     onClick={() => setEditing(true)}
                     className="inline-flex flex-1 items-center justify-center gap-2 rounded-full border border-white/12 px-4 py-3 text-sm font-semibold text-white"
                   >
-                    <Pencil className="h-4 w-4" aria-hidden />
+                    <span aria-hidden>✏️</span>
                     {t("map.markEdit")}
                   </button>
                   <button
@@ -388,13 +452,22 @@ export default function MapMarkDetailSheet({
                     disabled={busy}
                     className="inline-flex flex-1 items-center justify-center gap-2 rounded-full border border-red-400/30 bg-red-500/10 px-4 py-3 text-sm font-semibold text-red-100 disabled:opacity-50"
                   >
-                    <Trash2 className="h-4 w-4" aria-hidden />
+                    <span aria-hidden>🗑</span>
                     {t("common.delete")}
                   </button>
-                </>
+                </div>
+              ) : (
+                <Link
+                  href={profileHref}
+                  onClick={onClose}
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-full border border-white/12 px-4 py-3 text-sm font-semibold text-white"
+                >
+                  <span aria-hidden>👤</span>
+                  {t("profile.viewProfile")}
+                </Link>
               )}
-            </div>
-          ) : null}
+            </>
+          )}
         </div>
       </div>
     </div>

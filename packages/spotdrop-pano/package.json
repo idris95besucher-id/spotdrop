@@ -1,0 +1,22 @@
+{
+  "name": "@spotdrop/pano",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Native iOS panorama capture for SpotDrop",
+  "main": "dist/plugin.cjs.js",
+  "module": "dist/esm/index.js",
+  "types": "dist/esm/index.d.ts",
+  "files": [
+    "dist/",
+    "ios/Sources",
+    "Package.swift"
+  ],
+  "capacitor": {
+    "ios": {
+      "src": "ios"
+    }
+  },
+  "peerDependencies": {
+    "@capacitor/core": ">=8.0.0"
+  }
+}

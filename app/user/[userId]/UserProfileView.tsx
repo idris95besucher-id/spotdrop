@@ -10,8 +10,10 @@ import { isGuideAccountProfile, publicProfileUsername } from "@/lib/publicProfil
 import { ensureProfileRow } from "@/lib/profile";
 import { followUser, loadFollowConnections, loadFollowRelationship, unfollowUser } from "@/lib/follows";
 import { checkCanMessageUser } from "@/lib/messagePrivacy";
-import ProfileCollectionsTab from "@/components/ProfileCollectionsTab";
-import ProfileContentTabs, { type ProfileContentTab } from "@/components/ProfileContentTabs";
+import ProfileContentTabs, {
+  type ProfileMainTab,
+} from "@/components/ProfileContentTabs";
+import ProfileSavedTab from "@/components/ProfileSavedTab";
 import ProfileGalleryAvatarLink from "@/components/profile/ProfileGalleryAvatarLink";
 import MobileSecondaryHeader from "@/components/MobileSecondaryHeader";
 import NavigationStackScreen from "@/components/NavigationStackScreen";
@@ -101,7 +103,7 @@ export default function UserPage({ userIdOverride }: { userIdOverride?: string }
   const [viewerFollowsTarget, setViewerFollowsTarget] = useState(false);
   const [personalPosts, setPersonalPosts] = useState<ProfileContentPost[]>([]);
   const [spotPosts, setSpotPosts] = useState<ProfileContentPost[]>([]);
-  const [activeContentTab, setActiveContentTab] = useState<Exclude<ProfileContentTab, "posts">>("spots");
+  const [activeContentTab, setActiveContentTab] = useState<ProfileMainTab>("spots");
   const [location, setLocation] = useState<ResolvedProfileLocation>({ countryName: null, cityName: null });
   const [followersCount, setFollowersCount] = useState(0);
   const [friendsCount, setFriendsCount] = useState(0);
@@ -328,8 +330,8 @@ export default function UserPage({ userIdOverride }: { userIdOverride?: string }
 
   return (
     <Shell showHeader={false} flushTop fixedLayout>
-      <NavigationStackScreen fallbackHref="/search">
-        <MobileSecondaryHeader title={headerTitle} backHref="/search" />
+      <NavigationStackScreen fallbackHref="/search/people">
+        <MobileSecondaryHeader title={headerTitle} backHref="/search/people" />
 
         <div
           data-mobile-main-scroll=""
@@ -345,7 +347,7 @@ export default function UserPage({ userIdOverride }: { userIdOverride?: string }
             <p>{localizeError(t, error) ?? error}</p>
             <button
               type="button"
-              onClick={() => navigateBack(router, "/search")}
+              onClick={() => navigateBack(router, "/search/people")}
               className="inline-flex w-full items-center justify-center rounded-full bg-white px-5 py-2.5 text-sm font-semibold text-slate-950 sm:w-auto"
             >
               {t("common.back")}
@@ -474,12 +476,15 @@ export default function UserPage({ userIdOverride }: { userIdOverride?: string }
                       }
                     : null
                 }
-                collectionsPanel={
-                  profile ? (
-                    <ProfileCollectionsTab
-                      userId={profile.id}
-                      viewerId={viewerId}
-                      isOwner={isOwnProfile}
+                showSavedTab={isOwnProfile}
+                savedPanel={
+                  isOwnProfile && profile && viewerId ? (
+                    <ProfileSavedTab
+                      userId={viewerId}
+                      viewerAuthor={{
+                        username: profile.username,
+                        avatar_url: profile.avatar_url,
+                      }}
                     />
                   ) : null
                 }

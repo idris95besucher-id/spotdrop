@@ -25,9 +25,10 @@ import { localizeCountryName, localizeCityName } from "@/lib/i18n/localizeGeo";
 import { ensureProfileRow } from "@/lib/profile";
 import { publicProfileUsername } from "@/lib/publicProfile";
 import { localizeUserMessage } from "@/lib/i18n/localizeUserMessage";
+import { toUserFacingError } from "@/lib/userFacingError";
 import { supabase } from "@/lib/supabaseClient";
 import { useChatScroll, useChatScrollEffect } from "@/lib/useChatScroll";
-import { CHAT_MESSAGES_FLEX_PADDING } from "@/lib/useKeyboardInsets";
+import { CITY_ROOM_MESSAGES_FLEX_PADDING } from "@/lib/keyboardSystem";
 
 type Country = {
   id: string;
@@ -189,8 +190,8 @@ export default function CityChannelPage() {
         .maybeSingle();
 
       if (countryError) {
-        console.error("Failed to load channel country:", JSON.stringify(countryError, null, 2));
-        setError(countryError.message || "Channel not found");
+        console.error("Failed to load channel country:", countryError.code ?? "unknown");
+        setError(toUserFacingError(countryError, "Channel not found"));
         setLoading(false);
         return;
       }
@@ -209,8 +210,8 @@ export default function CityChannelPage() {
         .maybeSingle();
 
       if (cityError) {
-        console.error("Failed to load channel city:", JSON.stringify(cityError, null, 2));
-        setError(cityError.message || "Channel not found");
+        console.error("Failed to load channel city:", cityError.code ?? "unknown");
+        setError(toUserFacingError(cityError, "Channel not found"));
         setLoading(false);
         return;
       }
@@ -229,8 +230,8 @@ export default function CityChannelPage() {
         .maybeSingle();
 
       if (channelError) {
-        console.error("Failed to load city channel:", JSON.stringify(channelError, null, 2));
-        setError(channelError.message || "Channel not found");
+        console.error("Failed to load city channel:", channelError.code ?? "unknown");
+        setError(toUserFacingError(channelError, "Channel not found"));
         setLoading(false);
         return;
       }
@@ -313,6 +314,10 @@ export default function CityChannelPage() {
   const sendChannelContent = async (content: string) => {
     setSendError(null);
 
+    if (sending) {
+      return;
+    }
+
     if (!session?.user || !channel?.id) {
       const nextError = "You must sign in to send messages.";
       setSendError(nextError);
@@ -328,7 +333,7 @@ export default function CityChannelPage() {
     if (ensuredProfile.error) {
       const nextError = ensuredProfile.needsOnboarding
         ? "Complete your profile first."
-        : ensuredProfile.error;
+        : toUserFacingError(ensuredProfile.error, "Unable to send your message.");
       setSendError(nextError);
       throw new Error(nextError);
     }
@@ -346,8 +351,8 @@ export default function CityChannelPage() {
       .single();
 
     if (insertError) {
-      console.error("Failed to send channel message:", JSON.stringify(insertError, null, 2));
-      const nextError = insertError.message || "Unable to send your message.";
+      console.error("Failed to send channel message:", insertError.code ?? "unknown");
+      const nextError = toUserFacingError(insertError, "Unable to send your message.");
       setSendError(nextError);
       setSending(false);
       throw new Error(nextError);
@@ -369,7 +374,7 @@ export default function CityChannelPage() {
   const handleSend = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
-    if (!draft.trim()) {
+    if (sending || !draft.trim()) {
       return;
     }
 
@@ -389,6 +394,7 @@ export default function CityChannelPage() {
         <MobileSecondaryHeader
           title={city?.name ?? citySlug}
           backHref={`/visit/${country?.slug ?? countrySlug}/${city?.slug ?? citySlug}`}
+          preferFallback
         />
 
         <div className="shrink-0 border-b border-white/10 bg-slate-900/95 px-4 py-2.5 backdrop-blur-xl">
@@ -418,13 +424,13 @@ export default function CityChannelPage() {
           </div>
         </div>
 
-        <section className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-[#080c18]">
+        <section className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-[#070b14]">
           <RoomWallpaper citySlug={citySlug} countrySlug={countrySlug} />
 
           <div
             ref={messagesContainerRef}
             onScroll={handleScroll}
-            className={`relative z-10 min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-3 py-3 ${CHAT_MESSAGES_FLEX_PADDING}`}
+            className={`relative z-10 min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-3 py-3 ${CITY_ROOM_MESSAGES_FLEX_PADDING}`}
           >
             {chatLoading ? (
               <div className="rounded-3xl border border-dashed border-white/10 bg-slate-950/55 p-8 text-center text-slate-300 backdrop-blur-md">

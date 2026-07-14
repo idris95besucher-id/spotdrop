@@ -1,4 +1,5 @@
 import type { Map as MapLibreMap } from "maplibre-gl";
+import { resolveMapLngLat } from "@/lib/mapMarkerCoords";
 import type { MapMark } from "@/lib/mapMarks";
 import { publicProfileUsername } from "@/lib/publicProfile";
 import {
@@ -90,7 +91,11 @@ export function buildMapMarkClusters(
   freeMarks: MapMark[];
 } {
   const valid = marks.filter(
-    (mark) => Number.isFinite(mark.latitude) && Number.isFinite(mark.longitude)
+    (mark) =>
+      resolveMapLngLat(mark.latitude, mark.longitude, {
+        kind: "public-mark",
+        id: mark.id,
+      }) !== null
   );
 
   if (valid.length === 0) {

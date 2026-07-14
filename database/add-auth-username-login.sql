@@ -30,4 +30,7 @@ end;
 $$;
 
 revoke all on function public.resolve_login_email(text) from public;
-grant execute on function public.resolve_login_email(text) to anon, authenticated;
+revoke all on function public.resolve_login_email(text) from anon;
+revoke all on function public.resolve_login_email(text) from authenticated;
+-- Intentionally not granted to anon/authenticated. Username→email resolution
+-- must stay server-side (Edge Function / admin API) only.

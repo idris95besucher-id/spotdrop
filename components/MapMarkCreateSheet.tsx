@@ -6,10 +6,21 @@ import { createPortal } from "react-dom";
 import SpotInstagramCamera from "@/components/SpotInstagramCamera";
 import { useI18n } from "@/components/I18nProvider";
 import { createMapMark, type MapMark } from "@/lib/mapMarks";
-import { setMapSearchKeyboardNavHidden } from "@/lib/mapSearchKeyboardNav";
+import {
+  DEFAULT_MAP_MARK_CATEGORY,
+  MAP_MARK_CATEGORY_KEYS,
+  mapMarkCategoryIcon,
+  mapMarkCategoryLabelKey,
+  type MapMarkCategoryKey,
+} from "@/lib/mapMarkCategories";
 import { formatSpotGeoLocationShortLabel } from "@/lib/spotLocationDisplay";
 import type { SpotGeoLocation } from "@/lib/spotLocation";
-import { useKeyboardInsets } from "@/lib/useKeyboardInsets";
+import {
+  useChromeNavHidden,
+  useEnsureFocusedInputVisible,
+  useKeyboardViewportFrame,
+} from "@/lib/keyboardSystem";
+import { toUserFacingError } from "@/lib/userFacingError";
 
 type MapMarkCreateSheetProps = {
   location: SpotGeoLocation;
@@ -30,15 +41,24 @@ export default function MapMarkCreateSheet({
 }: MapMarkCreateSheetProps) {
   void _embedded;
   const { t, locale } = useI18n();
-  const { keyboardBottom, isKeyboardOpen, visualViewportHeight } = useKeyboardInsets();
+  const {
+    isKeyboardOpen,
+    overlayStyle,
+    sheetMaxHeight,
+    footerPadding,
+  } = useKeyboardViewportFrame();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [text, setText] = useState("");
+  const [category, setCategory] = useState<MapMarkCategoryKey>(DEFAULT_MAP_MARK_CATEGORY);
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [photoPreviewUrl, setPhotoPreviewUrl] = useState<string | null>(null);
   const [showCamera, setShowCamera] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [visible, setVisible] = useState(false);
+
+  useChromeNavHidden("mark-create-sheet", true);
+  useEnsureFocusedInputVisible(textareaRef);
 
   const resolvedPlace = useMemo(() => {
     if (placeLabel.trim()) {
@@ -52,25 +72,19 @@ export default function MapMarkCreateSheet({
 
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => setVisible(true));
-    setMapSearchKeyboardNavHidden(true);
 
     return () => {
       window.cancelAnimationFrame(frame);
-      setMapSearchKeyboardNavHidden(false);
     };
   }, []);
 
   useEffect(() => {
-    if (!isKeyboardOpen) {
-      return;
-    }
-
-    const timer = window.setTimeout(() => {
-      textareaRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
-    }, 80);
-
-    return () => window.clearTimeout(timer);
-  }, [isKeyboardOpen, keyboardBottom]);
+    return () => {
+      if (photoPreviewUrl) {
+        URL.revokeObjectURL(photoPreviewUrl);
+      }
+    };
+  }, [photoPreviewUrl]);
 
   const clearPhoto = () => {
     if (photoPreviewUrl) {
@@ -127,13 +141,16 @@ export default function MapMarkCreateSheet({
       photoFile,
       location,
       placeName: resolvedPlace,
+      category,
     });
 
     setPublishing(false);
 
     if (result.error || !result.mark) {
       setError(
-        result.error === "TABLE_MISSING" ? t("map.placeActionFailed") : result.error ?? t("map.placeActionFailed")
+        result.error === "TABLE_MISSING"
+          ? t("map.placeActionFailed")
+          : toUserFacingError(result.error, t("map.placeActionFailed"))
       );
       return;
     }
@@ -148,7 +165,6 @@ export default function MapMarkCreateSheet({
     return createPortal(
       <SpotInstagramCamera
         onClose={() => setShowCamera(false)}
-        photoOnly
         onCapture={(file, mediaType) => {
           if (mediaType !== "image") {
             return;
@@ -162,17 +178,13 @@ export default function MapMarkCreateSheet({
     );
   }
 
-  const sheetBottomPad = isKeyboardOpen
-    ? `${Math.max(keyboardBottom, 0) + 10}px`
-    : "max(0.75rem, env(safe-area-inset-bottom, 0px))";
-
-  const sheetMaxHeight =
-    isKeyboardOpen && visualViewportHeight
-      ? `${Math.max(visualViewportHeight - 8, 240)}px`
-      : "min(78dvh, 34rem)";
-
+  /**
+   * Anchor the portal to the real visible viewport (visualViewport).
+   * That keeps the sheet above the keyboard / Safari toolbar without
+   * stacking keyboardBottom padding on top of a layout-viewport bottom.
+   */
   return createPortal(
-    <div className="fixed inset-0 z-[60] flex items-end justify-center">
+    <div className="fixed inset-x-0 z-[60] flex items-end justify-center" style={overlayStyle}>
       <button
         type="button"
         className={`absolute inset-0 bg-black/50 transition-opacity duration-200 ${
@@ -191,8 +203,8 @@ export default function MapMarkCreateSheet({
           visible ? "translate-y-0" : "translate-y-full"
         }`}
         style={{
-          paddingBottom: sheetBottomPad,
           maxHeight: sheetMaxHeight,
+          paddingBottom: footerPadding,
         }}
       >
         <div className="flex shrink-0 justify-center pb-1 pt-2.5">
@@ -229,11 +241,40 @@ export default function MapMarkCreateSheet({
             ref={textareaRef}
             value={text}
             onChange={(event) => setText(event.target.value)}
-            rows={3}
+            rows={isKeyboardOpen ? 2 : 3}
             maxLength={500}
             placeholder={t("map.markTextPlaceholder")}
             className="w-full resize-none rounded-xl border border-white/10 bg-white/[0.05] px-3 py-2.5 text-[14px] leading-snug text-white outline-none placeholder:text-slate-500 focus:border-cyan-400/45"
           />
+
+          <div>
+            <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+              {t("map.markCategoryLabel")}
+            </p>
+            <div className="flex gap-2 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              {MAP_MARK_CATEGORY_KEYS.map((key) => {
+                const Icon = mapMarkCategoryIcon(key);
+                const selected = category === key;
+
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => setCategory(key)}
+                    disabled={publishing}
+                    className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-[11px] font-semibold transition ${
+                      selected
+                        ? "border-cyan-400/50 bg-cyan-500/15 text-cyan-100"
+                        : "border-white/10 bg-white/[0.04] text-slate-300 hover:bg-white/[0.08]"
+                    }`}
+                  >
+                    <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                    {t(mapMarkCategoryLabelKey(key))}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
 
           {photoPreviewUrl ? (
             <div className="overflow-hidden rounded-xl border border-white/10">

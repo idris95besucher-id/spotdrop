@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Pencil, Trash2, UserRound } from "lucide-react";
 import CityRoomPlaceCard from "@/components/CityRoomPlaceCard";
+import CityRoomMapMarkCard from "@/components/CityRoomMapMarkCard";
 import ChatLocationCardPreview, {
   chatLocationCardPreviewFromPayload,
 } from "@/components/ChatLocationCardPreview";
@@ -58,7 +59,7 @@ type CityRoomMessageBubbleProps = {
 
 function AvatarPlaceholder({ profile }: { profile: CityRoomMessageProfile | null }) {
   return (
-    <div className="flex h-8 w-8 items-center justify-center overflow-hidden rounded-full bg-slate-800 text-[11px] font-semibold text-white ring-1 ring-white/10">
+    <div className="flex h-7 w-7 items-center justify-center overflow-hidden rounded-full bg-slate-800/90 text-[10px] font-semibold text-white ring-1 ring-white/10">
       {profile?.avatar_url ? (
         <img src={profile.avatar_url} alt="" className="h-full w-full object-cover" />
       ) : profile?.username ? (
@@ -100,9 +101,11 @@ export default function CityRoomMessageBubble({
   const isStructuredMessage =
     parsedContent.kind === "place" ||
     parsedContent.kind === "image" ||
-    parsedContent.kind === "location_card";
+    parsedContent.kind === "location_card" ||
+    parsedContent.kind === "map_mark";
+  const isMapMarkMessage = parsedContent.kind === "map_mark";
   const cornerClass = getCityRoomBubbleCornerClass(isFirstInGroup, isLastInGroup);
-  const bubbleShellClass = `${cornerClass} bg-[#182232]/90 text-slate-100 shadow-sm shadow-black/20 ring-1 ring-white/5`;
+  const bubbleShellClass = `${cornerClass} bg-[#1a2332]/88 text-slate-100 shadow-[0_4px_14px_rgba(0,0,0,0.18)] ring-1 ring-white/[0.04]`;
   const displayName = sender ? publicProfileUsername(sender.username) : t("common.user");
   const localizedEditError = localizeUserMessage(t, editError);
   const localizedDeleteError = localizeUserMessage(t, deleteError);
@@ -157,6 +160,17 @@ export default function CityRoomMessageBubble({
           place={parsedContent.place}
           createdAt={message.created_at}
           editedAt={message.edited_at}
+        />
+      );
+    }
+
+    if (parsedContent.kind === "map_mark") {
+      return (
+        <CityRoomMapMarkCard
+          mark={parsedContent.mark}
+          profile={sender}
+          userId={message.user_id}
+          createdAt={message.created_at}
         />
       );
     }
@@ -217,9 +231,9 @@ export default function CityRoomMessageBubble({
 
     return (
       <div className={`group/bubble relative ${bubbleShellClass} px-2.5 py-1.5`}>
-        <p className="whitespace-pre-wrap break-words pr-14 text-[15px] leading-[1.35]">{message.content}</p>
-        <span className="absolute bottom-1.5 right-2 inline-flex items-center gap-1 text-[10px] leading-none text-slate-400">
-          {message.edited_at ? <span className="text-[9px] uppercase tracking-wide opacity-80">{t("rooms.message.edited")}</span> : null}
+        <p className="whitespace-pre-wrap break-words pr-12 text-[14.5px] leading-[1.4] text-slate-50">{message.content}</p>
+        <span className="absolute bottom-1.5 right-2 inline-flex items-center gap-1 text-[9.5px] leading-none text-slate-500">
+          {message.edited_at ? <span className="text-[8.5px] uppercase tracking-wide opacity-80">{t("rooms.message.edited")}</span> : null}
           <span>{formatChatMessageTime(message.created_at)}</span>
         </span>
       </div>
@@ -227,24 +241,24 @@ export default function CityRoomMessageBubble({
   };
 
   return (
-    <article className="flex items-start justify-start gap-2">
-      {showAvatar ? (
+    <article className={`flex items-start justify-start ${isMapMarkMessage ? "gap-0" : "gap-2"}`}>
+      {isMapMarkMessage ? null : showAvatar ? (
         <Link href={`/user?id=${message.user_id}`} className="mt-0.5 shrink-0">
           <AvatarPlaceholder profile={sender} />
         </Link>
       ) : (
-        <div className="mt-0.5 w-8 shrink-0" aria-hidden />
+        <div className="mt-0.5 w-7 shrink-0" aria-hidden />
       )}
 
-      <div className="min-w-0 max-w-[min(88%,28rem)] flex-1">
-        {showSenderName ? (
+      <div className={`min-w-0 flex-1 ${isMapMarkMessage ? "max-w-[min(92%,17.5rem)]" : "max-w-[min(88%,28rem)]"}`}>
+        {!isMapMarkMessage && showSenderName ? (
           <div className="mb-0.5 flex flex-wrap items-center gap-x-1.5 px-0.5">
             {isOwnMessage ? (
-              <span className="text-xs font-semibold text-emerald-300">{t("common.you")}</span>
+              <span className="text-xs font-semibold text-emerald-300/90">{t("common.you")}</span>
             ) : (
               <Link
                 href={`/user?id=${message.user_id}`}
-                className="text-xs font-semibold text-cyan-400 hover:text-cyan-300"
+                className="text-xs font-semibold text-slate-300 hover:text-white"
               >
                 {displayName}
               </Link>
@@ -258,7 +272,7 @@ export default function CityRoomMessageBubble({
         {renderBubbleBody()}
 
         {isOwnMessage && isLastInGroup && !isEditing && !isConfirmingDelete ? (
-          <div className="mt-0.5 flex gap-0.5 px-0.5">
+          <div className="mt-0.5 flex gap-0.5 px-0.5 opacity-55 transition hover:opacity-100">
             {!isStructuredMessage ? (
               <button
                 type="button"

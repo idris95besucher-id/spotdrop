@@ -1,15 +1,20 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState, type CSSProperties } from "react";
+import { useEffect, useState } from "react";
 import { UserRound, X } from "lucide-react";
 import { useI18n } from "@/components/I18nProvider";
 import LiveMapUserPresenceLine from "@/components/LiveMapUserPresenceLine";
 import { localizeCityByEnglishName, localizeCountryByEnglishName } from "@/lib/i18n/localizeGeo";
 import { auditLocationLocaleOutput } from "@/lib/i18n/localizeGeoAudit";
 import type { I18nLocale } from "@/lib/i18n/locales";
+import {
+  composerPaddingBottom,
+  useChromeNavHidden,
+  useKeyboard,
+  useKeyboardViewportFrame,
+} from "@/lib/keyboardSystem";
 import { checkCanMessageUser } from "@/lib/messagePrivacy";
-import { MOBILE_BOTTOM_NAV_HEIGHT_PX } from "@/lib/mobileLayout";
 import type { LiveMapUser } from "@/lib/userLiveLocation";
 import { supabase } from "@/lib/supabaseClient";
 
@@ -18,18 +23,6 @@ type LiveMapUserSheetProps = {
   /** When true (Map page), clear the fixed SpotDrop bottom nav. */
   embedded?: boolean;
   onClose: () => void;
-};
-
-type VisibleViewport = {
-  /** Top of the visible viewport in layout coordinates (Safari URL bar). */
-  offsetTop: number;
-  /** Visible height in px (visualViewport / 100dvh). */
-  height: number | null;
-  /**
-   * Layout pixels covered below the visible viewport
-   * (Safari toolbar / home-indicator overlap outside visualViewport).
-   */
-  bottomInset: number;
 };
 
 function locationLine(user: LiveMapUser, locale: I18nLocale) {
@@ -55,24 +48,6 @@ function locationLine(user: LiveMapUser, locale: I18nLocale) {
   return line;
 }
 
-function readVisibleViewport(): VisibleViewport {
-  if (typeof window === "undefined") {
-    return { offsetTop: 0, height: null, bottomInset: 0 };
-  }
-
-  const viewport = window.visualViewport;
-
-  if (!viewport) {
-    return { offsetTop: 0, height: Math.round(window.innerHeight), bottomInset: 0 };
-  }
-
-  return {
-    offsetTop: Math.round(viewport.offsetTop),
-    height: Math.round(viewport.height),
-    bottomInset: Math.max(0, Math.round(window.innerHeight - viewport.height - viewport.offsetTop)),
-  };
-}
-
 export default function LiveMapUserSheet({
   user,
   embedded = false,
@@ -80,28 +55,10 @@ export default function LiveMapUserSheet({
 }: LiveMapUserSheetProps) {
   const { t, locale } = useI18n();
   const [canMessage, setCanMessage] = useState(false);
-  const [viewport, setViewport] = useState<VisibleViewport>(() => readVisibleViewport());
+  const { isKeyboardOpen } = useKeyboard();
+  const { overlayStyle, sheetMaxHeight } = useKeyboardViewportFrame();
 
-  const syncViewport = useCallback(() => {
-    setViewport(readVisibleViewport());
-  }, []);
-
-  useEffect(() => {
-    syncViewport();
-
-    const visualViewport = window.visualViewport;
-    visualViewport?.addEventListener("resize", syncViewport);
-    visualViewport?.addEventListener("scroll", syncViewport);
-    window.addEventListener("resize", syncViewport);
-    window.addEventListener("orientationchange", syncViewport);
-
-    return () => {
-      visualViewport?.removeEventListener("resize", syncViewport);
-      visualViewport?.removeEventListener("scroll", syncViewport);
-      window.removeEventListener("resize", syncViewport);
-      window.removeEventListener("orientationchange", syncViewport);
-    };
-  }, [syncViewport]);
+  useChromeNavHidden("map-sheet", Boolean(user) && embedded);
 
   useEffect(() => {
     if (!user) {
@@ -141,30 +98,10 @@ export default function LiveMapUserSheet({
 
   const place = locationLine(user, locale);
 
-  /**
-   * Bottom clearance inside the visible viewport:
-   * - Map (`embedded`): SpotDrop nav (54px) + iPhone safe-area + breathing room
-   * - Otherwise: safe-area only
-   * Safari browser toolbar is handled by anchoring the overlay to visualViewport
-   * (offsetTop / height / bottomInset), not by padding here.
-   */
-  const sheetBottomPadding = embedded
-    ? `calc(${MOBILE_BOTTOM_NAV_HEIGHT_PX}px + env(safe-area-inset-bottom, 0px) + 12px)`
-    : "max(1.25rem, env(safe-area-inset-bottom, 0px))";
-
-  const overlayStyle: CSSProperties = {
-    top: viewport.offsetTop,
-    height: viewport.height != null ? `${viewport.height}px` : "100dvh",
-    bottom: "auto",
-    // When visualViewport is shorter than the layout viewport (Safari toolbar),
-    // keep the overlay flush with the visible area (bottomInset is already
-    // reflected by height + offsetTop; no extra margin needed).
-  };
-
-  const sheetMaxHeight =
-    viewport.height != null
-      ? `${Math.max(240, viewport.height - 8)}px`
-      : "calc(100dvh - env(safe-area-inset-top, 0px) - 8px)";
+  const sheetBottomPadding =
+    embedded && !isKeyboardOpen
+      ? composerPaddingBottom("cityRoom", false)
+      : composerPaddingBottom("sheet", isKeyboardOpen);
 
   return (
     <div

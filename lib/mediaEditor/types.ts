@@ -6,6 +6,14 @@ export type MediaEditorItem = {
   file: File;
   mediaType: MediaEditorMediaType;
   previewUrl: string;
+  /**
+   * Secondary preview source, only set when `previewUrl` points at a native
+   * file (`capacitor://.../_capacitor_file_...`) rather than a `blob:` URL.
+   * `CarouselVideoSlide` falls back to this (a `blob:` URL built from the
+   * already-decoded `file`) if the native source fails to load — see
+   * `createMediaEditorItem`.
+   */
+  fallbackPreviewUrl: string | null;
   /** When false, publish without audio (videos only). Default true. */
   keepSound: boolean;
   /** Full source video length in seconds (0 until loaded). */
@@ -23,6 +31,8 @@ export type MediaEditorItem = {
   musicTrackCoverUrl: string | null;
   musicTrackAudioUrl: string | null;
   musicTrackDurationSeconds: number | null;
+  /** Native multi-frame panorama — viewer should allow horizontal pan. */
+  isPanorama?: boolean;
 };
 
 export type MediaEditorDraft = {

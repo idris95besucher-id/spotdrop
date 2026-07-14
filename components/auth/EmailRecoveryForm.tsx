@@ -13,7 +13,7 @@ import {
 import { RESET_EMAIL_SENT_MESSAGE } from "@/lib/authMessages";
 import { getPasswordResetRedirectUrl, validatePasswordResetRedirectUrl } from "@/lib/authPasswordReset";
 import { formatAuthErrorMessage, logAuthSessionError } from "@/lib/authSession";
-import { localizeUserMessage } from "@/lib/i18n/localizeUserMessage";
+import { localizeCaughtError, localizeUserMessage } from "@/lib/i18n/localizeUserMessage";
 import {
   getSupabaseConfigDiagnostics,
   probeSupabaseAuthHealth,
@@ -30,6 +30,11 @@ export default function EmailRecoveryForm() {
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+
+    if (loading) {
+      return;
+    }
+
     setLoading(true);
     setError(null);
     setSent(false);
@@ -46,58 +51,37 @@ export default function EmailRecoveryForm() {
     const redirectTo = getPasswordResetRedirectUrl();
     const redirectValidation = validatePasswordResetRedirectUrl(redirectTo);
 
-    console.log("[SpotDrop forgot-password] submit started", {
-      email: trimmedEmail,
-      redirectTo,
-      redirectValidation,
-      supabaseConfig,
-      windowOrigin: typeof window !== "undefined" ? window.location.origin : null,
-      online: typeof navigator !== "undefined" ? navigator.onLine : null,
-    });
-
     if (supabaseConfigError) {
       logAuthSessionError(supabaseConfigError, "forgot-password config");
-      setError(supabaseConfigError);
+      setError(t("error.connection"));
       setLoading(false);
       return;
     }
 
     if (!redirectValidation.valid) {
-      const redirectError = `Invalid password reset redirect URL: ${redirectValidation.reason}`;
-      console.error("[SpotDrop forgot-password] redirectTo validation failed", redirectValidation);
-      setError(redirectError);
+      logAuthSessionError(redirectValidation.reason, "forgot-password redirectTo");
+      setError(t("error.connection"));
       setLoading(false);
       return;
     }
 
     try {
+      void supabaseConfig;
       const reachability = await probeSupabaseAuthHealth();
-      console.log("[SpotDrop forgot-password] Supabase reachability probe", reachability);
 
-      console.log("[SpotDrop forgot-password] calling supabase.auth.resetPasswordForEmail", {
-        email: trimmedEmail,
+      if (!reachability.ok) {
+        setError(t("error.connection"));
+        setLoading(false);
+        return;
+      }
+
+      const { error: resetError } = await supabase.auth.resetPasswordForEmail(trimmedEmail, {
         redirectTo,
-      });
-
-      const { data, error: resetError } = await supabase.auth.resetPasswordForEmail(trimmedEmail, {
-        redirectTo,
-      });
-
-      console.log("[SpotDrop forgot-password] resetPasswordForEmail returned", {
-        data,
-        error: resetError
-          ? {
-              message: resetError.message,
-              status: resetError.status,
-              name: resetError.name,
-              code: (resetError as { code?: string }).code ?? null,
-            }
-          : null,
       });
 
       if (resetError) {
         logAuthSessionError(resetError, "forgot-password resetPasswordForEmail");
-        setError(formatAuthErrorMessage(resetError));
+        setError(localizeCaughtError(t, formatAuthErrorMessage(resetError), "error.connection"));
         setLoading(false);
         return;
       }
@@ -105,8 +89,7 @@ export default function EmailRecoveryForm() {
       setSent(true);
     } catch (caught) {
       logAuthSessionError(caught, "forgot-password exception");
-      console.error("[SpotDrop forgot-password] unexpected exception", caught);
-      setError(formatAuthErrorMessage(caught));
+      setError(localizeCaughtError(t, caught, "error.connection"));
     } finally {
       setLoading(false);
     }

@@ -52,6 +52,16 @@ export function getCachedChatsInbox(userId: string): InboxLoadResult | null {
   return inboxCache.result;
 }
 
+export function invalidateChatsInboxCache(userId?: string) {
+  if (!inboxCache) {
+    return;
+  }
+
+  if (!userId || inboxCache.userId === userId) {
+    inboxCache = null;
+  }
+}
+
 function setCachedChatsInbox(userId: string, result: InboxLoadResult) {
   inboxCache = { userId, result, cachedAt: Date.now() };
 }
@@ -162,6 +172,8 @@ function conversationByPartnerId(conversations: DirectConversation[], userId: st
 }
 
 export async function loadChatsInbox(userId: string) {
+  invalidateChatsInboxCache(userId);
+
   const [{ conversations, error: conversationsError }, messagePartnerIds] = await Promise.all([
     loadUserDirectConversations(userId),
     loadDistinctMessagePartnerIds(userId),

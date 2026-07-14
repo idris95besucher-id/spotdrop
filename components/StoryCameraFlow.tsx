@@ -8,11 +8,9 @@ import {
 } from "react";
 import { ArrowLeft, Image as ImageIcon, Loader2, RotateCcw, X, Zap, ZapOff } from "lucide-react";
 import { useI18n } from "@/components/I18nProvider";
-import { pickMediaFromGallery } from "@/lib/pickMediaFromGallery";
+import { isVideoGalleryFile, pickImageFromGallery } from "@/lib/pickMediaFromGallery";
 import {
-  CAMERA_MAX_VIDEO_SECONDS,
   capturePhotoFromVideo,
-  recordVideoFromStream,
   cameraSupportsTorch,
   setTorchEnabled,
   startCameraStream,
@@ -24,8 +22,6 @@ import { createStory } from "@/lib/stories";
 import {
   getStoryMediaType,
   NOT_SIGNED_IN_UPLOAD_MESSAGE,
-  readVideoDurationSeconds,
-  STORY_MAX_VIDEO_SECONDS,
   uploadStoryMedia,
 } from "@/lib/storyMedia";
 
@@ -39,14 +35,6 @@ type StoryCameraFlowProps = {
 };
 
 type Phase = "camera" | "preview";
-type CaptureKind = "photo" | "video";
-
-function formatRecordingSeconds(elapsedMs: number) {
-  const total = Math.min(Math.floor(elapsedMs / 1000), CAMERA_MAX_VIDEO_SECONDS);
-  const minutes = Math.floor(total / 60);
-  const seconds = total % 60;
-  return `${minutes}:${seconds.toString().padStart(2, "0")}`;
-}
 
 export default function StoryCameraFlow({
   userId,
@@ -63,9 +51,6 @@ export default function StoryCameraFlow({
   const [cameraStarting, setCameraStarting] = useState(false);
   const [torchOn, setTorchOn] = useState(false);
   const [torchSupported, setTorchSupported] = useState(false);
-  const [captureKind, setCaptureKind] = useState<CaptureKind>("photo");
-  const [isRecording, setIsRecording] = useState(false);
-  const [recordingElapsedMs, setRecordingElapsedMs] = useState(0);
   const [captureBusy, setCaptureBusy] = useState(false);
 
   const [mediaFile, setMediaFile] = useState<File | null>(null);
@@ -80,17 +65,6 @@ export default function StoryCameraFlow({
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const recorderRef = useRef<ReturnType<typeof recordVideoFromStream> | null>(null);
-  const recordingStartedRef = useRef(false);
-  const recordingTickRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const recordingStartedAtRef = useRef<number | null>(null);
-
-  const clearRecordingTick = useCallback(() => {
-    if (recordingTickRef.current) {
-      clearInterval(recordingTickRef.current);
-      recordingTickRef.current = null;
-    }
-  }, []);
 
   const resetMedia = useCallback(() => {
     if (mediaPreviewUrl) {
@@ -107,18 +81,10 @@ export default function StoryCameraFlow({
     setCaption("");
     setError(null);
     setCameraError(null);
-    setCaptureKind("photo");
-    setIsRecording(false);
-    setRecordingElapsedMs(0);
     setCaptureBusy(false);
-    recordingStartedRef.current = false;
-
-    clearRecordingTick();
-    recorderRef.current?.cancel();
-    recorderRef.current = null;
     setTorchOn(false);
     setPhase("camera");
-  }, [clearRecordingTick, resetMedia]);
+  }, [resetMedia]);
 
   const handleClose = useCallback(() => {
     stopCameraStream(streamRef.current);
@@ -157,7 +123,7 @@ export default function StoryCameraFlow({
       streamRef.current = null;
 
       try {
-        const stream = await startCameraStream(nextFacing);
+        const stream = await startCameraStream(nextFacing, { includeAudio: false });
         streamRef.current = stream;
         await attachStreamToVideo(stream);
         setTorchSupported(cameraSupportsTorch(stream));
@@ -178,22 +144,11 @@ export default function StoryCameraFlow({
       stopCameraStream(streamRef.current);
       streamRef.current = null;
 
-      if (type === "video") {
-        if (file.size < 2048) {
-          setError("Recording too short. Try again.");
-          setPhase("camera");
-          void startCamera();
-          return;
-        }
-
-        const duration = await readVideoDurationSeconds(file);
-
-        if (duration !== null && duration > STORY_MAX_VIDEO_SECONDS) {
-          setError(`Videos must be ${STORY_MAX_VIDEO_SECONDS} seconds or less.`);
-          setPhase("camera");
-          void startCamera();
-          return;
-        }
+      if (type === "video" || isVideoGalleryFile(file)) {
+        setError("Video is no longer supported.");
+        setPhase("camera");
+        void startCamera();
+        return;
       }
 
       setMediaPreviewUrl((prev) => {
@@ -204,7 +159,7 @@ export default function StoryCameraFlow({
         return URL.createObjectURL(file);
       });
       setMediaFile(file);
-      setMediaType(type);
+      setMediaType("image");
       setError(null);
       setPhase("preview");
     },
@@ -273,105 +228,19 @@ export default function StoryCameraFlow({
     }
   }, [goToPreview]);
 
-  const endRecording = useCallback(async () => {
-    if (!recordingStartedRef.current || !recorderRef.current) {
-      return;
-    }
-
-    clearRecordingTick();
-    setIsRecording(false);
-    setCaptureBusy(true);
-
-    try {
-      const file = await recorderRef.current.stop();
-      recorderRef.current = null;
-      recordingStartedRef.current = false;
-      recordingStartedAtRef.current = null;
-      setRecordingElapsedMs(0);
-      await goToPreview(file, "video");
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Unable to save video.");
-      recordingStartedRef.current = false;
-      recorderRef.current = null;
-      setPhase("camera");
-      void startCamera();
-    } finally {
-      setCaptureBusy(false);
-    }
-  }, [clearRecordingTick, goToPreview, startCamera]);
-
-  const beginRecording = useCallback(() => {
-    const stream = streamRef.current;
-
-    if (!stream || recordingStartedRef.current) {
-      return;
-    }
-
-    try {
-      const recorder = recordVideoFromStream(stream, CAMERA_MAX_VIDEO_SECONDS);
-      recorderRef.current = recorder;
-      recordingStartedRef.current = true;
-      recordingStartedAtRef.current = Date.now();
-      setIsRecording(true);
-      setRecordingElapsedMs(0);
-
-      clearRecordingTick();
-      recordingTickRef.current = setInterval(() => {
-        if (!recordingStartedAtRef.current) {
-          return;
-        }
-
-        const elapsed = Date.now() - recordingStartedAtRef.current;
-        setRecordingElapsedMs(elapsed);
-
-        if (elapsed >= CAMERA_MAX_VIDEO_SECONDS * 1000) {
-          void endRecording();
-        }
-      }, 200);
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Unable to record video.");
-    }
-  }, [clearRecordingTick, endRecording]);
-
-  const handleCaptureKindChange = (kind: CaptureKind) => {
-    if (kind === captureKind) {
-      return;
-    }
-
-    if (isRecording) {
-      void endRecording();
-    }
-
-    setCaptureKind(kind);
-    setError(null);
-  };
-
   const handleShutter = async () => {
     if (cameraStarting || Boolean(cameraError) || captureBusy) {
       return;
     }
 
-    if (captureKind === "photo") {
-      setCaptureBusy(true);
-      setError(null);
-
-      try {
-        await takePhoto();
-      } finally {
-        setCaptureBusy(false);
-      }
-
-      return;
-    }
-
+    setCaptureBusy(true);
     setError(null);
 
-    if (isRecording) {
-      await endRecording();
-      return;
+    try {
+      await takePhoto();
+    } finally {
+      setCaptureBusy(false);
     }
-
-    beginRecording();
   };
 
   const openGalleryPicker = async () => {
@@ -383,26 +252,31 @@ export default function StoryCameraFlow({
     setError(null);
 
     try {
-      const file = await pickMediaFromGallery();
+      const file = await pickImageFromGallery();
 
       if (!file) {
         return;
       }
 
-      const storyType = getStoryMediaType(file);
-
-      if (!storyType) {
-        setError("Stories support photos and videos only.");
+      if (isVideoGalleryFile(file)) {
+        setError("Video is no longer supported.");
         return;
       }
 
-      await goToPreview(file, storyType);
+      const storyType = getStoryMediaType(file);
+
+      if (storyType !== "image") {
+        setError("Stories support photos only.");
+        return;
+      }
+
+      await goToPreview(file, "image");
     } finally {
       setCaptureBusy(false);
     }
   };
 
-  const galleryPickerDisabled = isRecording || captureBusy || cameraStarting || Boolean(cameraError);
+  const galleryPickerDisabled = captureBusy || cameraStarting || Boolean(cameraError);
 
   const handleSwitchCamera = async () => {
     const nextFacing: CameraFacingMode = facingMode === "user" ? "environment" : "user";
@@ -429,15 +303,20 @@ export default function StoryCameraFlow({
       return;
     }
 
-    if (!mediaFile || !mediaType) {
-      setError("Capture a photo or video first.");
+    if (!mediaFile || mediaType !== "image") {
+      setError("Capture a photo first.");
+      return;
+    }
+
+    if (isVideoGalleryFile(mediaFile)) {
+      setError("Video is no longer supported.");
       return;
     }
 
     const storyType = getStoryMediaType(mediaFile);
 
-    if (!storyType) {
-      setError("Unsupported media type.");
+    if (storyType !== "image") {
+      setError("Stories support photos only.");
       return;
     }
 
@@ -476,12 +355,7 @@ export default function StoryCameraFlow({
     return null;
   }
 
-  const shutterLabel =
-    captureKind === "photo"
-      ? "Take photo"
-      : isRecording
-        ? "Stop recording"
-        : "Start recording";
+  const shutterLabel = "Take photo";
 
   return (
     <div
@@ -524,16 +398,7 @@ export default function StoryCameraFlow({
               </>
             )}
 
-            {isRecording ? (
-              <div className="absolute left-1/2 top-[max(3.5rem,env(safe-area-inset-top))] z-10 flex -translate-x-1/2 items-center gap-2 rounded-full bg-red-600/95 px-3 py-1.5 shadow-lg">
-                <span className="h-2 w-2 animate-pulse rounded-full bg-white" aria-hidden />
-                <span className="text-xs font-semibold tabular-nums tracking-wide">
-                  {formatRecordingSeconds(recordingElapsedMs)}
-                </span>
-              </div>
-            ) : null}
-
-            <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex items-center justify-between px-4 pb-2 pt-[max(0.75rem,env(safe-area-inset-top))]">
+<div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex items-center justify-between px-4 pb-2 pt-[max(0.75rem,env(safe-area-inset-top))]">
               <button
                 type="button"
                 onClick={handleClose}
@@ -571,26 +436,7 @@ export default function StoryCameraFlow({
               Story
             </p>
 
-            <div className="mb-5 flex items-center justify-center gap-8">
-              {(["photo", "video"] as const).map((kind) => (
-                <button
-                  key={kind}
-                  type="button"
-                  onClick={() => handleCaptureKindChange(kind)}
-                  disabled={isRecording && kind === "photo"}
-                  className={`relative pb-1 text-xs font-bold uppercase tracking-[0.2em] transition ${
-                    captureKind === kind ? "text-white" : "text-white/45"
-                  } disabled:opacity-40`}
-                >
-                  {kind}
-                  {captureKind === kind ? (
-                    <span className="absolute inset-x-0 -bottom-0.5 mx-auto h-0.5 w-5 rounded-full bg-white" />
-                  ) : null}
-                </button>
-              ))}
-            </div>
-
-            <div className="flex items-center justify-between px-2">
+<div className="flex items-center justify-between px-2">
               <button
                 type="button"
                 onClick={() => void openGalleryPicker()}
@@ -613,24 +459,14 @@ export default function StoryCameraFlow({
                 className="relative flex h-[4.75rem] w-[4.75rem] items-center justify-center disabled:opacity-50"
                 aria-label={shutterLabel}
               >
-                <span
-                  className={`absolute inset-0 rounded-full border-[3px] ${
-                    captureKind === "video" && isRecording ? "border-red-500" : "border-white"
-                  }`}
-                />
-                <span
-                  className={`rounded-full transition-all ${
-                    captureKind === "video" && isRecording
-                      ? "h-9 w-9 bg-red-500"
-                      : "h-[3.35rem] w-[3.35rem] bg-white"
-                  }`}
-                />
+                <span className="absolute inset-0 rounded-full border-[3px] border-white" />
+                <span className="h-[3.35rem] w-[3.35rem] rounded-full bg-white" />
               </button>
 
               <button
                 type="button"
                 onClick={() => void handleSwitchCamera()}
-                disabled={cameraStarting || captureBusy || isRecording || Boolean(cameraError)}
+                disabled={cameraStarting || captureBusy || Boolean(cameraError)}
                 className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-white/10 text-white disabled:opacity-40"
                 aria-label="Switch camera"
               >
@@ -638,15 +474,7 @@ export default function StoryCameraFlow({
               </button>
             </div>
 
-            {captureKind === "video" ? (
-              <p className="mt-3 text-center text-xs text-white/50">
-                {isRecording
-                  ? `Tap to stop · ${formatRecordingSeconds(recordingElapsedMs)}`
-                  : `Tap to record · up to ${STORY_MAX_VIDEO_SECONDS}s`}
-              </p>
-            ) : (
-              <p className="mt-3 text-center text-xs text-white/45">Visible for 24 hours</p>
-            )}
+            <p className="mt-3 text-center text-xs text-white/45">Visible for 24 hours</p>
           </div>
         </>
       ) : phase === "preview" && mediaPreviewUrl && mediaType ? (
@@ -681,20 +509,7 @@ export default function StoryCameraFlow({
           </header>
 
           <div className="relative min-h-0 flex-1 overflow-hidden bg-black">
-            {mediaType === "image" ? (
-              <img src={mediaPreviewUrl} alt="" className="h-full w-full object-cover" />
-            ) : (
-              <video
-                key={mediaPreviewUrl}
-                src={mediaPreviewUrl}
-                className="h-full w-full object-cover"
-                autoPlay
-                playsInline
-                muted
-                loop
-                preload="auto"
-              />
-            )}
+            <img src={mediaPreviewUrl} alt="" className="h-full w-full object-cover" />
           </div>
 
           <div className="shrink-0 space-y-3 border-t border-white/10 bg-black px-4 py-4 pb-[max(1rem,env(safe-area-inset-bottom))]">

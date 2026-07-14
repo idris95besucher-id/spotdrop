@@ -1,7 +1,8 @@
 import { postIdForQuery } from "@/lib/postIds";
 import { publicProfileUsername } from "@/lib/publicProfile";
-import { logExactLoadError, userFacingSupabaseListError } from "@/lib/safeLoad";
+import { logExactLoadError } from "@/lib/safeLoad";
 import { supabase } from "@/lib/supabaseClient";
+import { toUserFacingError } from "@/lib/userFacingError";
 
 export type PostCommentProfile = {
   username: string;
@@ -30,7 +31,7 @@ const COMMENT_SELECT = `
 `;
 
 export const POST_COMMENTS_MIGRATION_HINT =
-  "Run database/add-post-comments.sql in Supabase to enable comments.";
+  "Comments are temporarily unavailable. Please try again later.";
 
 export function isMissingPostCommentsTable(error: { code?: string; message?: string } | null) {
   if (!error) {
@@ -51,7 +52,7 @@ function formatCommentsError(error: { code?: string; message?: string } | null) 
     return POST_COMMENTS_MIGRATION_HINT;
   }
 
-  return userFacingSupabaseListError(error);
+  return toUserFacingError(error, "Unable to load comments.");
 }
 
 function normalizeCommentRow(
@@ -155,7 +156,7 @@ export async function addPostComment(
         comment: null,
         error: isMissingPostCommentsTable(error)
           ? POST_COMMENTS_MIGRATION_HINT
-          : error.message || "Unable to post comment.",
+          : toUserFacingError(error, "Unable to post comment."),
       };
     }
 
@@ -167,7 +168,7 @@ export async function addPostComment(
     logExactLoadError(error);
     return {
       comment: null,
-      error: error instanceof Error ? error.message : "Unable to post comment.",
+      error: toUserFacingError(error, "Unable to post comment."),
     };
   }
 }

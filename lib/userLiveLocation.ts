@@ -197,10 +197,38 @@ export async function fetchLiveMapUsers(): Promise<{
       continue;
     }
 
+    const latitude = Number(row.latitude);
+    const longitude = Number(row.longitude);
+    const coordError = validateLiveCoordinates(latitude, longitude);
+
+    if (coordError) {
+      if (process.env.NODE_ENV !== "production") {
+        console.warn("[Map Marker] invalid coordinates (live-user)", {
+          id: String(row.user_id),
+          latitude: row.latitude,
+          longitude: row.longitude,
+          reason: coordError,
+        });
+      }
+      continue;
+    }
+
+    if (latitude === 0 && longitude === 0) {
+      if (process.env.NODE_ENV !== "production") {
+        console.warn("[Map Marker] invalid coordinates (live-user)", {
+          id: String(row.user_id),
+          latitude,
+          longitude,
+          reason: "null_island_0_0",
+        });
+      }
+      continue;
+    }
+
     users.push({
       user_id: String(row.user_id),
-      latitude: Number(row.latitude),
-      longitude: Number(row.longitude),
+      latitude,
+      longitude,
       city: (row.city as string | null) ?? null,
       country: (row.country as string | null) ?? null,
       is_live: Boolean(row.is_live),

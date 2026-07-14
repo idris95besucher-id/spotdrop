@@ -18,13 +18,12 @@ import {
   resolveProfileLocation,
   type ResolvedProfileLocation,
 } from "@/lib/profileLocation";
-import ProfileCollectionsTab from "@/components/ProfileCollectionsTab";
+import ProfileSavedTab from "@/components/ProfileSavedTab";
 import ProfileMenuSheet from "@/components/ProfileMenuSheet";
 import ShareProfileSheet from "@/components/ShareProfileSheet";
-import {
-  ProfileContentGridPanel,
-  ProfileContentTabBar,
-  type ProfileContentTab,
+import ProfileContentTabs, {
+  normalizeProfileMainTab,
+  type ProfileMainTab,
 } from "@/components/ProfileContentTabs";
 import ProfileAppHeader from "@/components/profile/ProfileAppHeader";
 import Shell from "@/components/Shell";
@@ -71,7 +70,7 @@ export default function ProfilePage() {
   const [loadingConnections, setLoadingConnections] = useState(true);
   const [loadingPosts, setLoadingPosts] = useState(true);
   const [activeProfileSection, setActiveProfileSection] = useState<"posts" | "followers" | "friends" | null>("posts");
-  const [activeContentTab, setActiveContentTab] = useState<Exclude<ProfileContentTab, "posts">>("spots");
+  const [activeContentTab, setActiveContentTab] = useState<ProfileMainTab>("spots");
   const [connectionsError, setConnectionsError] = useState<string | null>(null);
   const [postsError, setPostsError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -94,10 +93,17 @@ export default function ProfilePage() {
   useEffect(() => {
     const tab = window.sessionStorage.getItem("spotdrop:profile-tab");
 
-    if (tab === "collections") {
+    if (tab === "spots" || tab === "saved" || tab === "collections") {
       window.sessionStorage.removeItem("spotdrop:profile-tab");
       setActiveProfileSection("posts");
-      setActiveContentTab("collections");
+      setActiveContentTab(normalizeProfileMainTab(tab === "collections" ? "saved" : tab));
+    }
+
+    const needsPublishRefresh = window.sessionStorage.getItem("spotdrop:profile-refresh-after-publish");
+
+    if (needsPublishRefresh) {
+      window.sessionStorage.removeItem("spotdrop:profile-refresh-after-publish");
+      // Content reload runs via PROFILE_CONTENT_REFRESH_EVENT and/or the session load below.
     }
   }, []);
 
@@ -308,7 +314,14 @@ export default function ProfilePage() {
   }, [session?.user?.id]);
 
   useEffect(() => {
-    const handleRefresh = () => {
+    const handleRefresh = (event: Event) => {
+      const detail = (event as CustomEvent<{ tab?: "spots" | "saved" }>).detail;
+
+      if (detail?.tab === "spots" || detail?.tab === "saved") {
+        setActiveProfileSection("posts");
+        setActiveContentTab(detail.tab);
+      }
+
       void refreshProfileContent();
     };
 
@@ -355,22 +368,15 @@ export default function ProfilePage() {
     router.replace("/auth/login");
   }, [router]);
 
-  const handleOpenCollections = useCallback(() => {
-    setProfileMenuOpen(false);
-    setActiveProfileSection("posts");
-    setActiveContentTab("collections");
-  }, []);
-
   const profileMenuItems = useMemo(
     () =>
       buildProfileMenuItems(
         {
-          onOpenCollections: handleOpenCollections,
           onSignOut: () => void handleSignOut(),
         },
         t
       ),
-    [handleOpenCollections, handleSignOut, t]
+    [handleSignOut, t]
   );
 
   return (
@@ -605,19 +611,15 @@ export default function ProfilePage() {
                 </button>
               </div>
             ) : null}
-            <div className="sticky top-0 z-20 border-b border-white/5 bg-[#050816]/95 backdrop-blur-md supports-[backdrop-filter]:bg-[#050816]/80">
-              <ProfileContentTabBar
-                compact
-                activeTab={activeContentTab}
-                onTabChange={setActiveContentTab}
-              />
-            </div>
-            <ProfileContentGridPanel
+            <ProfileContentTabs
+              stickyTabBar
               compact
+              showSavedTab
               activeTab={activeContentTab}
+              onTabChange={setActiveContentTab}
               personalPosts={personalPosts}
               spotPosts={spotPosts}
-              loading={loadingPosts && activeContentTab === "spots"}
+              loading={loadingPosts}
               emptySpotsMessage={t("profile.noPostsYet")}
               viewerUserId={session.user.id}
               onPostDeleted={handlePostDeleted}
@@ -629,8 +631,18 @@ export default function ProfilePage() {
                     }
                   : null
               }
-              collectionsPanel={
-                <ProfileCollectionsTab userId={session.user.id} viewerId={session.user.id} isOwner />
+              savedPanel={
+                <ProfileSavedTab
+                  userId={session.user.id}
+                  viewerAuthor={
+                    profile?.username
+                      ? {
+                          username: publicProfileUsername(profile.username),
+                          avatar_url: profile.avatar_url,
+                        }
+                      : null
+                  }
+                />
               }
             />
           </>

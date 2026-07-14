@@ -1,12 +1,12 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { FileText, Flag, MapPinned, Navigation, X } from "lucide-react";
+import { Flag, MapPinned, Navigation, X } from "lucide-react";
 import { useI18n } from "@/components/I18nProvider";
 import { formatSpotGeoLocationShortLabel } from "@/lib/spotLocationDisplay";
 import type { SpotGeoLocation } from "@/lib/spotLocation";
 
-export type MapTapAction = "text-card" | "directions" | "mark" | "cancel";
+export type MapTapAction = "directions" | "mark" | "cancel";
 
 type MapTapActionSheetProps = {
   location: SpotGeoLocation;
@@ -77,9 +77,8 @@ export default function MapTapActionSheet({
   const options: Array<{
     action: Exclude<MapTapAction, "cancel">;
     label: string;
-    icon: typeof FileText;
+    icon: typeof Navigation;
   }> = [
-    { action: "text-card", label: t("map.createTextCard"), icon: FileText },
     { action: "directions", label: t("map.actionGoToPlace"), icon: Navigation },
     { action: "mark", label: t("map.actionMarkPlace"), icon: Flag },
   ];
@@ -118,7 +117,7 @@ export default function MapTapActionSheet({
           <button
             type="button"
             onClick={onClose}
-            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-slate-400 transition hover:bg-white/10 hover:text-white"
+            className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-slate-400 transition hover:bg-white/10 hover:text-white"
             aria-label={t("common.close")}
           >
             <X className="h-4 w-4" aria-hidden />

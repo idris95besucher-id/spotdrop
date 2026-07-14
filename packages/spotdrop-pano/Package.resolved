@@ -1,0 +1,23 @@
+{
+  "pins" : [
+    {
+      "identity" : "capacitor-swift-pm",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/ionic-team/capacitor-swift-pm.git",
+      "state" : {
+        "revision" : "2231987d85b8b0b289320b1d0947b4ae8345cde4",
+        "version" : "8.4.1"
+      }
+    },
+    {
+      "identity" : "opencv-spm",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/yeatse/opencv-spm.git",
+      "state" : {
+        "revision" : "106fd4aab9a0a83d46d3700b2dc3e2d6e6c93364",
+        "version" : "5.0.0"
+      }
+    }
+  ],
+  "version" : 2
+}

@@ -6,8 +6,8 @@ import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } f
 import type { FormEvent } from "react";
 import ChatDateSeparator from "@/components/ChatDateSeparator";
 import DmChatThreadShell from "@/components/DmChatThreadShell";
-import DmComposerPortal from "@/components/DmComposerPortal";
 import DmThreadHeader from "@/components/DmThreadHeader";
+import DmWallpaper from "@/components/DmWallpaper";
 import DirectMessageSpotShareCard from "@/components/DirectMessageSpotShareCard";
 import DirectMessageSpotCard from "@/components/DirectMessageSpotCard";
 import DirectMessageLocationCard from "@/components/DirectMessageLocationCard";
@@ -17,7 +17,7 @@ import { useChatNotifications } from "@/components/ChatNotificationsProvider";
 import ShareSpotToUserButton from "@/components/ShareSpotToUserButton";
 import Shell from "@/components/Shell";
 import { useI18n } from "@/components/I18nProvider";
-import { localizeUserMessage } from "@/lib/i18n/localizeUserMessage";
+import { localizeCaughtError, localizeUserMessage } from "@/lib/i18n/localizeUserMessage";
 import { markDirectMessagesReadInThread } from "@/lib/chatNotifications";
 import { markDmThreadOpened } from "@/lib/chatUnreadSync";
 import { shouldShowChatDateSeparator } from "@/lib/chatDates";
@@ -50,7 +50,8 @@ import { fetchPartnerProfilePresenceDirect, resolveProfileIsOnline } from "@/lib
 import { checkCanMessageUser, type MessagePrivacyBlockReasonKey } from "@/lib/messagePrivacy";
 import { loadPrivateSpotSharesByIds, type PrivateSpotShare } from "@/lib/privateSpotShares";
 import { useDmThreadScroll } from "@/lib/useDmThreadScroll";
-import { useDmComposerPosition, dmComposerBottomPadding } from "@/lib/useDmComposerInsets";
+import { useDmComposerKeyboardInset, dmComposerBottomPadding } from "@/lib/useDmComposerInsets";
+import { CHAT_MESSAGES_FLEX_PADDING } from "@/lib/keyboardSystem";
 import { isGuideAccountUsername, publicProfileUsername } from "@/lib/publicProfile";
 import { supabase } from "@/lib/supabaseClient";
 import { isLocationCardShareMessage } from "@/lib/locationCardShareMessage";
@@ -302,18 +303,19 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
     );
   }, [scrollOnKeyboard]);
 
-  const { applyComposerBottom, isKeyboardOpen: isDmKeyboardOpen, messagesPaddingBottom, setComposerRef } =
-    useDmComposerPosition({
-      onViewportResize: scheduleComposerScrollBottom,
-    });
+  const { isKeyboardOpen: isDmKeyboardOpen, composerStyle } = useDmComposerKeyboardInset();
 
   const handleComposerFocus = useCallback(() => {
-    applyComposerBottom();
-    requestAnimationFrame(() => {
-      applyComposerBottom();
-    });
     scheduleComposerScrollBottom();
-  }, [applyComposerBottom, scheduleComposerScrollBottom]);
+  }, [scheduleComposerScrollBottom]);
+
+  useEffect(() => {
+    if (!isDmKeyboardOpen) {
+      return;
+    }
+
+    scheduleComposerScrollBottom();
+  }, [isDmKeyboardOpen, scheduleComposerScrollBottom]);
 
   useEffect(() => {
     return () => {
@@ -399,7 +401,7 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
         const { data: partnerRow, error: partnerError } = await partnerQuery;
 
         if (partnerError) {
-          setError(partnerError.message || t("dm.error.loadConversation"));
+          setError(localizeCaughtError(t, partnerError, "dm.error.loadConversation"));
           setPartner(null);
           setMessages([]);
           setConversation(null);
@@ -449,7 +451,7 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
 
       if (partnerError) {
         console.error("Failed to load DM partner:", JSON.stringify(partnerError, null, 2));
-        setError(partnerError.message || t("dm.error.loadConversation"));
+        setError(localizeCaughtError(t, partnerError, "dm.error.loadConversation"));
         setPartner(null);
         setMessages([]);
         setConversation(null);
@@ -723,6 +725,10 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
     event.preventDefault();
     setSendError(null);
 
+    if (sending) {
+      return;
+    }
+
     const trimmed = draft.trim();
 
     if (!trimmed || !currentUserId || !partnerId) {
@@ -739,13 +745,13 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
     const ensured = await ensureConversationForOutgoingMessage(currentUserId, partnerId);
 
     if (ensured.error && !ensured.conversation) {
-      setSendError(ensured.error);
+      setSendError(localizeCaughtError(t, ensured.error, "dm.error.sendMessage"));
       setSending(false);
       return;
     }
 
     if (ensured.sendBlockedReason) {
-      setSendError(ensured.sendBlockedReason);
+      setSendError(localizeCaughtError(t, ensured.sendBlockedReason, "dm.error.sendMessage"));
       setSending(false);
       return;
     }
@@ -769,8 +775,8 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
     setSending(false);
 
     if (insertError) {
-      console.error("Failed to send direct message:", JSON.stringify(insertError, null, 2));
-      setSendError(insertError.message || t("dm.error.sendMessage"));
+      console.error("Failed to send direct message:", insertError.code ?? "unknown");
+      setSendError(localizeCaughtError(t, insertError, "dm.error.sendMessage"));
       return;
     }
 
@@ -886,10 +892,12 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
           </section>
         ) : null}
 
-        <section className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-[#050816]/60">
+        <section className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-[#070b14]">
+          <DmWallpaper />
+
           {!initialBottomReady && (loading || messages.length > 0) ? (
             <div
-              className="absolute inset-0 z-20 flex items-center justify-center bg-[#050816]/95"
+              className="absolute inset-0 z-20 flex items-center justify-center bg-[#070b14]/95"
               aria-busy="true"
               aria-live="polite"
             >
@@ -899,14 +907,11 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
 
           <div
             ref={messagesContainerRef}
-            className={`relative z-10 min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-y-contain [overflow-anchor:none] p-4 ${
+            className={`relative z-10 min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-y-contain [overflow-anchor:none] px-4 pt-4 ${CHAT_MESSAGES_FLEX_PADDING} ${
               !initialBottomReady && messages.length > 0
                 ? "pointer-events-none invisible"
                 : ""
             }`}
-            style={{
-              paddingBottom: messagesPaddingBottom > 0 ? `${messagesPaddingBottom}px` : undefined,
-            }}
           >
             {!currentUserId && !loading ? (
               <div className="rounded-2xl border border-dashed border-white/10 bg-[#050816]/80 p-6 text-center text-sm text-slate-300">
@@ -1013,19 +1018,16 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
             <div ref={messagesEndRef} aria-hidden className="h-px w-full shrink-0" />
           </div>
 
-          <DmComposerPortal>
-            <div
-              ref={setComposerRef}
-              className="fixed left-0 right-0 z-[60] pointer-events-none"
-              style={{
-                bottom: 0,
-                paddingBottom: dmComposerBottomPadding(isDmKeyboardOpen),
-              }}
-            >
-              <div className="pointer-events-auto bg-[#050816]">
+          <div
+            className="relative z-20 shrink-0"
+            style={{
+              ...composerStyle,
+              paddingBottom: dmComposerBottomPadding(isDmKeyboardOpen),
+            }}
+          >
               {partnerTypingName ? (
                 <p
-                  className="border-t border-white/5 bg-[#0B1026] px-4 py-1.5 text-xs text-slate-400"
+                  className="border-t border-white/5 bg-[#0B1026]/95 px-4 py-1.5 text-xs text-slate-400 backdrop-blur-md"
                   aria-live="polite"
                 >
                   {t("dm.typing", { name: partnerTypingName })}
@@ -1033,7 +1035,7 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
               ) : null}
               <form
                 onSubmit={(event) => void handleSend(event)}
-                className="border-t border-white/10 bg-[#050816] p-3"
+                className="border-t border-white/10 bg-[#070b14]/95 px-3 pt-2.5 backdrop-blur-xl"
               >
             <div className="flex items-end gap-2">
               {currentUserId && partner && !isSelfConversation ? (
@@ -1055,7 +1057,7 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
                 disabled={!currentUserId || isSelfConversation || !canSendMessages}
                 placeholder={composerPlaceholder}
                 rows={1}
-                className="min-h-[48px] max-h-32 w-full resize-none rounded-2xl border border-white/10 bg-[#050816] px-4 py-3 text-sm text-white outline-none transition focus:border-primary/45 disabled:cursor-not-allowed disabled:opacity-60"
+                className="min-h-[48px] max-h-32 w-full resize-none rounded-2xl border border-white/10 bg-[#0d1322] px-4 py-3 text-sm text-white outline-none transition focus:border-primary/45 disabled:cursor-not-allowed disabled:opacity-60"
               />
               <button
                 type="submit"
@@ -1069,9 +1071,7 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
               <p className="mt-2 text-xs text-red-300">{localizeUserMessage(t, sendError) ?? sendError}</p>
             ) : null}
             </form>
-              </div>
-            </div>
-          </DmComposerPortal>
+          </div>
         </section>
       </DmChatThreadShell>
     </Shell>

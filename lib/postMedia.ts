@@ -4,9 +4,9 @@ import {
   NOT_SIGNED_IN_UPLOAD_MESSAGE,
   POST_MEDIA_BUCKET,
   requireAuthenticatedUser,
+  uploadFileToStorageWithProgress,
 } from "@/lib/storageUpload";
 import { supabase } from "@/lib/supabaseClient";
-import { logVideoQuality, probeVideoFile } from "@/lib/videoQualityDiagnostics";
 
 export type UploadProgressCallback = (percent: number) => void;
 
@@ -142,32 +142,36 @@ export async function uploadPostMedia(
   const storagePath = formatPostMediaPath(userId, file);
   const skipVerification = options.skipVerification !== false;
 
-  const videoProbe =
-    mediaType === "video" ? await probeVideoFile(file) : null;
-
-  if (videoProbe) {
-    logVideoQuality("upload start", {
-      ...videoProbe,
-      exportedResolution:
-        videoProbe.width && videoProbe.height
-          ? `${videoProbe.width}x${videoProbe.height}`
-          : null,
-      finalUploadSizeBytes: file.size,
-    });
-  }
-
   if (!skipVerification) {
     await verifyStorageBucket(POST_MEDIA_BUCKET);
   }
 
+  // Storage upload starts immediately — no SHA-256 hashing, no MP4 box
+  // parsing, no metadata probe before this. Those were leftover corruption
+  // diagnostics from an earlier, now-fixed bug; they read the *entire* file
+  // into memory and hashed it (twice, once here and once again in
+  // prepareMediaFileForPublish) before any network request began, which was
+  // the dominant reason "Uploading video..." sat there for a long time.
   options.onProgress?.(0);
 
   const uploadStartedAt = performance.now();
-  const { data, error } = await supabase.storage.from(POST_MEDIA_BUCKET).upload(storagePath, file, {
-    cacheControl: "3600",
-    upsert: false,
-    contentType: file.type || undefined,
-  });
+  let uploadError: (Error & { statusCode?: string | number }) | null = null;
+
+  try {
+    // Real XHR upload (not supabase-js's fetch-based `.upload()`) so
+    // `onProgress` reports actual bytes sent, not a simulated 0-then-100 —
+    // and so the original File is streamed directly, never re-buffered or
+    // re-encoded for the upload itself.
+    await uploadFileToStorageWithProgress(POST_MEDIA_BUCKET, storagePath, file, {
+      accessToken: options.accessToken,
+      cacheControl: "3600",
+      upsert: false,
+      onProgress: options.onProgress,
+    });
+  } catch (caught) {
+    uploadError = caught as Error & { statusCode?: string | number };
+  }
+
   const uploadElapsedMs = Math.round(performance.now() - uploadStartedAt);
 
   console.log("UPLOAD FILE RESULT", {
@@ -178,20 +182,29 @@ export async function uploadPostMedia(
     fileSizeMb: Math.round((file.size / (1024 * 1024)) * 100) / 100,
     fileType: file.type,
     uploadElapsedMs,
-    data,
-    error,
+    error: uploadError?.message ?? null,
   });
 
-  if (error) {
-    logUploadError(error);
+  if (uploadError) {
+    logUploadError(uploadError);
+    console.error("[SPOT PUBLISH] step=upload_storage", {
+      bucket: POST_MEDIA_BUCKET,
+      storage_path: storagePath,
+      message: uploadError.message,
+      statusCode: uploadError.statusCode,
+    });
 
-    if (error.message.toLowerCase().includes("row-level security")) {
+    if (uploadError.message.toLowerCase().includes("row-level security")) {
       throw new Error(
-        "Upload was blocked. Make sure you are signed in and storage policies are configured for this bucket."
+        `[SPOT PUBLISH] step=upload_storage | ${uploadError.message} | Upload was blocked by storage RLS. Make sure you are signed in and storage policies allow uploads to ${POST_MEDIA_BUCKET}.`
       );
     }
 
-    throw new Error(error.message || "Unable to upload media.");
+    throw new Error(
+      `[SPOT PUBLISH] step=upload_storage | ${uploadError.message}${
+        uploadError.statusCode != null ? ` | status=${uploadError.statusCode}` : ""
+      }`
+    );
   }
 
   options.onProgress?.(100);
@@ -221,20 +234,6 @@ export async function uploadPostMedia(
         publicUrl,
       });
     }
-  }
-
-  if (videoProbe) {
-    logVideoQuality("upload complete", {
-      ...videoProbe,
-      exportedResolution:
-        videoProbe.width && videoProbe.height
-          ? `${videoProbe.width}x${videoProbe.height}`
-          : null,
-      exportedMimeType: file.type || null,
-      exportedBitrateMbps: videoProbe.estimatedBitrateMbps,
-      finalUploadSizeBytes: file.size,
-      finalMediaUrl: publicUrl,
-    });
   }
 
   return {

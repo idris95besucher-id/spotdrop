@@ -94,7 +94,7 @@ function mimeForGalleryMedia(kind: SpotGalleryMediaKind, extension: string) {
   }
 }
 
-function isVideoGalleryFile(file: File) {
+export function isVideoGalleryFile(file: File) {
   return file.type.startsWith("video/") || /\.(mp4|mov|m4v|webm)(\?|#|$)/i.test(file.name);
 }
 
@@ -179,7 +179,12 @@ async function mediaResultToFile(
   return null;
 }
 
-async function pickFromNativePhotoLibrary(kind: SpotGalleryMediaKind): Promise<File | null> {
+/** `"any"` shows both photos and videos in one native picker (`MediaTypeSelection.All`). */
+type NativeGalleryPickKind = SpotGalleryMediaKind | "any";
+
+async function pickFromNativePhotoLibrary(
+  kind: NativeGalleryPickKind
+): Promise<{ file: File; mediaType: SpotGalleryMediaKind } | null> {
   const { Camera, CameraErrorCode, MediaType, MediaTypeSelection } = await import("@capacitor/camera");
 
   const permission = await Camera.checkPermissions();
@@ -193,8 +198,15 @@ async function pickFromNativePhotoLibrary(kind: SpotGalleryMediaKind): Promise<F
   }
 
   try {
+    const mediaTypeSelection =
+      kind === "image"
+        ? MediaTypeSelection.Photo
+        : kind === "video"
+          ? MediaTypeSelection.Video
+          : MediaTypeSelection.All;
+
     const { results } = await Camera.chooseFromGallery({
-      mediaType: kind === "image" ? MediaTypeSelection.Photo : MediaTypeSelection.Video,
+      mediaType: mediaTypeSelection,
       allowMultipleSelection: false,
       editable: "no",
       includeMetadata: true,
@@ -206,11 +218,24 @@ async function pickFromNativePhotoLibrary(kind: SpotGalleryMediaKind): Promise<F
       return null;
     }
 
-    if (kind === "video" && item.type !== MediaType.Video) {
-      console.warn("[Spot media] expected video from gallery picker", { type: item.type });
+    // With `All`, trust what the picker actually returned rather than the
+    // requested kind — the user could have picked either.
+    const resolvedKind: SpotGalleryMediaKind = item.type === MediaType.Video ? "video" : "image";
+
+    if (kind !== "any" && kind !== resolvedKind) {
+      console.warn("[Spot media] gallery picker returned unexpected media type", {
+        requested: kind,
+        got: resolvedKind,
+      });
     }
 
-    return mediaResultToFile(item, kind);
+    const file = await mediaResultToFile(item, resolvedKind);
+
+    if (!file) {
+      return null;
+    }
+
+    return { file, mediaType: resolvedKind };
   } catch (error) {
     const errorCode =
       error && typeof error === "object" && "code" in error
@@ -286,7 +311,8 @@ export function pickImageFromGallery(): Promise<File | null> {
 /** Spot compose: native Photos picker on device, filtered to images only. */
 export async function pickSpotGalleryPhoto(): Promise<File | null> {
   if (isCapacitorNative()) {
-    return pickFromNativePhotoLibrary("image");
+    const picked = await pickFromNativePhotoLibrary("image");
+    return picked?.file ?? null;
   }
 
   return pickMediaFromGallery({ accept: GALLERY_IMAGE_ACCEPT });
@@ -295,30 +321,28 @@ export async function pickSpotGalleryPhoto(): Promise<File | null> {
 /** Spot compose: native Photos picker on device, filtered to videos only. */
 export async function pickSpotGalleryVideo(): Promise<File | null> {
   if (isCapacitorNative()) {
-    const file = await pickFromNativePhotoLibrary("video");
+    const picked = await pickFromNativePhotoLibrary("video");
+    return picked?.file ?? null;
+  }
 
-    if (!file) {
-      return null;
-    }
+  return pickMediaFromGallery({ accept: "video/*" });
+}
 
-    if (isVideoGalleryFile(file)) {
-      return file;
-    }
+/**
+ * Spot camera / compose: a single photo OR video from the library — same
+ * "one media item per Spot" rule as the camera, just letting the user pick
+ * either kind from one native picker instead of two separate buttons.
+ */
+export async function pickSpotGalleryMedia(): Promise<{ file: File; mediaType: SpotGalleryMediaKind } | null> {
+  if (isCapacitorNative()) {
+    return pickFromNativePhotoLibrary("any");
+  }
 
-    console.warn("[Spot media] rejected native gallery video file", {
-      name: file.name,
-      type: file.type,
-      size: file.size,
-    });
+  const file = await pickMediaFromGallery({ accept: GALLERY_MEDIA_ACCEPT });
 
+  if (!file) {
     return null;
   }
 
-  const file = await pickMediaFromGallery({ accept: "video/*" });
-
-  if (!file || !isVideoGalleryFile(file)) {
-    return null;
-  }
-
-  return file;
+  return { file, mediaType: isVideoGalleryFile(file) ? "video" : "image" };
 }

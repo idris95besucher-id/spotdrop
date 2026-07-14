@@ -8,8 +8,8 @@ import {
   markSpotCarouselSwipeHintSeen,
 } from "@/lib/spotCarouselHint";
 
-/** Show numeric counter when there are too many slides for dots alone. */
-const SPOT_CAROUSEL_COUNTER_THRESHOLD = 5;
+/** Show numeric counter for multi-photo spots (2+ slides). */
+const SPOT_CAROUSEL_COUNTER_THRESHOLD = 2;
 
 type SpotMediaCarouselIndicatorProps = {
   slides: SpotCarouselSlide[];
@@ -32,7 +32,7 @@ export default function SpotMediaCarouselIndicator({
 }: SpotMediaCarouselIndicatorProps) {
   const { t } = useI18n();
   const [swipeHintVisible, setSwipeHintVisible] = useState(false);
-  const showCounter = slides.length > SPOT_CAROUSEL_COUNTER_THRESHOLD;
+  const showCounter = slides.length >= SPOT_CAROUSEL_COUNTER_THRESHOLD;
 
   useEffect(() => {
     if (!showSwipeHint || slides.length <= 1 || hasSeenSpotCarouselSwipeHint()) {

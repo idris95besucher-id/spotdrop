@@ -10,6 +10,7 @@ import SpotLocationModalProvider from "@/components/SpotLocationModalProvider";
 import PushNotificationsBootstrap from "@/components/PushNotificationsBootstrap";
 import OnlinePresenceBootstrap from "@/components/OnlinePresenceBootstrap";
 import CapacitorLaunchGuard from "@/components/CapacitorLaunchGuard";
+import KeyboardVisibilityBootstrap from "@/components/KeyboardVisibilityBootstrap";
 import { I18nProvider } from "@/components/I18nProvider";
 import { getSafeAuthSession } from "@/lib/authSession";
 import { applyDocumentLanguage } from "@/lib/languages";
@@ -21,6 +22,7 @@ import type { AppLanguageCode } from "@/lib/languages";
 import PasswordRecoveryRedirect from "@/components/PasswordRecoveryRedirect";
 import { MobileBottomNav } from "@/components/MainNavigation";
 import PwaInstallBanner from "@/components/PwaInstallBanner";
+import NavigationHistoryTracker from "@/components/NavigationHistoryTracker";
 import { MOBILE_APP_ROOT_CLASS } from "@/lib/mobileLayout";
 
 export default function AppProviders({ children }: { children: ReactNode }) {
@@ -62,10 +64,14 @@ export default function AppProviders({ children }: { children: ReactNode }) {
           <ChatNotificationsProvider>
             <NotificationsProvider>
             <CapacitorLaunchGuard />
+            <KeyboardVisibilityBootstrap />
             <PushNotificationsBootstrap userId={sessionUserId} />
             <OnlinePresenceBootstrap userId={sessionUserId} authReady={authReady} />
             <SpotLocationModalProvider>
               <PostViewerProvider>
+                <Suspense fallback={null}>
+                  <NavigationHistoryTracker />
+                </Suspense>
                 <div className={MOBILE_APP_ROOT_CLASS}>{children}</div>
                 <Suspense fallback={null}>
                   <MobileBottomNav />

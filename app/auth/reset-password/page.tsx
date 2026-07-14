@@ -55,10 +55,6 @@ export default function ResetPasswordPage() {
         const session = await activatePasswordRecoverySession();
 
         if (!cancelled) {
-          console.log("[SpotDrop recovery] page ready — active session", {
-            userId: session?.user?.id ?? null,
-            email: session?.user?.email ?? null,
-          });
           setStatus("ready");
         }
       } catch (recoveryError) {

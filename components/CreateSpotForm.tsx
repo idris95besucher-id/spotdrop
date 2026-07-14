@@ -3,13 +3,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
-import SpotInstagramCamera from "@/components/SpotInstagramCamera";
-import { useI18n } from "@/components/I18nProvider";
-import SpotLocationSavedChoiceScreen from "@/components/SpotLocationSavedChoiceScreen";
-import SpotLocationTextCardEditorScreen from "@/components/SpotLocationTextCardEditorScreen";
-import SendLocationCardSheet from "@/components/SendLocationCardSheet";
-import SaveTextCardToCollectionSheet from "@/components/SaveTextCardToCollectionSheet";
+import SpotInstagramCamera, { type SpotCreateCameraMode } from "@/components/SpotInstagramCamera";
+import SpotTextCardEditorScreen from "@/components/SpotTextCardEditorScreen";
 import SpotPublishScreen from "@/components/SpotPublishScreen";
+import { useI18n } from "@/components/I18nProvider";
 import { loadUserCollections, type CollectionWithMeta } from "@/lib/collections";
 import {
   captureDeviceSpotLocation,
@@ -24,25 +21,30 @@ import { isDeviceOnline, isLikelyNetworkError } from "@/lib/deviceOnline";
 import {
   createGalleryMediaEditorItem,
   createMediaEditorItem,
-  revokeMediaEditorItem,
   revokeMediaEditorItems,
+  withMeasuredVideoDuration,
   type MediaEditorItem,
 } from "@/lib/mediaEditor";
 import { publishSpotWithProgress, type SpotUploadProgress } from "@/lib/spotUploadPipeline";
 import { setImmersiveOverlayActive } from "@/lib/immersiveOverlay";
-import { localizeUserMessage } from "@/lib/i18n/localizeUserMessage";
+import { localizeCaughtError } from "@/lib/i18n/localizeUserMessage";
 import { hasVerifiedSpotCaptureLocation } from "@/lib/spotCaptureLocation";
 import type { SpotGeoLocation } from "@/lib/spotLocation";
 import { formatSpotGeoLocationShortLabel } from "@/lib/spotLocationDisplay";
-import { pickSpotGalleryPhoto, pickSpotGalleryVideo } from "@/lib/pickMediaFromGallery";
+import { pickSpotGalleryMedia } from "@/lib/pickMediaFromGallery";
+import { isVideoLongerThanMaxSeconds, MAX_TRIM_CLIP_SECONDS } from "@/lib/videoTrim";
 import type { SpotCreateLaunch } from "@/lib/createSpotLaunch";
 import { DEFAULT_SPOT_CREATE_LAUNCH } from "@/lib/createSpotLaunch";
-import type { SpotLocationCardFontStyle } from "@/lib/spotLocationCardStyles";
+import { renderSpotLocationCardFile } from "@/lib/renderSpotLocationCard";
 import {
-  logSpotMediaAddPhotoSelected,
-  logSpotMediaAddVideoSelected,
-  logSpotPublishMediaItemsPayload,
-} from "@/lib/spotMediaLog";
+  type SpotLocationCardFontStyle,
+  type SpotTextCardAlign,
+  type SpotTextCardFontSize,
+  type SpotTextCardTemplateId,
+} from "@/lib/spotLocationCardStyles";
+import { finishSpotPublishToProfile } from "@/lib/finishSpotPublishToProfile";
+import { logSpotMediaAddPhotoSelected, logSpotPublishMediaItemsPayload } from "@/lib/spotMediaLog";
+import { publishErrorForUi } from "@/lib/spotPublishError";
 
 type CreateSpotFormProps = {
   userId: string;
@@ -52,8 +54,7 @@ type CreateSpotFormProps = {
   onCreated: () => void;
 };
 
-type Step = "locating" | "choice" | "text-card" | "publish";
-type CreationMode = "text" | "media" | null;
+type Step = "camera" | "text" | "publish";
 
 export default function CreateSpotForm({
   userId,
@@ -64,36 +65,41 @@ export default function CreateSpotForm({
 }: CreateSpotFormProps) {
   const router = useRouter();
   const { t, locale } = useI18n();
-  const [step, setStep] = useState<Step>("locating");
-  const [creationMode, setCreationMode] = useState<CreationMode>(null);
-  const [cardText, setCardText] = useState("");
+  const [step, setStep] = useState<Step>("camera");
+  const [cameraMode, setCameraMode] = useState<SpotCreateCameraMode>("photo");
   const [caption, setCaption] = useState("");
-  const [cardFontStyle, setCardFontStyle] = useState<SpotLocationCardFontStyle>("classic");
   const [collectionId, setCollectionId] = useState("");
   const [collections, setCollections] = useState<CollectionWithMeta[]>([]);
   const [collectionsLoading, setCollectionsLoading] = useState(false);
   const [publishPreviewItems, setPublishPreviewItems] = useState<MediaEditorItem[]>([]);
   const [location, setLocation] = useState<SpotGeoLocation | null>(null);
   const [places, setPlaces] = useState<DiscoveryPlace[]>([]);
-  const [locating, setLocating] = useState(false);
-  const [showCamera, setShowCamera] = useState(false);
   const [pickingMedia, setPickingMedia] = useState(false);
-  const [saveCollectionSheetOpen, setSaveCollectionSheetOpen] = useState(false);
-  const [sendToSheetOpen, setSendToSheetOpen] = useState(false);
   const [publishing, setPublishing] = useState(false);
+  const publishingRef = useRef(false);
   const [uploadProgress, setUploadProgress] = useState<SpotUploadProgress | null>(null);
   const [uploadFailed, setUploadFailed] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [publishAsLocationCard, setPublishAsLocationCard] = useState(false);
+
+  const [cardText, setCardText] = useState("");
+  const [templateId, setTemplateId] = useState<SpotTextCardTemplateId>("classic");
+  const [fontStyle, setFontStyle] = useState<SpotLocationCardFontStyle>("classic");
+  const [fontSize, setFontSize] = useState<SpotTextCardFontSize>("md");
+  const [align, setAlign] = useState<SpotTextCardAlign>("center");
+
   const publishPreviewItemsRef = useRef<MediaEditorItem[]>([]);
   const placesRef = useRef<DiscoveryPlace[]>([]);
+  const locationRef = useRef<SpotGeoLocation | null>(null);
 
   placesRef.current = places;
   publishPreviewItemsRef.current = publishPreviewItems;
+  locationRef.current = location;
 
   const offlineMode = !isDeviceOnline();
   const shortLocationLabel = location
     ? formatSpotGeoLocationShortLabel(location, locale)
-    : "";
+    : t("map.selectedLocation");
 
   const clearPublishPreview = useCallback(() => {
     setPublishPreviewItems((current) => {
@@ -104,38 +110,30 @@ export default function CreateSpotForm({
 
   const resetAll = useCallback(() => {
     clearPublishPreview();
-    setStep("locating");
-    setCreationMode(null);
-    setCardText("");
+    setStep("camera");
+    setCameraMode("photo");
     setCaption("");
-    setCardFontStyle("classic");
     setLocation(null);
-    setLocating(false);
-    setShowCamera(false);
     setPickingMedia(false);
-    setSaveCollectionSheetOpen(false);
-
-    setSendToSheetOpen(false);
     setPublishing(false);
     setUploadProgress(null);
     setUploadFailed(false);
     setError(null);
+    setPublishAsLocationCard(false);
+    setCardText("");
+    setTemplateId("classic");
+    setFontStyle("classic");
+    setFontSize("md");
+    setAlign("center");
   }, [clearPublishPreview]);
 
   const startLocationCapture = useCallback(async () => {
-    setLocating(true);
-    setError(null);
-    setStep("locating");
-
     try {
       const captured = await captureDeviceSpotLocation();
       setLocation(captured);
-      setStep("choice");
     } catch {
-      setError(SPOT_GPS_CAPTURE_FAILED_MESSAGE);
-      setStep("locating");
-    } finally {
-      setLocating(false);
+      // Camera stays open; GPS can retry at publish time.
+      console.warn("[CreateSpotForm] background GPS capture failed");
     }
   }, []);
 
@@ -147,91 +145,126 @@ export default function CreateSpotForm({
 
     setImmersiveOverlayActive(true);
     resetAll();
-
-    if (launch.kind === "map-text-card") {
-      setLocation(launch.location);
-      setCreationMode("text");
-      setStep("text-card");
-      setLocating(false);
-      setError(null);
-    } else {
-      void startLocationCapture();
-    }
+    setStep("camera");
+    void startLocationCapture();
 
     if (isDeviceOnline()) {
       void loadDiscoveryPlacesForMatching().then((loaded) => {
         setPlaces(loaded);
       });
-    } else {
-      setPlaces([]);
-    }
-
-    if (isDeviceOnline()) {
       setCollectionsLoading(true);
       void loadUserCollections(userId, userId).then((result) => {
         setCollections(result.collections);
         setCollectionsLoading(false);
       });
     } else {
+      setPlaces([]);
       setCollections([]);
       setCollectionsLoading(false);
     }
 
     return () => {
       setImmersiveOverlayActive(false);
+      revokeMediaEditorItems(publishPreviewItemsRef.current);
+      publishPreviewItemsRef.current = [];
     };
   }, [isOpen, launch, resetAll, startLocationCapture, userId]);
 
   const handleClose = () => {
+    if (publishing) {
+      return;
+    }
+
+    const hasDraft =
+      publishPreviewItemsRef.current.length > 0 ||
+      Boolean(caption.trim()) ||
+      Boolean(cardText.trim()) ||
+      step === "publish" ||
+      step === "text";
+
+    if (hasDraft) {
+      const confirmed = window.confirm(`${t("spotEditor.exit.title")}\n\n${t("spotEditor.exit.body")}`);
+
+      if (!confirmed) {
+        return;
+      }
+    }
+
     setImmersiveOverlayActive(false);
     resetAll();
     onClose();
   };
 
-  const handleRetryLocation = () => {
-    void startLocationCapture();
-  };
+  const goToPublish = useCallback(
+    (items: MediaEditorItem[], asLocationCard = false) => {
+      clearPublishPreview();
+      setPublishPreviewItems(items);
+      setPublishAsLocationCard(asLocationCard);
+      setError(null);
+      setStep("publish");
+    },
+    [clearPublishPreview]
+  );
 
-  const goToPublish = useCallback((items: MediaEditorItem[], mode: CreationMode) => {
-    clearPublishPreview();
-    setPublishPreviewItems(items);
-    setCreationMode(mode);
-    setError(null);
-    setStep("publish");
-  }, [clearPublishPreview]);
+  const ensureLocationForPublish = useCallback(async () => {
+    if (hasVerifiedSpotCaptureLocation(locationRef.current)) {
+      return locationRef.current;
+    }
 
-  const handleCameraCapture = (
+    try {
+      const fresh = await captureDeviceSpotLocation();
+
+      if (hasVerifiedSpotCaptureLocation(fresh)) {
+        setLocation(fresh);
+        return fresh;
+      }
+    } catch {
+      // fall through
+    }
+
+    return null;
+  }, []);
+
+  const handleCameraCapture = async (
     file: File,
     mediaType: "image" | "video",
-    captureLocation: SpotGeoLocation | null
+    captureLocation: SpotGeoLocation | null,
+    nativeWebPath?: string
   ) => {
-    setShowCamera(false);
+    if (captureLocation && hasVerifiedSpotCaptureLocation(captureLocation)) {
+      setLocation(captureLocation);
+    } else if (!hasVerifiedSpotCaptureLocation(locationRef.current)) {
+      void startLocationCapture();
+    }
 
-    if (mediaType !== "image") {
-      setError(t("spotLocationCard.cameraPhotoOnly"));
-      setStep("choice");
+    // Native camera video (SpotDropCamera / AVCaptureMovieFileOutput) is
+    // trusted directly via `mediaType` — the recorder itself already enforces
+    // the max duration, so no extra validation is needed here.
+    if (mediaType === "video") {
+      // Prefer the native webPath as the Share-screen preview source (streamed
+      // directly by WKWebView from disk) over a blob: URL built from the
+      // already-decoded `file` — see createMediaEditorItem for why, and
+      // CarouselVideoSlide for the automatic fallback if it fails to load.
+      const item = await withMeasuredVideoDuration(
+        createMediaEditorItem(file, "video", { nativeWebPath })
+      );
+      console.log(
+        `[CreateSpotForm][video-preview] item created | previewUrl=${item.previewUrl} | fallbackPreviewUrl=${item.fallbackPreviewUrl ?? "(none)"} | fileSize=${file.size} | fileType=${file.type}`
+      );
+      goToPublish([item], false);
       return;
     }
 
-    if (captureLocation && hasVerifiedSpotCaptureLocation(captureLocation)) {
-      setLocation(captureLocation);
-    }
-
     const item = createMediaEditorItem(file, "image");
-    goToPublish([item], "media");
+    goToPublish([item], false);
   };
 
-  const handleChoosePhoto = async () => {
-    setPickingMedia(true);
-    setError(null);
-
-    try {
-      const file = await pickSpotGalleryPhoto();
-
-      if (!file) {
-        return;
-      }
-
+  // Gallery pick always *replaces* the current draft — a Spot holds exactly
+  // one photo or one video, so there is no "append" path anymore. Selecting
+  // again from the camera or gallery is the only way to change the media;
+  // there is no remove/reorder affordance on the Share screen itself.
+  const ingestGalleryFile = useCallback(
+    async (file: File, mediaType: "image" | "video") => {
       logSpotMediaAddPhotoSelected({
         fileName: file.name,
         size: file.size,
@@ -245,98 +278,108 @@ export default function CreateSpotForm({
         return;
       }
 
-      goToPublish([item], "media");
-    } finally {
-      setPickingMedia(false);
-    }
-  };
+      if (mediaType === "video") {
+        const measured = await withMeasuredVideoDuration(item);
 
-  const handleChooseVideo = async () => {
+        if (
+          measured.sourceDuration > 0 &&
+          isVideoLongerThanMaxSeconds(measured.sourceDuration)
+        ) {
+          setError(`Clip must be ${MAX_TRIM_CLIP_SECONDS} seconds or less.`);
+          return;
+        }
+
+        if (!hasVerifiedSpotCaptureLocation(locationRef.current)) {
+          void startLocationCapture();
+        }
+
+        goToPublish([measured], false);
+        return;
+      }
+
+      if (!hasVerifiedSpotCaptureLocation(locationRef.current)) {
+        void startLocationCapture();
+      }
+
+      goToPublish([item], false);
+    },
+    [goToPublish, startLocationCapture, t]
+  );
+
+  const handlePickGallery = async () => {
     setPickingMedia(true);
     setError(null);
 
     try {
-      const file = await pickSpotGalleryVideo();
+      const picked = await pickSpotGalleryMedia();
 
-      if (!file) {
+      if (!picked) {
         return;
       }
 
-      logSpotMediaAddVideoSelected({
-        fileName: file.name,
-        size: file.size,
-        type: file.type,
-      });
-
-      const item = await createGalleryMediaEditorItem(file);
-
-      if (!item) {
-        setError(t("spotEditor.error.addMediaFirst"));
-        return;
-      }
-
-      goToPublish([item], "media");
+      await ingestGalleryFile(picked.file, picked.mediaType);
+    } catch (caught) {
+      setError(localizeCaughtError(t, caught, "spotEditor.error.addMediaFirst"));
     } finally {
       setPickingMedia(false);
     }
   };
 
-  const handleOpenSaveCollectionSheet = () => {
-    if (!location || !userId) {
-      if (!userId) {
-        setError(NOT_SIGNED_IN_UPLOAD_MESSAGE);
-      }
+  const handleTextContinue = async () => {
+    if (!cardText.trim()) {
+      setError(t("spotLocationCard.needCardOrMedia"));
       return;
     }
 
-    if (!hasVerifiedSpotCaptureLocation(location)) {
-      setError(SPOT_GPS_CAPTURE_FAILED_MESSAGE);
-      void handleRetryLocation();
-      return;
-    }
-
-    if (!isDeviceOnline()) {
-      setError(t("spotEditor.offlineHint"));
-      return;
-    }
-
+    setPublishing(true);
     setError(null);
-    setSaveCollectionSheetOpen(true);
-  };
 
-  const handleKeepSoundChange = (keepSound: boolean, mediaIndex = 0) => {
-    setPublishPreviewItems((current) =>
-      current.map((item, index) => {
-        if (index === mediaIndex && item.mediaType === "video") {
-          return { ...item, keepSound };
-        }
+    try {
+      const publishLocation = await ensureLocationForPublish();
 
-        return item;
-      })
-    );
+      if (!hasVerifiedSpotCaptureLocation(publishLocation)) {
+        setError(SPOT_GPS_CAPTURE_FAILED_MESSAGE);
+        return;
+      }
+
+      const label = formatSpotGeoLocationShortLabel(publishLocation!, locale);
+      const cardFile = await renderSpotLocationCardFile({
+        cardText,
+        fontStyle,
+        locationLabel: label,
+        templateId,
+        fontSize,
+        align,
+      });
+
+      const item = createMediaEditorItem(cardFile, "image");
+      goToPublish([item], true);
+    } catch (caught) {
+      setError(localizeCaughtError(t, caught, "spotEditor.error.publishFailed"));
+    } finally {
+      setPublishing(false);
+    }
   };
 
   const handlePublishBack = () => {
     setError(null);
     clearPublishPreview();
 
-    if (creationMode === "text") {
-      setStep("text-card");
+    if (publishAsLocationCard) {
+      setStep("text");
       return;
     }
 
-    setStep("choice");
+    setStep("camera");
   };
 
   const handlePublish = async () => {
-    if (!userId) {
-      setError(NOT_SIGNED_IN_UPLOAD_MESSAGE);
+    if (publishingRef.current || publishing) {
       return;
     }
 
-    if (!hasVerifiedSpotCaptureLocation(location)) {
-      setError(SPOT_GPS_CAPTURE_FAILED_MESSAGE);
-      void handleRetryLocation();
+    if (!userId) {
+      setError(NOT_SIGNED_IN_UPLOAD_MESSAGE);
       return;
     }
 
@@ -352,6 +395,7 @@ export default function CreateSpotForm({
       return;
     }
 
+    publishingRef.current = true;
     setPublishing(true);
     setUploadFailed(false);
     setError(null);
@@ -365,54 +409,99 @@ export default function CreateSpotForm({
       }))
     );
 
-    try {
-      const matchedPlace = location
-        ? findNearestDiscoveryPlace(location, placesRef.current)?.name ?? null
-        : null;
+    const PUBLISH_TIMEOUT_MS = 180_000;
 
-      const result = await publishSpotWithProgress({
-        userId,
-        mediaItems: itemsToPublish,
-        spotName:
-          creationMode === "text"
+    try {
+      let publishLocation = await ensureLocationForPublish();
+
+      try {
+        const fresh = await captureDeviceSpotLocation();
+
+        if (hasVerifiedSpotCaptureLocation(fresh)) {
+          publishLocation = fresh;
+          setLocation(fresh);
+        }
+      } catch {
+        // Keep previously verified location.
+      }
+
+      if (!hasVerifiedSpotCaptureLocation(publishLocation)) {
+        setError(SPOT_GPS_CAPTURE_FAILED_MESSAGE);
+        setUploadFailed(true);
+        return;
+      }
+
+      const matchedPlace = findNearestDiscoveryPlace(publishLocation!, placesRef.current)?.name ?? null;
+      const label = formatSpotGeoLocationShortLabel(publishLocation!, locale);
+
+      const result = await Promise.race([
+        publishSpotWithProgress({
+          userId,
+          mediaItems: itemsToPublish,
+          spotName: publishAsLocationCard
             ? resolveSpotName(cardText)
-            : resolveSpotName(matchedPlace || shortLocationLabel),
-        caption: creationMode === "text" ? undefined : normalizeSpotCaption(caption).trim() || undefined,
-        location,
-        collectionId: collectionId || null,
-        discoveryPlaces: placesRef.current,
-        locationCard: creationMode === "text",
-        onProgress: (progress) => {
-          setUploadProgress(progress);
-        },
-      });
+            : resolveSpotName(matchedPlace || label),
+          caption: publishAsLocationCard
+            ? undefined
+            : normalizeSpotCaption(caption).trim() || undefined,
+          location: publishLocation!,
+          collectionId: collectionId || null,
+          discoveryPlaces: placesRef.current,
+          locationCard: publishAsLocationCard,
+          onProgress: (progress) => {
+            setUploadProgress(progress);
+          },
+        }),
+        new Promise<never>((_, reject) => {
+          window.setTimeout(() => {
+            reject(new Error(t("spotEditor.error.uploadFailed")));
+          }, PUBLISH_TIMEOUT_MS);
+        }),
+      ]);
 
       const postId = result.postId;
 
-      if (result.carouselWarning) {
-        setUploadFailed(true);
-        setError(result.carouselWarning);
-      }
-
       if (postId) {
-        onCreated();
-        router.push(`/posts?id=${encodeURIComponent(postId)}`);
+        // 1) Tear down temporary camera/media state before navigation.
+        revokeMediaEditorItems(itemsToPublish);
+        publishPreviewItemsRef.current = [];
+        setPublishPreviewItems([]);
+        setImmersiveOverlayActive(false);
+        resetAll();
 
-        if (!result.carouselWarning) {
-          handleClose();
-        }
+        // 2) Close create overlays (camera / share) — no history entries for these portals.
+        onCreated();
+
+        // 3) Replace current route with My profile → Posts/Spots (never open /posts viewer).
+        //    router.replace removes this intermediate entry so Back cannot reopen create/share.
+        finishSpotPublishToProfile(router);
+        return;
       }
     } catch (caught) {
-      const message = caught instanceof Error ? caught.message : t("spotEditor.error.publishFailed");
       setUploadFailed(true);
       setUploadProgress(null);
 
-      if (isLikelyNetworkError(caught)) {
-        setError(t("spotEditor.error.uploadFailed"));
+      const failedPhotoIndex = (caught as { failedPhotoIndex?: number }).failedPhotoIndex;
+      const rawPublishError = publishErrorForUi(caught);
+
+      console.error("[SPOT PUBLISH] CreateSpotForm catch", {
+        rawPublishError,
+        failedPhotoIndex,
+        caught,
+      });
+
+      if (typeof failedPhotoIndex === "number") {
+        setError(
+          `${t("spotEditor.uploadFailedPhoto", { index: failedPhotoIndex + 1 })} — ${rawPublishError}`
+        );
+      } else if (isLikelyNetworkError(caught) && !rawPublishError.includes("[SPOT PUBLISH]")) {
+        setError(`${t("spotEditor.error.uploadFailed")} — ${rawPublishError}`);
       } else {
-        setError(localizeUserMessage(t, message) ?? message);
+        // Debug: show the real storage/database error, not a generic localized fallback.
+        setError(rawPublishError);
       }
     } finally {
+      publishingRef.current = false;
       setPublishing(false);
     }
   };
@@ -421,60 +510,7 @@ export default function CreateSpotForm({
     return null;
   }
 
-  if (step === "locating") {
-    return createPortal(
-      <div className="fixed inset-0 z-[130] flex flex-col items-center justify-center bg-[#030712] px-6 text-center text-white">
-        {locating ? (
-          <>
-            <div className="h-12 w-12 animate-spin rounded-full border-2 border-white/15 border-t-cyan-300" />
-            <p className="mt-6 text-base font-semibold">{t("spotLocationCard.savingLocation")}</p>
-            <p className="mt-2 max-w-xs text-sm text-white/50">{t("spotLocationCard.savingLocationHint")}</p>
-          </>
-        ) : (
-          <>
-            <p className="max-w-sm text-sm leading-relaxed text-red-200">
-              {localizeUserMessage(t, error) ?? t("spotLocationCard.gpsFailed")}
-            </p>
-            <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
-              <button
-                type="button"
-                onClick={() => void handleRetryLocation()}
-                className="rounded-full bg-primary px-5 py-2.5 text-sm font-semibold text-[#050816]"
-              >
-                {t("common.tryAgain")}
-              </button>
-              <button
-                type="button"
-                onClick={() => void handleClose()}
-                className="rounded-full bg-white/10 px-5 py-2.5 text-sm font-semibold text-white"
-              >
-                {t("spotEditor.close")}
-              </button>
-            </div>
-          </>
-        )}
-      </div>,
-      document.body
-    );
-  }
-
-  if (showCamera) {
-    return createPortal(
-      <SpotInstagramCamera
-        photoOnly
-        onClose={() => {
-          setShowCamera(false);
-          setStep("choice");
-        }}
-        onCapture={(file, mediaType, captureLocation) =>
-          handleCameraCapture(file, mediaType, captureLocation)
-        }
-      />,
-      document.body
-    );
-  }
-
-  if (step === "publish" && publishPreviewItems.length > 0 && location) {
+  if (step === "publish") {
     return createPortal(
       <SpotPublishScreen
         mediaItems={publishPreviewItems}
@@ -492,94 +528,61 @@ export default function CreateSpotForm({
         onCollectionChange={setCollectionId}
         onBack={handlePublishBack}
         onPublish={() => void handlePublish()}
-        onKeepSoundChange={handleKeepSoundChange}
       />,
       document.body
     );
   }
 
-  if (step === "text-card" && location) {
+  if (step === "text") {
     return createPortal(
-      <>
-        <SpotLocationTextCardEditorScreen
-          locationLabel={shortLocationLabel}
-          cardText={cardText}
-          cardFontStyle={cardFontStyle}
-          error={error}
-          onCardTextChange={setCardText}
-          onCardFontStyleChange={setCardFontStyle}
-          onBack={() => {
-            setError(null);
-
-            if (launch.kind === "map-text-card") {
-              handleClose();
-              return;
-            }
-
-            setStep("choice");
-          }}
-          onSave={handleOpenSaveCollectionSheet}
-          onSendTo={() => {
-            setError(null);
-            setSendToSheetOpen(true);
-          }}
-        />
-        {location ? (
-          <SaveTextCardToCollectionSheet
-            isOpen={saveCollectionSheetOpen}
-            userId={userId}
-            cardText={cardText}
-            cardFontStyle={cardFontStyle}
-            locationLabel={shortLocationLabel}
-            location={location}
-            publishToMap={launch.kind === "map-text-card"}
-            onClose={() => setSaveCollectionSheetOpen(false)}
-            onSaved={() => {
-              if (launch.kind === "map-text-card") {
-                handleClose();
-              }
-            }}
-          />
-        ) : null}
-        <SendLocationCardSheet
-          isOpen={sendToSheetOpen}
-          userId={userId}
-          cardText={cardText}
-          cardFontStyle={cardFontStyle}
-          locationLabel={shortLocationLabel}
-          location={location}
-          onClose={() => setSendToSheetOpen(false)}
-          onSent={() => {
-            setSendToSheetOpen(false);
-            handleClose();
-          }}
-        />
-      </>,
-      document.body
-    );
-  }
-
-  if (step === "choice" && location) {
-    return createPortal(
-      <SpotLocationSavedChoiceScreen
+      <SpotTextCardEditorScreen
         locationLabel={shortLocationLabel}
+        cardText={cardText}
+        templateId={templateId}
+        fontStyle={fontStyle}
+        fontSize={fontSize}
+        align={align}
         error={error}
-        busy={pickingMedia}
-        onClose={() => void handleClose()}
-        onTextCard={() => {
+        publishing={publishing}
+        onCardTextChange={setCardText}
+        onTemplateChange={setTemplateId}
+        onFontStyleChange={setFontStyle}
+        onFontSizeChange={setFontSize}
+        onAlignChange={setAlign}
+        onBack={() => void handleClose()}
+        onContinue={() => void handleTextContinue()}
+        onSwitchToPhoto={() => {
           setError(null);
-          setStep("text-card");
+          setCameraMode("photo");
+          setStep("camera");
         }}
-        onTakePhoto={() => {
-          setError(null);
-          setShowCamera(true);
-        }}
-        onChoosePhoto={() => void handleChoosePhoto()}
-        onChooseVideo={() => void handleChooseVideo()}
       />,
       document.body
     );
   }
 
-  return null;
+  return createPortal(
+    <SpotInstagramCamera
+      showCreateModes
+      createMode={cameraMode === "text" ? "photo" : cameraMode}
+      onCreateModeChange={(mode) => {
+        if (mode === "text") {
+          setError(null);
+          setCameraMode("text");
+          setStep("text");
+          return;
+        }
+
+        setCameraMode(mode);
+        setError(null);
+      }}
+      onPickGallery={() => void handlePickGallery()}
+      galleryDisabled={pickingMedia || publishing}
+      onClose={() => void handleClose()}
+      onCapture={(file, mediaType, captureLocation, nativeWebPath) => {
+        void handleCameraCapture(file, mediaType, captureLocation, nativeWebPath);
+      }}
+    />,
+    document.body
+  );
 }

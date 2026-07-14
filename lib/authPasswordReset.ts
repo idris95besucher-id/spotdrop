@@ -3,8 +3,8 @@ import { clearLocalAuthSession } from "@/lib/authSession";
 import { PASSWORD_RECOVERY_SESSION_KEY } from "@/lib/passwordRecoveryBootstrap";
 import { supabase } from "@/lib/supabaseClient";
 
-/** Temporary debug logging for password recovery — remove when stable. */
-const RECOVERY_DEBUG = true;
+/** Temporary debug logging for password recovery — keep off in release builds. */
+const RECOVERY_DEBUG = false;
 
 function recoveryLog(label: string, payload?: unknown) {
   if (!RECOVERY_DEBUG || typeof window === "undefined") {

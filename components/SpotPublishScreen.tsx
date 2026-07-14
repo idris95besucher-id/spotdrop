@@ -1,16 +1,19 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ArrowLeft, Check, ChevronDown, ChevronRight, MapPin, Volume2, VolumeX } from "lucide-react";
+import { ArrowLeft, Check, ChevronDown, ChevronRight, MapPin } from "lucide-react";
 import { useI18n } from "@/components/I18nProvider";
+import SpotCompactCaptionField from "@/components/SpotCompactCaptionField";
 import SpotMediaCarousel, { type SpotCarouselSlide } from "@/components/SpotMediaCarousel";
 import SpotUploadProgressOverlay from "@/components/SpotUploadProgressOverlay";
 import type { CollectionWithMeta } from "@/lib/collections";
 import { localizeUserMessage } from "@/lib/i18n/localizeUserMessage";
+import {
+  composerPaddingBottom,
+  useComposerKeyboardStyle,
+} from "@/lib/keyboardSystem";
 import type { MediaEditorItem } from "@/lib/mediaEditor";
-import { getActiveMediaEditorItem } from "@/lib/mediaEditor";
 import { logSpotMediaSharePreviewItems } from "@/lib/spotMediaLog";
-import { SPOT_CAPTION_MAX_LENGTH, normalizeSpotCaption } from "@/lib/spotCaption";
 import type { SpotUploadProgress } from "@/lib/spotUploadPipeline";
 
 type SpotPublishScreenProps = {
@@ -29,17 +32,33 @@ type SpotPublishScreenProps = {
   onCollectionChange: (collectionId: string) => void;
   onBack: () => void;
   onPublish: () => void;
-  onKeepSoundChange: (keepSound: boolean, mediaIndex: number) => void;
 };
 
 function toCarouselSlides(items: MediaEditorItem[]): SpotCarouselSlide[] {
-  return items.map((item) => ({
-    id: item.id,
-    mediaUrl: item.previewUrl,
-    mediaType: item.mediaType,
-    posterUrl: item.coverPreviewUrl,
-    audioMuted: item.mediaType === "video" ? !item.keepSound : false,
-  }));
+  return items.map((item) => {
+    const audioMuted = item.mediaType === "video" ? !item.keepSound : false;
+
+    if (item.mediaType === "video") {
+      console.log(
+        `[SpotPublishScreen][audio] preview slide | keepSound=${item.keepSound} | audioMuted=${audioMuted} | fileType=${item.file.type} | fileSize=${item.file.size}`
+      );
+    }
+
+    return {
+      id: item.id,
+      mediaUrl: item.previewUrl,
+      // Was hardcoded to "image" regardless of the item's real type, which sent
+      // every freshly-recorded video through the image renderer instead of a
+      // video player — the Share preview never actually played video at all.
+      mediaType: item.mediaType,
+      posterUrl: item.coverPreviewUrl,
+      // `keepSound` defaults true for video (see createMediaEditorItem) and is
+      // only false if the user explicitly removed audio in the editor.
+      audioMuted,
+      isPanorama: Boolean(item.isPanorama),
+      fallbackMediaUrl: item.fallbackPreviewUrl,
+    };
+  });
 }
 
 export default function SpotPublishScreen({
@@ -58,16 +77,17 @@ export default function SpotPublishScreen({
   onCollectionChange,
   onBack,
   onPublish,
-  onKeepSoundChange,
 }: SpotPublishScreenProps) {
   const { t } = useI18n();
   const [activeIndex, setActiveIndex] = useState(0);
   const [destinationOpen, setDestinationOpen] = useState(false);
   const destinationRef = useRef<HTMLDivElement>(null);
-  const captionRef = useRef<HTMLTextAreaElement>(null);
-  const localizedError = localizeUserMessage(t, error);
-  const activeMedia = getActiveMediaEditorItem(mediaItems, activeIndex);
-  const captionLength = caption.length;
+  const { isKeyboardOpen, composerStyle } = useComposerKeyboardStyle();
+  // Keep publish diagnostics visible — do not sanitize technical Supabase errors away.
+  const localizedError =
+    error?.includes("[SPOT PUBLISH]") || error?.includes("code=")
+      ? error
+      : localizeUserMessage(t, error);
 
   useEffect(() => {
     logSpotMediaSharePreviewItems(
@@ -111,12 +131,12 @@ export default function SpotPublishScreen({
     ? t("spotEditor.publicSpot")
     : t("spotEditor.mySpots");
 
-  const publishDisabled = publishing || offlineMode;
-  const activeVideoKeepSound = activeMedia?.mediaType === "video" ? activeMedia.keepSound : true;
+  const hasPhotos = mediaItems.length > 0;
+  const publishDisabled = publishing || offlineMode || !hasPhotos;
 
   return (
     <div
-      className="fixed inset-0 z-[130] overflow-hidden bg-black text-white"
+      className="fixed inset-0 z-[130] flex flex-col overflow-hidden bg-[#0a0b10] text-white"
       style={{ WebkitTapHighlightColor: "transparent" }}
     >
       <SpotUploadProgressOverlay
@@ -125,111 +145,74 @@ export default function SpotPublishScreen({
         showDetailed
       />
 
-      <div className="absolute inset-0">
-        {mediaItems.length > 0 ? (
+      <header
+        className="relative z-20 flex shrink-0 items-center justify-between border-b border-white/8 px-4 py-3"
+        style={{ paddingTop: "max(0.75rem, env(safe-area-inset-top))" }}
+      >
+        <button
+          type="button"
+          onClick={onBack}
+          disabled={publishing}
+          className="flex h-10 w-10 items-center justify-center rounded-full text-white transition hover:bg-white/8 disabled:opacity-50"
+          aria-label={t("spotEditor.back")}
+        >
+          <ArrowLeft className="h-5 w-5" strokeWidth={2} aria-hidden />
+        </button>
+
+        <h1 className="text-sm font-semibold tracking-wide text-white">{t("spotEditor.shareTitle")}</h1>
+
+        <div className="h-10 w-10" aria-hidden />
+      </header>
+
+      <div className="relative min-h-0 flex-1 bg-black">
+        {hasPhotos ? (
           <SpotMediaCarousel
             slides={toCarouselSlides(mediaItems)}
             isActive={!publishing}
             activeIndex={activeIndex}
             onActiveIndexChange={setActiveIndex}
             showIndicator
-            indicatorPlacement="fullscreen"
-            showSwipeHint
-            viewerPlayback={!publishing}
+            indicatorPlacement="compact"
+            showSwipeHint={mediaItems.length > 1}
+            viewerPlayback={false}
             className="h-full w-full"
           />
         ) : (
-          <div className="flex h-full w-full items-center justify-center bg-black text-sm text-white/40">
+          <div className="flex h-full w-full items-center justify-center text-sm text-white/40">
             {t("spotEditor.preview")}
           </div>
         )}
       </div>
 
       <div
-        className="pointer-events-none absolute inset-x-0 top-0 z-30 bg-gradient-to-b from-black/75 via-black/35 to-transparent"
-        style={{ paddingBottom: "2.5rem" }}
+        className="relative z-20 shrink-0 border-t border-white/8 bg-[#0a0b10]/95 backdrop-blur-xl"
+        style={{
+          ...composerStyle,
+          paddingBottom: composerPaddingBottom("sheet", isKeyboardOpen),
+        }}
       >
-        <div
-          className="pointer-events-auto flex items-center justify-between px-4 py-3"
-          style={{ paddingTop: "max(0.75rem, env(safe-area-inset-top))" }}
-        >
-          <button
-            type="button"
-            onClick={onBack}
+        <div className="space-y-3 px-4 py-3">
+          <SpotCompactCaptionField
+            value={caption}
             disabled={publishing}
-            className="flex h-10 w-10 items-center justify-center rounded-full bg-black/35 text-white ring-1 ring-white/15 backdrop-blur-md transition hover:bg-black/50 disabled:opacity-50"
-            aria-label={t("spotEditor.back")}
-          >
-            <ArrowLeft className="h-5 w-5" strokeWidth={2} aria-hidden />
-          </button>
+            onChange={onCaptionChange}
+          />
 
-          <h1 className="text-sm font-semibold tracking-wide text-white drop-shadow-sm">
-            {t("spotEditor.shareTitle")}
-          </h1>
-
-          <div className="h-10 w-10" aria-hidden />
-        </div>
-      </div>
-
-      {activeMedia?.mediaType === "video" && !destinationOpen ? (
-        <button
-          type="button"
-          disabled={publishing}
-          onClick={() => onKeepSoundChange(!activeVideoKeepSound, activeIndex)}
-          className="absolute right-4 z-40 flex h-10 w-10 items-center justify-center rounded-full bg-black/45 text-white ring-1 ring-white/20 backdrop-blur-md transition hover:bg-black/60 disabled:opacity-50"
-          style={{ bottom: "max(10.5rem, calc(env(safe-area-inset-bottom) + 9.75rem))" }}
-          aria-label={
-            activeVideoKeepSound ? t("spotCompose.keepSound") : t("spotCompose.removeSound")
-          }
-        >
-          {activeVideoKeepSound ? (
-            <Volume2 className="h-4.5 w-4.5" strokeWidth={2} aria-hidden />
-          ) : (
-            <VolumeX className="h-4.5 w-4.5" strokeWidth={2} aria-hidden />
-          )}
-        </button>
-      ) : null}
-
-      <div
-        className="pointer-events-none absolute inset-x-0 bottom-0 z-30 bg-gradient-to-t from-black/95 via-black/55 to-transparent pt-24"
-        style={{ paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}
-      >
-        <div className="pointer-events-auto space-y-3 px-4">
-          <div className="mx-auto w-full max-w-md space-y-2.5">
-            <div className="flex items-start gap-2.5 rounded-2xl bg-black/45 px-3.5 py-3 ring-1 ring-white/12 backdrop-blur-md">
-              <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-cyan-300" strokeWidth={1.75} aria-hidden />
-              <p className="min-w-0 flex-1 text-sm font-medium text-cyan-100/90">{locationLabel}</p>
-            </div>
-
-            <div className="relative">
-              <textarea
-                ref={captionRef}
-                value={caption}
-                disabled={publishing}
-                rows={3}
-                maxLength={SPOT_CAPTION_MAX_LENGTH}
-                placeholder={`${t("spotEditor.captionPlaceholder")}\n${t("spotEditor.captionExamples")}`}
-                onChange={(event) => onCaptionChange(normalizeSpotCaption(event.target.value))}
-                className="w-full resize-none rounded-2xl border-0 bg-black/45 px-4 py-3 text-[15px] leading-relaxed text-white placeholder:text-white/40 ring-1 ring-white/12 backdrop-blur-md focus:outline-none focus:ring-white/25 disabled:opacity-50 [-webkit-user-select:text] [user-select:text]"
-              />
-              {captionLength > SPOT_CAPTION_MAX_LENGTH - 50 ? (
-                <span className="pointer-events-none absolute bottom-2.5 right-3 text-[10px] tabular-nums text-white/45">
-                  {captionLength}/{SPOT_CAPTION_MAX_LENGTH}
-                </span>
-              ) : null}
-            </div>
+          <div className="flex items-center gap-2.5 rounded-xl bg-white/[0.06] px-3.5 py-2.5 ring-1 ring-white/10">
+            <MapPin className="h-4 w-4 shrink-0 text-cyan-300" strokeWidth={1.75} aria-hidden />
+            <p className="min-w-0 flex-1 truncate text-sm font-medium text-cyan-100/90">{locationLabel}</p>
           </div>
 
-          <div ref={destinationRef} className="relative mx-auto w-full max-w-md">
+          <div ref={destinationRef} className="relative">
             <button
               type="button"
               disabled={publishing}
               onClick={() => setDestinationOpen((open) => !open)}
-              className="flex w-full items-center justify-between rounded-full bg-black/45 px-4 py-2.5 text-left ring-1 ring-white/15 backdrop-blur-md transition hover:bg-black/55 disabled:opacity-50"
+              className="flex w-full items-center justify-between rounded-xl bg-white/[0.06] px-3.5 py-2.5 text-left ring-1 ring-white/10 transition hover:bg-white/[0.08] disabled:opacity-50"
               aria-expanded={destinationOpen}
               aria-haspopup="listbox"
             >
-              <span className="text-xs text-white/65">{t("spotEditor.shareTo")}</span>
+              <span className="text-xs text-white/60">{t("spotEditor.shareTo")}</span>
               <span className="inline-flex items-center gap-1 text-sm font-semibold text-white">
                 {destinationLabel}
                 <ChevronDown
@@ -295,7 +278,7 @@ export default function SpotPublishScreen({
             type="button"
             onClick={onPublish}
             disabled={publishDisabled}
-            className="mx-auto flex w-full max-w-md items-center justify-center gap-1.5 rounded-full bg-primary py-3.5 text-sm font-bold text-background shadow-lg shadow-black/30 transition hover:brightness-110 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
+            className="flex w-full items-center justify-center gap-1.5 rounded-full bg-primary py-3.5 text-sm font-bold text-background shadow-lg shadow-black/30 transition hover:brightness-110 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
           >
             {publishing
               ? t("spotEditor.publishing")
@@ -306,6 +289,7 @@ export default function SpotPublishScreen({
           </button>
         </div>
       </div>
+
     </div>
   );
 }

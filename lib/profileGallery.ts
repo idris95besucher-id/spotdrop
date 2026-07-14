@@ -7,7 +7,6 @@ import {
 import { dispatchProfileMetaRefresh } from "@/lib/profileContentRefresh";
 import { deleteOwnedPost } from "@/lib/deleteContent";
 import { normalizePostId } from "@/lib/postIds";
-import { uploadVideoCoverForPublish } from "@/lib/publishVideoCover";
 import { supabase } from "@/lib/supabaseClient";
 
 export const GALLERY_DESCRIPTION_MAX_LENGTH = 500;
@@ -82,21 +81,16 @@ export async function createProfileGalleryMedia(userId: string, file: File): Pro
 }> {
   const mediaType = getPostMediaType(file);
 
-  if (!mediaType) {
-    return { post: null, error: "Only photos and videos are allowed." };
+  if (!mediaType || mediaType === "video") {
+    return {
+      post: null,
+      error: mediaType === "video" ? "Video is no longer supported." : "Only photos are allowed.",
+    };
   }
 
   try {
     const upload = await uploadPostMedia(userId, file);
-    let videoCoverUrl: string | null = null;
-
-    if (mediaType === "video") {
-      try {
-        videoCoverUrl = await uploadVideoCoverForPublish(userId, file, null);
-      } catch {
-        videoCoverUrl = null;
-      }
-    }
+    const videoCoverUrl: string | null = null;
 
     const insertRow = buildGalleryInsertRow(userId, upload.mediaUrl, mediaType, videoCoverUrl);
 
@@ -118,8 +112,8 @@ export async function createProfileGalleryMedia(userId: string, file: File): Pro
           content_kind: "post",
           media_url: upload.mediaUrl,
           media_type: mediaType,
-          image_url: mediaType === "image" ? upload.mediaUrl : null,
-          video_url: mediaType === "video" ? upload.mediaUrl : null,
+          image_url: upload.mediaUrl,
+          video_url: null,
         })
         .select(
           "id, user_id, content, visibility, image_url, video_url, media_url, media_type, created_at, content_kind"

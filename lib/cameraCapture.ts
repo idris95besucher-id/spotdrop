@@ -3,41 +3,49 @@ import {
   probeVideoFile,
   snapshotFromVideoTrack,
 } from "@/lib/videoQualityDiagnostics";
+import { diagnoseVideoBlob } from "@/lib/videoIntegrityDiagnostics";
 
-export const CAMERA_MAX_VIDEO_SECONDS = 60;
+export const CAMERA_MAX_VIDEO_SECONDS = 30;
 
 export const CAMERA_PERMISSION_MESSAGE = "Camera access is required to record a Spot.";
+export const CAMERA_UNAVAILABLE_MESSAGE = "Unable to open the camera. Please try again.";
 
-/** Press-and-hold duration before video recording starts (short tap = photo). */
-export const HOLD_THRESHOLD_MS = 350;
+/** Press-and-hold duration before a press is treated as video (short tap = photo). */
+export const HOLD_THRESHOLD_MS = 280;
 
-/** Minimum time between record start and stop (Safari needs time to emit chunks). */
-export const MIN_RECORDING_DURATION_MS = 400;
+/** Minimum wall time after MediaRecorder.onstart before stop is accepted (Safari chunk bootstrap). */
+export const MIN_RECORDING_DURATION_MS = 200;
 
-/** Timeslice interval passed to MediaRecorder.start — required for Safari chunk delivery. */
-export const RECORDER_TIMESLICE_MS = 250;
+/** Timeslice for MediaRecorder.start — shorter = earlier first chunk, still fragmented MP4-safe. */
+export const RECORDER_TIMESLICE_MS = 100;
 
-/** iOS uses shorter timeslices so less media is buffered unreleased at stop. */
-export const IOS_RECORDER_TIMESLICE_MS = 250;
+/** iOS: keep timeslice short so the first/last seconds are not stuck in an unflushed buffer. */
+export const IOS_RECORDER_TIMESLICE_MS = 100;
 
-/** Wait after stop() before validating chunks/blob. */
-export const POST_STOP_CHUNK_WAIT_MS = 350;
+/** Brief settle after stop only when the final chunk was empty (should be rare). */
+export const POST_STOP_CHUNK_WAIT_MS = 80;
 
-/** Max wait for a dataavailable flush event (requestData / post-stop). */
-export const RECORDER_DATA_FLUSH_TIMEOUT_MS = 2500;
+/** Max wait for a single flush dataavailable (requestData / post-stop). */
+export const RECORDER_DATA_FLUSH_TIMEOUT_MS = 1500;
 
 export const RECORDING_BROWSER_UNSAVED_MESSAGE =
   "Recording was not saved by this browser. Please try again.";
+
+export const RECORDING_CANCELLED_MESSAGE = "recording-cancelled";
 
 /** Target recording bitrate (bits per second) — high for sharp 1080p/4K output. */
 export const CAMERA_VIDEO_BITS_PER_SECOND = 22_000_000;
 
 export const CAMERA_VIDEO_BITS_PER_SECOND_FALLBACK = 16_000_000;
 
-/** iPhone / WKWebView recording bitrates — preserve native-looking motion detail. */
-export const IOS_CAMERA_VIDEO_BITS_PER_SECOND = 28_000_000;
+/**
+ * iPhone / WKWebView recording bitrates.
+ * Keep high enough for sharp 1080p30, but low enough for progressive HTTP playback
+ * after upload (28 Mbps @ up-to-4K caused post-upload underrun stutter on remote URLs).
+ */
+export const IOS_CAMERA_VIDEO_BITS_PER_SECOND = 12_000_000;
 
-export const IOS_CAMERA_VIDEO_BITS_PER_SECOND_FALLBACK = 18_000_000;
+export const IOS_CAMERA_VIDEO_BITS_PER_SECOND_FALLBACK = 8_000_000;
 
 export const IOS_CAMERA_AUDIO_BITS_PER_SECOND = 256_000;
 
@@ -304,7 +312,7 @@ function startMediaRecorder(recorder: MediaRecorder) {
   const timesliceMs = getRecorderTimesliceMs();
   recorder.start(timesliceMs);
 
-  console.log("[SpotDrop camera] MediaRecorder.start called", {
+  logVideoTiming("recorder start requested", {
     state: recorder.state,
     timesliceMs,
   });
@@ -316,10 +324,13 @@ function waitAfterStopForChunks() {
   });
 }
 
-/** Wait for the next dataavailable event — used to flush buffers before/after stop. */
-function waitForRecorderDataEvent(
+/**
+ * Wait for the next dataavailable WITHOUT pushing — ondataavailable already
+ * owns chunk collection. Pushing here previously duplicated chunks and caused
+ * stutter/flicker in the published file.
+ */
+function waitForNextDataAvailable(
   recorder: MediaRecorder,
-  pushChunk: (data: Blob) => void,
   timeoutMs = RECORDER_DATA_FLUSH_TIMEOUT_MS
 ): Promise<boolean> {
   return new Promise((resolve) => {
@@ -327,7 +338,7 @@ function waitForRecorderDataEvent(
 
     const timeoutId = window.setTimeout(() => {
       cleanup();
-      console.warn("[SpotDrop camera] waitForRecorderDataEvent timed out", {
+      logVideoTiming("dataavailable wait timed out", {
         state: recorder.state,
         received,
         timeoutMs,
@@ -338,10 +349,6 @@ function waitForRecorderDataEvent(
     const onData = (event: BlobEvent) => {
       if (event.data && event.data.size > 0) {
         received = true;
-        pushChunk(event.data);
-        console.log("[SpotDrop camera] dataavailable flush chunk", {
-          size: event.data.size,
-        });
       }
       cleanup();
       resolve(received);
@@ -356,31 +363,67 @@ function waitForRecorderDataEvent(
   });
 }
 
+export function logVideoTiming(event: string, payload?: Record<string, unknown>) {
+  console.log("[Video timing]", event, {
+    t: typeof performance !== "undefined" ? Math.round(performance.now()) : Date.now(),
+    ...payload,
+  });
+}
+
+/** Best-effort lock AE/AF/WB while recording to reduce walking flicker. */
+export async function lockCapturePipelineForRecording(stream: MediaStream | null) {
+  const track = stream?.getVideoTracks()[0];
+
+  if (!track || typeof track.applyConstraints !== "function") {
+    return;
+  }
+
+  try {
+    await track.applyConstraints({
+      advanced: [
+        { focusMode: "locked" } as MediaTrackConstraintSet,
+        { exposureMode: "locked" } as MediaTrackConstraintSet,
+        { whiteBalanceMode: "locked" } as MediaTrackConstraintSet,
+      ],
+    });
+    logVideoTiming("capture pipeline locked", { ok: true });
+  } catch {
+    // Unsupported on many devices — continuous modes remain; do not restart session.
+    logVideoTiming("capture pipeline lock skipped", { ok: false });
+  }
+}
+
+export async function unlockCapturePipelineAfterRecording(stream: MediaStream | null) {
+  const track = stream?.getVideoTracks()[0];
+
+  if (!track || typeof track.applyConstraints !== "function" || isIosSafari()) {
+    return;
+  }
+
+  try {
+    await track.applyConstraints({
+      advanced: [
+        { focusMode: "continuous" } as MediaTrackConstraintSet,
+        { exposureMode: "continuous" } as MediaTrackConstraintSet,
+        { whiteBalanceMode: "continuous" } as MediaTrackConstraintSet,
+      ],
+    });
+  } catch {
+    // best-effort
+  }
+}
+
 async function readRecordedVideoDurationSeconds(blob: Blob): Promise<number | null> {
   if (typeof document === "undefined") {
     return null;
   }
 
-  const url = URL.createObjectURL(blob);
   try {
-    const video = document.createElement("video");
-    video.preload = "metadata";
-    video.muted = true;
-    video.playsInline = true;
-
-    const duration = await new Promise<number>((resolve, reject) => {
-      video.onloadedmetadata = () => {
-        resolve(Number.isFinite(video.duration) ? video.duration : 0);
-      };
-      video.onerror = () => reject(new Error("Unable to read recorded duration."));
-      video.src = url;
-    });
-
+    const { getVideoDurationSeconds, normalizeVideoDurationSeconds } = await import("@/lib/videoTrim");
+    const duration = normalizeVideoDurationSeconds(await getVideoDurationSeconds(blob));
     return duration > 0 ? duration : null;
   } catch {
     return null;
-  } finally {
-    URL.revokeObjectURL(url);
   }
 }
 
@@ -404,7 +447,7 @@ export function mapCameraPermissionError(error: unknown) {
     return CAMERA_PERMISSION_MESSAGE;
   }
 
-  return error.message;
+  return CAMERA_UNAVAILABLE_MESSAGE;
 }
 
 /** Extended video constraints supported on iOS Safari / WKWebView. */
@@ -428,7 +471,9 @@ function buildAdvancedVideoConstraints(
     facingMode: { ideal: facingMode },
     width: { ideal: width, min: minWidth },
     height: { ideal: height, min: minHeight },
-    frameRate: { min: 24, ideal: 30, max: 60 },
+    // Lock to 30fps — open 24–60 ranges produce VFR MediaRecorder output that
+    // plays fine from blob: URLs but stutters when streamed over HTTP after upload.
+    frameRate: { ideal: 30, max: 30 },
     focusMode: { ideal: "continuous" },
     exposureMode: { ideal: "continuous" },
     whiteBalanceMode: { ideal: "continuous" },
@@ -609,15 +654,16 @@ export function logCameraTrackSettings(label: string, track: MediaStreamTrack | 
 function getCameraConstraintAttempts(
   facingMode: CameraFacingMode,
   quality: CameraQualityMode,
-  includeAudio = true
+  includeAudio = false
 ): MediaStreamConstraints[] {
   const audio = includeAudio ? buildAudioConstraints() : false;
+  // iOS: stay at 1080p30 max. 4K + high bitrate MediaRecorder files underrun on
+  // progressive Supabase playback even though local blob preview looks perfect.
   const videoProfiles =
     quality === "smooth"
       ? [buildLowVideoConstraints(facingMode)]
       : isIosSafari()
         ? [
-            build4KVideoConstraints(facingMode),
             buildFullHdVideoConstraints(facingMode),
             buildBalancedVideoConstraints(facingMode),
             buildLowVideoConstraints(facingMode),
@@ -711,7 +757,7 @@ export async function startCameraStream(
   }
 
   const quality = resolveCameraQualityMode(options?.quality);
-  const includeAudio = options?.includeAudio ?? true;
+  const includeAudio = options?.includeAudio ?? false;
   const attempts = getCameraConstraintAttempts(facingMode, quality, includeAudio);
   let lastError: unknown = null;
 
@@ -855,6 +901,8 @@ export const RECORDING_FAILED_MESSAGE = "Recording failed. Please try again.";
 export type RecordVideoCallbacks = {
   onStart?: () => void;
   onChunk?: (chunkCount: number) => void;
+  /** Wall-clock ms when the user pressed (for [Video timing] correlation). */
+  pressTimestampMs?: number;
 };
 
 export type VideoRecorderHandle = {
@@ -881,16 +929,26 @@ export function recordVideoFromStream(
 
   const chosenMimeType = pickVideoRecorderMimeType();
   const recordingStream = isIosSafari() ? stream : buildRecordingStream(stream);
+  const pressTimestampMs = callbacks?.pressTimestampMs ?? Date.now();
+  const timing = {
+    pressTimestampMs,
+    startRequestedMs: 0,
+    startEventMs: 0,
+    firstChunkMs: 0,
+    stopRequestedMs: 0,
+    finalChunkMs: 0,
+    stopEventMs: 0,
+  };
 
-  console.log("[SpotDrop camera] recordVideoFromStream init", {
-    mediaRecorderSupported: true,
+  logVideoTiming("recordVideoFromStream init", {
     chosenMimeType: chosenMimeType || "(none — browser default)",
     isIosSafari: isIosSafari(),
     timesliceMs: getRecorderTimesliceMs(),
+    pressTimestampMs,
     ...getStreamRecordingDebug(recordingStream),
   });
 
-  const recorder = createMediaRecorder(stream);
+  const recorder = createMediaRecorder(recordingStream);
   const resolvedMimeType = recorder.mimeType || chosenMimeType || "";
 
   const chunks: BlobPart[] = [];
@@ -901,10 +959,22 @@ export function recordVideoFromStream(
   let settleReject: (message: string) => void = () => {};
   let settleResolve: (file: File) => void = () => {};
 
-  const pushChunk = (data: Blob) => {
+  const pushChunk = (data: Blob, reason: string) => {
     chunks.push(data);
+
+    if (!timing.firstChunkMs) {
+      timing.firstChunkMs = Date.now();
+      logVideoTiming("first encoded chunk", {
+        size: data.size,
+        msAfterPress: timing.firstChunkMs - pressTimestampMs,
+        msAfterStartEvent: timing.startEventMs ? timing.firstChunkMs - timing.startEventMs : null,
+      });
+    }
+
+    timing.finalChunkMs = Date.now();
     callbacks?.onChunk?.(chunks.length);
-    console.log("[SpotDrop camera] chunk received", {
+    logVideoTiming("chunk received", {
+      reason,
       size: data.size,
       chunkCount: chunks.length,
       recorderState: recorder.state,
@@ -932,14 +1002,17 @@ export function recordVideoFromStream(
 
     recorder.onstart = () => {
       started = true;
+      timing.startEventMs = Date.now();
       const codecs = parseRecorderCodecs(recorder.mimeType);
-      console.log("[SpotDrop camera] RECORD START", {
+      logVideoTiming("recorder start event", {
         state: recorder.state,
         mimeType: recorder.mimeType,
+        msAfterPress: timing.startEventMs - pressTimestampMs,
+        msAfterStartRequested: timing.startRequestedMs
+          ? timing.startEventMs - timing.startRequestedMs
+          : null,
         audioCodec: codecs.audioCodec ?? "browser default",
-        audioBitsPerSecond: isIosSafari()
-          ? IOS_CAMERA_AUDIO_BITS_PER_SECOND
-          : CAMERA_AUDIO_BITS_PER_SECOND,
+        videoCodec: codecs.videoCodec ?? "browser default",
         ...getStreamRecordingDebug(recordingStream),
       });
 
@@ -947,8 +1020,10 @@ export function recordVideoFromStream(
         clearTimeout(maxTimeoutId);
       }
 
+      // Auto-stop from recorder timeline (not UI timer).
       maxTimeoutId = setTimeout(() => {
-        finishRecording();
+        logVideoTiming("max duration auto-stop", { maxSeconds });
+        void finishRecording("auto-max");
       }, maxSeconds * 1000);
 
       callbacks?.onStart?.();
@@ -956,7 +1031,7 @@ export function recordVideoFromStream(
 
     recorder.ondataavailable = (event) => {
       if (event.data && event.data.size > 0) {
-        pushChunk(event.data);
+        pushChunk(event.data, recorder.state === "recording" ? "timeslice" : "final-or-flush");
       }
     };
 
@@ -973,15 +1048,20 @@ export function recordVideoFromStream(
           maxTimeoutId = null;
         }
 
-        console.log("[SpotDrop camera] MEDIARECORDER STOP event", {
+        timing.stopEventMs = Date.now();
+        logVideoTiming("recorder stop event", {
           state: recorder.state,
           chunkCount: chunks.length,
+          msAfterStopRequested: timing.stopRequestedMs
+            ? timing.stopEventMs - timing.stopRequestedMs
+            : null,
         });
 
-        // Always wait for the final post-stop dataavailable — iOS drops the last
-        // 1–3s when this is skipped (old logic only waited when chunkCount === 0).
-        await waitForRecorderDataEvent(recorder, pushChunk);
-        await waitAfterStopForChunks();
+        // Spec: final dataavailable fires before stop. If somehow empty, brief settle.
+        if (chunks.length === 0) {
+          await waitForNextDataAvailable(recorder, 600);
+          await waitAfterStopForChunks();
+        }
 
         const blobType = resolvedMimeType || recorder.mimeType || "video/mp4";
         const blob = new Blob(chunks, { type: blobType });
@@ -994,14 +1074,21 @@ export function recordVideoFromStream(
         );
         const durationSeconds = await readRecordedVideoDurationSeconds(blob);
 
-        console.log("[SpotDrop camera] VIDEO FINALIZED", {
-          ...debug,
+        logVideoTiming("final media duration", {
           durationSeconds,
-        });
-        console.log("[SpotDrop camera] FINAL DURATION", {
-          seconds: durationSeconds,
           chunkCount: chunks.length,
           blobSize: blob.size,
+          pressToStopMs: timing.stopEventMs - pressTimestampMs,
+          startLatencyMs: timing.startEventMs
+            ? timing.startEventMs - pressTimestampMs
+            : null,
+          firstChunkLatencyMs: timing.firstChunkMs
+            ? timing.firstChunkMs - pressTimestampMs
+            : null,
+          stopLatencyMs:
+            timing.stopRequestedMs && timing.stopEventMs
+              ? timing.stopEventMs - timing.stopRequestedMs
+              : null,
         });
 
         if (blob.size === 0 || chunks.length === 0) {
@@ -1020,7 +1107,15 @@ export function recordVideoFromStream(
             ...probe,
             exportedMimeType: recordedFile.type,
             exportedBitrateMbps: probe.estimatedBitrateMbps,
+            trackFrameRate: snapshotFromVideoTrack(recordingStream.getVideoTracks()[0]).frameRate,
           });
+        });
+
+        void diagnoseVideoBlob("camera-recording", recordedFile, {
+          chunkCount: chunks.length,
+          timesliceMs: getRecorderTimesliceMs(),
+          durationSeconds,
+          timing,
         });
 
         settleResolve(recordedFile);
@@ -1028,41 +1123,46 @@ export function recordVideoFromStream(
     };
   });
 
-  const finishRecording = async () => {
+  const finishRecording = async (reason: string) => {
     if (stopped) {
+      logVideoTiming("stop ignored (already stopping)", { reason });
       return;
     }
 
     stopped = true;
+    timing.stopRequestedMs = Date.now();
 
-    console.log("[SpotDrop camera] MEDIARECORDER STOP requested", {
+    logVideoTiming("stop requested", {
+      reason,
       state: recorder.state,
       started,
       chunkCount: chunks.length,
+      msAfterPress: timing.stopRequestedMs - pressTimestampMs,
       ...getStreamRecordingDebug(recordingStream),
     });
 
     if (recorder.state === "recording") {
       try {
-        if (chunks.length === 0 && typeof recorder.requestData === "function") {
-          recorder.requestData();
-          await waitForRecorderDataEvent(recorder, pushChunk, 800);
-        }
-
+        // Flush buffered media once, then stop immediately — do not await before stop
+        // (awaiting delayed release and risked double-pushing chunks).
         if (typeof recorder.requestData === "function") {
           recorder.requestData();
-          console.log("[SpotDrop camera] requestData() called before stop");
-          await waitForRecorderDataEvent(recorder, pushChunk);
+          logVideoTiming("requestData before stop", { chunkCount: chunks.length });
         }
 
         recorder.stop();
-        console.log("[SpotDrop camera] MediaRecorder.stop() called", { state: recorder.state });
+        logVideoTiming("MediaRecorder.stop() called", { state: recorder.state });
       } catch (caught) {
         const debug = buildRecordingDebugInfo(recordingStream, recorder, chosenMimeType, chunks, 0);
         console.error("[SpotDrop camera] MediaRecorder.stop failed", caught, debug);
         settleReject(RECORDING_BROWSER_UNSAVED_MESSAGE);
       }
 
+      return;
+    }
+
+    if (recorder.state === "inactive" && chunks.length > 0) {
+      // Already stopped; onstop path will finalize.
       return;
     }
 
@@ -1074,15 +1174,26 @@ export function recordVideoFromStream(
   };
 
   try {
+    timing.startRequestedMs = Date.now();
     startMediaRecorder(recorder);
   } catch (caught) {
     console.error("[SpotDrop camera] MediaRecorder.start failed", caught);
     throw caught instanceof Error ? caught : new Error("Unable to start recording.");
   }
 
+  // Prevent unhandled rejection when cancel() abandons recording (tap→photo).
+  void recordingPromise.catch((error) => {
+    if (error instanceof Error && error.message === RECORDING_CANCELLED_MESSAGE) {
+      return null;
+    }
+
+    console.error("[SpotDrop camera] recording promise rejected", error);
+    return null;
+  });
+
   return {
     stop: async () => {
-      await finishRecording();
+      await finishRecording("user-release");
       return recordingPromise;
     },
     cancel: () => {
@@ -1091,18 +1202,24 @@ export function recordVideoFromStream(
       }
 
       stopped = true;
+      logVideoTiming("recording cancelled", { chunkCount: chunks.length });
 
       if (maxTimeoutId) {
         clearTimeout(maxTimeoutId);
         maxTimeoutId = null;
       }
 
-      if (recorder.state === "recording") {
+      if (recorder.state === "recording" || recorder.state === "paused") {
         try {
           recorder.stop();
         } catch (caught) {
           console.error("[SpotDrop camera] MediaRecorder.cancel stop failed", caught);
         }
+      }
+
+      if (!settled) {
+        settled = true;
+        settleReject(RECORDING_CANCELLED_MESSAGE);
       }
     },
     getRecorderState: () => recorder.state,

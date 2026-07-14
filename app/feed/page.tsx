@@ -10,10 +10,8 @@ import { SPOT_DELETED_EVENT, type SpotDeletedDetail } from "@/lib/spotDeletedEve
 import SpotStatsBar from "@/components/SpotStatsBar";
 import SpotPostMeta from "@/components/SpotPostMeta";
 import SpotCommentsSheet from "@/components/SpotCommentsSheet";
-import ExploreCollectionCard from "@/components/ExploreCollectionCard";
 import ExploreNearbyCard from "@/components/ExploreNearbyCard";
 import { getFeedSpotPublicStats, loadExploreFeed, type FeedSpotRow } from "@/lib/feed";
-import type { CollectionWithMeta } from "@/lib/collections";
 import { feedRowsToViewerItems } from "@/lib/postViewer";
 import { shouldShowSpotLocation } from "@/lib/spotLocationDisplay";
 import { getSpotCaption } from "@/lib/spotCaption";
@@ -29,7 +27,6 @@ import { MOBILE_PAGE_INNER_CLASS, MOBILE_SAFE_AREA_TOP } from "@/lib/mobileLayou
 export default function FeedPage() {
   const { t } = useI18n();
   const [posts, setPosts] = useState<FeedSpotRow[]>([]);
-  const [collections, setCollections] = useState<CollectionWithMeta[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [viewerId, setViewerId] = useState<string | null>(null);
@@ -50,7 +47,6 @@ export default function FeedPage() {
 
       const result = await loadExploreFeed();
       setPosts(result.posts);
-      setCollections(result.collections);
       setError(result.error);
       setLoading(false);
     };
@@ -148,7 +144,7 @@ export default function FeedPage() {
           <div className="rounded-2xl border border-red-500/20 bg-red-500/5 p-5 text-sm text-red-200">
             {localizeUserMessage(t, error) ?? error}
           </div>
-        ) : posts.length === 0 && collections.length === 0 ? (
+        ) : posts.length === 0 ? (
           <div className="rounded-2xl border border-white/[0.08] bg-card/80 px-6 py-14 text-center">
             <SpotDropSpotsIcon className="mx-auto h-7 w-7 text-accent [filter:drop-shadow(0_0_8px_var(--sd-primary-glow))]" strokeWidth={1.5} aria-hidden />
             <p className="mt-4 text-sm font-medium text-slate-300">{t("feed.emptyTitle")}</p>
@@ -156,16 +152,6 @@ export default function FeedPage() {
           </div>
         ) : (
           <div className="space-y-4">
-            {collections.length > 0 ? (
-              <section className="space-y-3">
-                <h2 className="px-1 text-sm font-semibold text-white">{t("feed.publicCollections")}</h2>
-                <div className="grid grid-cols-2 gap-3">
-                  {collections.map((collection) => (
-                    <ExploreCollectionCard key={collection.id} collection={collection} />
-                  ))}
-                </div>
-              </section>
-            ) : null}
             {posts.map((post, postIndex) => {
               const { mediaUrl } = getPostMedia(post);
               const username = post.profiles.username || t("common.user");

@@ -1,5 +1,6 @@
-import ClientRedirect from "@/components/ClientRedirect";
+import MapToVisitRedirect from "@/components/MapToVisitRedirect";
 
+/** Static Capacitor-safe shell — query params are read only on the client. */
 export default function MapRedirectPage() {
-  return <ClientRedirect href="/visit?tab=map" />;
+  return <MapToVisitRedirect />;
 }

@@ -1,0 +1,20 @@
+{
+  "tileWidth": 800,
+  "tileHeight": 1000,
+  "visit": {
+    "doodles": 57,
+    "mainOpacity": "14–22%",
+    "secondaryOpacity": "7–10%",
+    "sizePx": "38–110 (main mostly 58–96)"
+  },
+  "dm": {
+    "doodles": 37,
+    "mainOpacity": "10–17%",
+    "secondaryOpacity": "7–10%",
+    "sizePx": "38–96 (main mostly 55–85)"
+  },
+  "files": [
+    "public/wallpapers/spotdrop-visit.svg",
+    "public/wallpapers/spotdrop-dm.svg"
+  ]
+}

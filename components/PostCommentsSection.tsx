@@ -13,6 +13,11 @@ import { localizeUserMessage } from "@/lib/i18n/localizeUserMessage";
 import { formatPostTime } from "@/lib/posts";
 import { isEmailLikeValue, publicProfileUsername } from "@/lib/publicProfile";
 import { bottomSheetLayout, useBottomSheetScrollLock } from "@/lib/bottomSheetScrollLock";
+import {
+  useChromeNavHidden,
+  useEnsureFocusedInputVisible,
+  useKeyboardViewportFrame,
+} from "@/lib/keyboardSystem";
 import { supabase } from "@/lib/supabaseClient";
 
 type PostCommentsSectionProps = {
@@ -254,6 +259,14 @@ export default function PostCommentsSection({
   }, [drawerOpen, mode]);
 
   useBottomSheetScrollLock(mode === "drawer" && drawerPresent);
+  useChromeNavHidden("sheet-input", mode === "drawer" && drawerPresent);
+
+  const {
+    overlayStyle: keyboardOverlayStyle,
+    sheetMaxHeight,
+    footerPadding,
+  } = useKeyboardViewportFrame();
+  useEnsureFocusedInputVisible(commentInputRef, mode === "drawer" && drawerPresent);
 
   useEffect(() => {
     if (mode !== "drawer" || !drawerOpen || disabled) {
@@ -475,11 +488,11 @@ export default function PostCommentsSection({
     }
 
     const overlayClassName = elevatedOverlay
-      ? "fixed inset-0 z-[210] flex items-end justify-center overscroll-none sm:items-center sm:p-4"
-      : bottomSheetLayout.overlay;
+      ? "fixed inset-x-0 z-[210] flex items-end justify-center overscroll-none sm:items-center sm:p-4"
+      : "fixed inset-x-0 z-[130] flex items-end justify-center overscroll-none sm:items-center sm:p-4";
 
     const drawer = (
-      <div className={overlayClassName}>
+      <div className={overlayClassName} style={keyboardOverlayStyle}>
         <button
           type="button"
           className={`${bottomSheetLayout.backdrop} transition-opacity duration-300 ${
@@ -493,6 +506,7 @@ export default function PostCommentsSection({
           data-bottom-sheet-panel
           className={bottomSheetLayout.panel}
           style={{
+            maxHeight: sheetMaxHeight,
             transform: drawerVisible ? "translateY(0)" : "translateY(100%)",
             transition: `transform ${DRAWER_SPRING_MS}ms ${DRAWER_SPRING_EASING}`,
           }}
@@ -514,7 +528,10 @@ export default function PostCommentsSection({
           <div data-bottom-sheet-scroll className={`${bottomSheetLayout.scroll} px-4 py-4`}>
             {commentsList}
           </div>
-          <div className={`${bottomSheetLayout.footer} space-y-2 px-4 py-3`}>
+          <div
+            className="shrink-0 space-y-2 border-t border-white/10 px-4 py-3"
+            style={{ paddingBottom: footerPadding }}
+          >
             {commentComposer}
             {error ? (
               <p className="text-xs text-red-300">{localizeUserMessage(t, error) ?? error}</p>

@@ -1,5 +1,4 @@
 import {
-  Bookmark,
   Bell,
   CircleHelp,
   LogOut,
@@ -11,7 +10,6 @@ import type { TranslationKey } from "@/lib/i18n/messages";
 type TranslateFn = (key: TranslationKey, values?: Record<string, string | number>) => string;
 
 type BuildProfileMenuItemsInput = {
-  onOpenCollections: () => void;
   onSignOut: () => void;
 };
 
@@ -31,13 +29,6 @@ export function buildProfileMenuItems(input: BuildProfileMenuItemsInput, t: Tran
       description: t("menu.settingsDesc"),
       icon: Settings,
       href: "/settings",
-    },
-    {
-      id: "collections",
-      label: t("menu.collections"),
-      description: t("menu.collectionsDesc"),
-      icon: Bookmark,
-      onClick: input.onOpenCollections,
     },
     {
       id: "help",

@@ -12,6 +12,8 @@ import {
 import { useI18n } from "@/components/I18nProvider";
 import { markIntentionalSignOut } from "@/lib/authMessages";
 import { getSafeAuthSession, setAuthNotice } from "@/lib/authSession";
+import { deleteCurrentAccount } from "@/lib/deleteAccount";
+import { localizeCaughtError } from "@/lib/i18n/localizeUserMessage";
 import { publicProfileUsername } from "@/lib/publicProfile";
 import { supabase } from "@/lib/supabaseClient";
 
@@ -27,6 +29,7 @@ export default function DeleteAccountPage() {
   useEffect(() => {
     void getSafeAuthSession().then(async ({ session }) => {
       if (!session?.user) {
+        setLoading(false);
         router.replace("/auth/login");
         return;
       }
@@ -39,6 +42,11 @@ export default function DeleteAccountPage() {
 
   const handleDelete = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+
+    if (deleting) {
+      return;
+    }
+
     setDeleting(true);
     setError(null);
 
@@ -48,10 +56,23 @@ export default function DeleteAccountPage() {
       return;
     }
 
-    markIntentionalSignOut();
-    await supabase.auth.signOut({ scope: "global" });
-    setAuthNotice(t("settings.delete.signedOut"));
-    router.replace("/auth/login");
+    try {
+      const result = await deleteCurrentAccount();
+
+      if (!result.ok) {
+        setError(localizeCaughtError(t, result.error, "settings.delete.failed"));
+        setDeleting(false);
+        return;
+      }
+
+      markIntentionalSignOut();
+      await supabase.auth.signOut({ scope: "global" });
+      setAuthNotice(t("settings.delete.success"));
+      router.replace("/auth/login");
+    } catch (caught) {
+      setError(localizeCaughtError(t, caught, "settings.delete.failed"));
+      setDeleting(false);
+    }
   };
 
   if (loading) {

@@ -7,6 +7,7 @@ import {
   type CheckSpotGpsReading,
 } from "@/lib/checkSpotGps";
 import { calculateCheckSpotDistanceKm } from "@/lib/privateSpotDistance";
+import { toUserFacingError } from "@/lib/userFacingError";
 import { supabase } from "@/lib/supabaseClient";
 
 export type PrivateSpotShareStatus = "pending" | "accepted" | "declined";
@@ -58,30 +59,30 @@ export function formatPrivateSpotShareError(error: { code?: string; message?: st
   const lower = message.toLowerCase();
 
   if (isMissingPrivateSpotSharesTable(error)) {
-    return "CheckSpot is not enabled on the server. Run database/setup-private-spot-sharing.sql in the Supabase SQL editor.";
+    return "CheckSpot is temporarily unavailable. Please try again later.";
   }
 
   if (lower.includes("distance_km") || lower.includes("sender_location_accuracy")) {
-    return "CheckSpot needs a schema update. Run database/add-checkspot-distance.sql in Supabase.";
+    return "CheckSpot is temporarily unavailable. Please try again later.";
   }
 
   if (lower.includes("message_type") || (error.code === "42703" && lower.includes("direct_messages"))) {
-    return "Direct messages need a schema update. Run database/setup-private-spot-sharing.sql in Supabase.";
+    return "Messaging is temporarily unavailable. Please try again later.";
   }
 
   if (lower.includes("spot_share_id")) {
-    return "Direct messages need spot_share_id. Run database/setup-private-spot-sharing.sql in Supabase.";
+    return "Private sharing is temporarily unavailable. Please try again later.";
   }
 
   if (lower.includes("row-level security") || lower.includes("policy")) {
-    return "Permission denied for CheckSpot. Run database/setup-private-spot-sharing.sql in Supabase (RLS section).";
+    return "You don't have permission to complete this action.";
   }
 
   if (lower.includes("direct_messages_body_check") || lower.includes("violates check constraint")) {
-    return "Message format not supported yet. Run database/setup-private-spot-sharing.sql in Supabase.";
+    return "This message type is not supported yet.";
   }
 
-  return message;
+  return toUserFacingError(message, "Unable to send CheckSpot. Please try again.");
 }
 
 function mapShareRow(row: Record<string, unknown>): PrivateSpotShare {

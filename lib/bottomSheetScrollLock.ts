@@ -124,5 +124,6 @@ export const bottomSheetLayout = {
   panel:
     "relative z-10 flex w-full max-w-lg min-h-0 max-h-[min(85vh,720px)] flex-col overflow-hidden rounded-t-3xl border border-white/10 bg-[#0B1026] shadow-2xl sm:rounded-3xl",
   scroll: "min-h-0 flex-1 overflow-y-auto overscroll-y-contain touch-pan-y",
+  /** Static class — prefer useKeyboardViewportFrame().footerPadding for live keyboard. */
   footer: "shrink-0 border-t border-white/10 pb-[max(0.75rem,env(safe-area-inset-bottom))]",
 } as const;

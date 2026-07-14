@@ -1,61 +1,38 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
-import { Capacitor } from "@capacitor/core";
-import { Keyboard } from "@capacitor/keyboard";
 import { Loader2, MapPin, Search, X } from "lucide-react";
 import { useI18n } from "@/components/I18nProvider";
 import { localizeUserMessage } from "@/lib/i18n/localizeUserMessage";
+import { useChromeNavHidden, useKeyboard } from "@/lib/keyboardSystem";
 import { searchMapPlaces, type MapPlaceSearchResult } from "@/lib/mapPlacesSearch";
-import { setMapSearchKeyboardNavHidden } from "@/lib/mapSearchKeyboardNav";
 
 type MapPlacesSearchProps = {
   onSelectPlace: (place: MapPlaceSearchResult) => void;
   disabled?: boolean;
 };
 
-const KEYBOARD_OPEN_THRESHOLD_PX = 80;
-
-function readKeyboardOpen() {
-  if (typeof window === "undefined") {
-    return false;
-  }
-
-  const viewport = window.visualViewport;
-
-  if (!viewport) {
-    return false;
-  }
-
-  return window.innerHeight - viewport.height - viewport.offsetTop > KEYBOARD_OPEN_THRESHOLD_PX;
-}
-
-function readResultsMaxHeightPx() {
-  if (typeof window === "undefined") {
-    return 288;
-  }
-
-  const viewport = window.visualViewport;
-  const visibleHeight = viewport?.height ?? window.innerHeight;
-  // Keep results under the search field and above the keyboard / home indicator.
-  return Math.max(140, Math.min(288, Math.round(visibleHeight * 0.42)));
-}
-
 export default function MapPlacesSearch({ onSelectPlace, disabled = false }: MapPlacesSearchProps) {
   const { t } = useI18n();
   const listId = useId();
   const inputRef = useRef<HTMLInputElement>(null);
+  const { visualViewportHeight } = useKeyboard();
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<MapPlaceSearchResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const [focused, setFocused] = useState(false);
-  const [keyboardOpen, setKeyboardOpen] = useState(false);
-  const [resultsMaxHeightPx, setResultsMaxHeightPx] = useState(288);
   const requestIdRef = useRef(0);
   /** While set, skip autocomplete for this exact query (post-selection). */
   const selectionQueryRef = useRef<string | null>(null);
+
+  useChromeNavHidden("map-search-focus", focused);
+
+  const resultsMaxHeightPx = Math.max(
+    140,
+    Math.min(288, Math.round((visualViewportHeight ?? 640) * 0.42))
+  );
 
   useEffect(() => {
     const trimmed = query.trim();
@@ -97,56 +74,6 @@ export default function MapPlacesSearch({ onSelectPlace, disabled = false }: Map
       window.clearTimeout(timer);
     };
   }, [query]);
-
-  useEffect(() => {
-    const syncViewport = () => {
-      setKeyboardOpen(readKeyboardOpen());
-      setResultsMaxHeightPx(readResultsMaxHeightPx());
-    };
-
-    syncViewport();
-
-    const viewport = window.visualViewport;
-    viewport?.addEventListener("resize", syncViewport);
-    viewport?.addEventListener("scroll", syncViewport);
-    window.addEventListener("resize", syncViewport);
-
-    let showHandle: { remove: () => Promise<void> } | undefined;
-    let hideHandle: { remove: () => Promise<void> } | undefined;
-
-    if (Capacitor.isNativePlatform()) {
-      void Keyboard.addListener("keyboardWillShow", () => {
-        setKeyboardOpen(true);
-        setResultsMaxHeightPx(readResultsMaxHeightPx());
-      }).then((handle) => {
-        showHandle = handle;
-      });
-
-      void Keyboard.addListener("keyboardWillHide", () => {
-        setKeyboardOpen(false);
-        setResultsMaxHeightPx(readResultsMaxHeightPx());
-      }).then((handle) => {
-        hideHandle = handle;
-      });
-    }
-
-    return () => {
-      viewport?.removeEventListener("resize", syncViewport);
-      viewport?.removeEventListener("scroll", syncViewport);
-      window.removeEventListener("resize", syncViewport);
-      void showHandle?.remove();
-      void hideHandle?.remove();
-    };
-  }, []);
-
-  useEffect(() => {
-    const hideNav = focused || keyboardOpen;
-    setMapSearchKeyboardNavHidden(hideNav);
-
-    return () => {
-      setMapSearchKeyboardNavHidden(false);
-    };
-  }, [focused, keyboardOpen]);
 
   const clearQuery = () => {
     requestIdRef.current += 1;

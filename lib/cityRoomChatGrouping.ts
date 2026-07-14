@@ -41,7 +41,7 @@ export function getCityRoomMessageSpacingClass(
   }
 
   if (!isSameCityRoomMessageGroup(previous, current)) {
-    return "mt-3";
+    return "mt-2.5";
   }
 
   return "mt-0.5";

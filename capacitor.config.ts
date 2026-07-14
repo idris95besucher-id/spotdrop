@@ -1,4 +1,5 @@
 import type { CapacitorConfig } from '@capacitor/cli';
+import { KeyboardResize } from '@capacitor/keyboard';
 
 const config: CapacitorConfig = {
   appId: 'com.idrisgazimagomaev.spotdropapp',
@@ -12,6 +13,11 @@ const config: CapacitorConfig = {
   plugins: {
     FirebaseMessaging: {
       presentationOptions: ['alert', 'badge', 'sound'],
+    },
+    Keyboard: {
+      // Native WebView resize: absolute/flex shells (100dvh / inset-0) shrink with the
+      // keyboard so in-flow composers stay visible. Do not also lift by native height.
+      resize: KeyboardResize.Native,
     },
   },
   ios: {

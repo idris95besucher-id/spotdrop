@@ -4,6 +4,12 @@ import { createClient } from "@supabase/supabase-js";
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
+
+/** Exposed for callers that need to hit Supabase's REST endpoints directly
+ * (e.g. a raw XHR storage upload for real progress — supabase-js's own
+ * `fetch`-based client has no way to report upload progress). */
+export const SUPABASE_URL = supabaseUrl;
+export const SUPABASE_ANON_KEY = supabaseAnonKey;
 const hasPlaceholderUrl = supabaseUrl.includes("your-project-ref.supabase.co");
 
 export const supabaseConfigError =

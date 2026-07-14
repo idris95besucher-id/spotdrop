@@ -11,6 +11,8 @@ import {
   logSpotPublishMediaItemsPayload,
   logSpotPublishUploadedMediaItems,
 } from "@/lib/spotMediaLog";
+import { SPOT_MAX_PHOTOS } from "@/lib/spotMaxPhotos";
+import { logSpotPublishStep, spotPublishFail } from "@/lib/spotPublishError";
 import { requireAuthenticatedUser } from "@/lib/storageUpload";
 import { supabase } from "@/lib/supabaseClient";
 import {
@@ -72,7 +74,13 @@ export async function publishSpotWithProgress(input: PublishSpotInput): Promise<
   const primaryItem = input.mediaItems[0];
 
   if (!primaryItem) {
-    throw new Error("Media is missing.");
+    throw new Error(spotPublishFail("validate_media", "Media is missing."));
+  }
+
+  if (input.mediaItems.length > SPOT_MAX_PHOTOS) {
+    throw new Error(
+      spotPublishFail("validate_media", `A Spot can include at most ${SPOT_MAX_PHOTOS} photos.`)
+    );
   }
 
   const totalBytes = input.mediaItems.reduce((sum, item) => sum + item.file.size, 0);
@@ -80,6 +88,11 @@ export async function publishSpotWithProgress(input: PublishSpotInput): Promise<
   resetUploadTimingSummary(totalBytes);
 
   console.time("[UPLOAD] Total");
+  logSpotPublishStep("validate_media", {
+    itemCount: input.mediaItems.length,
+    mediaType: primaryItem.mediaType,
+    totalBytes,
+  });
   console.log("[UPLOAD] start", {
     itemCount: input.mediaItems.length,
     mediaType: primaryItem.mediaType,
@@ -102,15 +115,23 @@ export async function publishSpotWithProgress(input: PublishSpotInput): Promise<
 
   reportProgress(input.onProgress, "preparing", 2, labelContext);
 
-  const user = await requireAuthenticatedUser(input.userId);
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-  const accessToken = session?.access_token;
+  let user;
+  let accessToken: string | undefined;
 
-  if (!accessToken) {
+  try {
+    logSpotPublishStep("auth");
+    user = await requireAuthenticatedUser(input.userId);
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    accessToken = session?.access_token;
+
+    if (!accessToken) {
+      throw new Error("Please sign in to upload files.");
+    }
+  } catch (authError) {
     console.timeEnd("[UPLOAD] Total");
-    throw new Error("Please sign in to upload files.");
+    throw new Error(spotPublishFail("auth", authError));
   }
 
   const preparedFiles: Array<{
@@ -122,21 +143,41 @@ export async function publishSpotWithProgress(input: PublishSpotInput): Promise<
 
   const exportSlice = 8 / Math.max(input.mediaItems.length, 1);
 
-  for (let index = 0; index < input.mediaItems.length; index += 1) {
-    const item = input.mediaItems[index]!;
-    const finishExport = timeUploadStep(`[UPLOAD] Export ${index + 1}`);
-    const prepared = await prepareMediaFileForPublish(item);
-    recordUploadStepDuration("exportDurationMs", finishExport());
-    preparedFiles.push({
-      file: prepared.file,
-      mediaType: item.mediaType,
-      coverFile: item.coverFile ?? null,
-      audioMuted: prepared.audioMuted,
-    });
-    reportProgress(input.onProgress, "preparing", 4 + exportSlice * (index + 1), labelContext);
+  try {
+    for (let index = 0; index < input.mediaItems.length; index += 1) {
+      const item = input.mediaItems[index]!;
+      logSpotPublishStep("prepare_media", {
+        index,
+        fileName: item.file.name,
+        fileSize: item.file.size,
+        fileType: item.file.type,
+      });
+      const finishExport = timeUploadStep(`[UPLOAD] Export ${index + 1}`);
+      const prepared = await prepareMediaFileForPublish(item);
+      recordUploadStepDuration("exportDurationMs", finishExport());
+
+      if (item.mediaType === "video") {
+        console.log(
+          `[UPLOAD][audio] video ${index} | keepSound=${item.keepSound} | audioMuted(final)=${prepared.audioMuted} | mimeType=${prepared.file.type} | sizeBytes=${prepared.file.size}`
+        );
+      }
+
+      preparedFiles.push({
+        file: prepared.file,
+        mediaType: item.mediaType,
+        coverFile: item.coverFile ?? null,
+        audioMuted: prepared.audioMuted,
+      });
+      reportProgress(input.onProgress, "preparing", 4 + exportSlice * (index + 1), labelContext);
+    }
+  } catch (prepareError) {
+    console.timeEnd("[UPLOAD] Total");
+    throw new Error(spotPublishFail("prepare_media", prepareError));
   }
 
   reportProgress(input.onProgress, "preparing", 12, labelContext);
+
+  logSpotPublishStep("upload_primary", { preparedCount: preparedFiles.length });
 
   const result = await createGeoSpot({
     userId: user.id,
@@ -167,10 +208,17 @@ export async function publishSpotWithProgress(input: PublishSpotInput): Promise<
 
   if (result.error) {
     console.timeEnd("[UPLOAD] Total");
-    throw new Error(result.error);
+    const uploadError = new Error(result.error) as Error & { failedPhotoIndex?: number };
+
+    if (result.failedPhotoIndex != null) {
+      uploadError.failedPhotoIndex = result.failedPhotoIndex;
+    }
+
+    throw uploadError;
   }
 
   reportProgress(input.onProgress, "finalizing", 100, labelContext);
+  logSpotPublishStep("finalizing", { postId: result.postId });
 
   const totalDurationMs = Math.round(performance.now() - totalStartedAt);
   console.timeEnd("[UPLOAD] Total");

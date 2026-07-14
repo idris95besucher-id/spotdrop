@@ -1,5 +1,6 @@
 import type { User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabaseClient";
+import { toUserFacingError } from "@/lib/userFacingError";
 
 const USERNAME_REGEX = /^[a-z0-9._]{3,30}$/;
 const DATE_OF_BIRTH_REGEX = /^\d{4}-\d{2}-\d{2}$/;
@@ -31,7 +32,10 @@ export type EnsureProfileResult = {
   profile: ProfileRecord | null;
 };
 
-const PROFILE_SELECT_WITH_LOCATION = "id, name, username, gender, date_of_birth, avatar_url, cover_url, bio, country_slug, city_slug, city_id";
+const PROFILE_SELECT_WITH_LOCATION =
+  "id, name, username, gender, avatar_url, cover_url, bio, country_slug, city_slug, city_id, age_years";
+const PROFILE_SELECT_LEGACY =
+  "id, name, username, gender, date_of_birth, avatar_url, cover_url, bio, country_slug, city_slug, city_id";
 
 function normalizeUsername(value: unknown) {
   if (typeof value !== "string") {
@@ -51,8 +55,36 @@ function normalizeDateOfBirth(value: unknown) {
   return DATE_OF_BIRTH_REGEX.test(normalized) ? normalized : null;
 }
 
+async function loadOwnDateOfBirth() {
+  const { data, error } = await supabase.rpc("get_own_date_of_birth");
+
+  if (error) {
+    // Migration not applied yet — callers may still get DOB from a legacy select.
+    return null;
+  }
+
+  return typeof data === "string" ? data : null;
+}
+
 async function loadProfileRecord(userId: string) {
-  return supabase.from("profiles").select(PROFILE_SELECT_WITH_LOCATION).eq("id", userId).maybeSingle();
+  const modern = await supabase.from("profiles").select(PROFILE_SELECT_WITH_LOCATION).eq("id", userId).maybeSingle();
+
+  if (!modern.error) {
+    const dob = await loadOwnDateOfBirth();
+    return {
+      data: modern.data
+        ? {
+            ...modern.data,
+            date_of_birth: dob,
+          }
+        : null,
+      error: null,
+    };
+  }
+
+  // Fallback when age_years column is missing (pre-migration).
+  const legacy = await supabase.from("profiles").select(PROFILE_SELECT_LEGACY).eq("id", userId).maybeSingle();
+  return legacy;
 }
 
 export async function ensureProfileRow({ user, username, dateOfBirth }: EnsureProfileOptions): Promise<EnsureProfileResult> {
@@ -62,7 +94,7 @@ export async function ensureProfileRow({ user, username, dateOfBirth }: EnsurePr
     console.error("Failed to load existing profile row:", existingProfileError);
     return {
       created: false,
-      error: existingProfileError.message || "Unable to load your profile.",
+      error: toUserFacingError(existingProfileError, "Unable to load your profile."),
       needsOnboarding: false,
       profile: null,
     };
@@ -100,7 +132,7 @@ export async function ensureProfileRow({ user, username, dateOfBirth }: EnsurePr
     console.error("Failed to validate profile username uniqueness:", conflictingProfileError);
     return {
       created: false,
-      error: conflictingProfileError.message || "Unable to validate your username.",
+      error: toUserFacingError(conflictingProfileError, "Unable to validate your username."),
       needsOnboarding: false,
       profile: existingProfile ?? null,
     };
@@ -132,7 +164,7 @@ export async function ensureProfileRow({ user, username, dateOfBirth }: EnsurePr
     console.error("Failed to ensure profile row:", upsertError, profilePayload);
     return {
       created: false,
-      error: upsertError.message || "Unable to create your profile.",
+      error: toUserFacingError(upsertError, "Unable to create your profile."),
       needsOnboarding: false,
       profile: existingProfile ?? null,
     };
@@ -144,7 +176,7 @@ export async function ensureProfileRow({ user, username, dateOfBirth }: EnsurePr
     console.error("Failed to reload ensured profile row:", refreshedProfileError);
     return {
       created: false,
-      error: refreshedProfileError.message || "Unable to load your profile after creation.",
+      error: toUserFacingError(refreshedProfileError, "Unable to load your profile after creation."),
       needsOnboarding: false,
       profile: existingProfile ?? null,
     };

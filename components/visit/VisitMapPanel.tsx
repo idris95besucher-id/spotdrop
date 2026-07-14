@@ -3,6 +3,7 @@
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { useI18n } from "@/components/I18nProvider";
 import { supabase } from "@/lib/supabaseClient";
 
@@ -22,6 +23,8 @@ const SpotLiveMap = dynamic(() => import("@/components/SpotLiveMap"), {
 
 export default function VisitMapPanel() {
   const { t } = useI18n();
+  const searchParams = useSearchParams();
+  const focusMarkId = searchParams.get("mark");
   const [userId, setUserId] = useState<string | null>(null);
   const [authChecked, setAuthChecked] = useState(false);
 
@@ -62,7 +65,7 @@ export default function VisitMapPanel() {
 
   return (
     <div className="h-full min-h-0 w-full">
-      <SpotLiveMap userId={userId} embedded />
+      <SpotLiveMap userId={userId} embedded focusMarkId={focusMarkId} />
     </div>
   );
 }

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { ImagePlus, Video } from "lucide-react";
+import { ImagePlus } from "lucide-react";
 import { useI18n } from "@/components/I18nProvider";
 import { bottomSheetLayout, useBottomSheetScrollLock } from "@/lib/bottomSheetScrollLock";
 
@@ -11,7 +11,6 @@ type ProfileGalleryAddSheetProps = {
   uploading?: boolean;
   onClose: () => void;
   onAddPhoto: () => void;
-  onAddVideo: () => void;
 };
 
 export default function ProfileGalleryAddSheet({
@@ -19,7 +18,6 @@ export default function ProfileGalleryAddSheet({
   uploading = false,
   onClose,
   onAddPhoto,
-  onAddVideo,
 }: ProfileGalleryAddSheetProps) {
   const { t } = useI18n();
   const [mounted, setMounted] = useState(false);
@@ -66,15 +64,6 @@ export default function ProfileGalleryAddSheet({
           >
             <ImagePlus className="h-5 w-5 shrink-0 text-cyan-300" aria-hidden />
             {t("profile.galleryAddPhoto")}
-          </button>
-          <button
-            type="button"
-            disabled={uploading}
-            onClick={onAddVideo}
-            className="flex w-full items-center gap-3 rounded-2xl px-4 py-3.5 text-left text-sm font-medium text-white transition hover:bg-white/5 disabled:opacity-50"
-          >
-            <Video className="h-5 w-5 shrink-0 text-fuchsia-300" aria-hidden />
-            {t("profile.galleryAddVideo")}
           </button>
         </div>
       </div>

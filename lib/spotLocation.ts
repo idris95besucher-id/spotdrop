@@ -2,9 +2,14 @@ import { isCapacitorNative } from "@/lib/capacitorUtils";
 import { canonicalizeGeoLocationFields } from "@/lib/i18n/canonicalGeo";
 import type { I18nLocale } from "@/lib/i18n/locales";
 import { formatSpotLocationLabelLocalized } from "@/lib/spotLocationDisplay";
+import {
+  extractConfidentStreetName,
+  NOMINATIM_STREET_ZOOM,
+  type NominatimReversePayload,
+} from "@/lib/spotStreetName";
 import { spotUploadTime } from "@/lib/spotUploadLog";
 
-export const SPOT_MAX_VIDEO_SECONDS = 60;
+export const SPOT_MAX_VIDEO_SECONDS = 15;
 
 export type SpotGeoLocation = {
   latitude: number;
@@ -12,6 +17,8 @@ export type SpotGeoLocation = {
   address: string | null;
   city: string | null;
   country: string | null;
+  /** Structured Nominatim address fields when reverse-geocode succeeded. */
+  addressDetails?: Record<string, string | undefined> | null;
   /** Horizontal accuracy in meters at capture time (when available). */
   accuracy?: number | null;
   /** Device GPS timestamp (ms since epoch) when coordinates were frozen. */
@@ -26,6 +33,8 @@ export type ReverseGeocodeResult = {
   address: string | null;
   city: string | null;
   country: string | null;
+  /** Raw Nominatim address details for region/canton routing. */
+  addressDetails?: Record<string, string | undefined> | null;
 };
 
 export type PlaceSearchResult = {
@@ -77,6 +86,7 @@ export async function spotLocationFromCoordinates(
       address: geocoded.address,
       city: geocoded.city,
       country: geocoded.country,
+      addressDetails: geocoded.addressDetails ?? null,
     };
   } catch {
     finishLocation();
@@ -87,6 +97,7 @@ export async function spotLocationFromCoordinates(
       address: null,
       city: null,
       country: null,
+      addressDetails: null,
     };
   }
 }
@@ -101,9 +112,16 @@ async function resolveCoordinates(latitude: number, longitude: number): Promise<
   }
   try {
     const geocoded = await reverseGeocode(latitude, longitude);
-    return { latitude, longitude, address: geocoded.address, city: geocoded.city, country: geocoded.country };
+    return {
+      latitude,
+      longitude,
+      address: geocoded.address,
+      city: geocoded.city,
+      country: geocoded.country,
+      addressDetails: geocoded.addressDetails ?? null,
+    };
   } catch {
-    return { latitude, longitude, address: null, city: null, country: null };
+    return { latitude, longitude, address: null, city: null, country: null, addressDetails: null };
   }
 }
 
@@ -119,14 +137,63 @@ function buildGeolocationOptions(accuracy: LocationAccuracy): PositionOptions {
   return { enableHighAccuracy: true, timeout: 2_000, maximumAge: 0 };
 }
 
-async function capacitorGetPosition(accuracy: LocationAccuracy): Promise<SpotGeoLocation> {
+let nativeLocationPermission: "granted" | "denied" | "prompt" | null = null;
+
+async function ensureNativeLocationPermission(): Promise<"granted" | "denied"> {
+  if (nativeLocationPermission === "granted") {
+    return "granted";
+  }
+
+  if (nativeLocationPermission === "denied") {
+    return "denied";
+  }
+
   const { Geolocation } = await import("@capacitor/geolocation");
 
   try {
-    await Geolocation.requestPermissions?.();
+    const current = await Geolocation.checkPermissions?.();
+    const location = current?.location ?? current?.coarseLocation;
+
+    if (location === "granted") {
+      nativeLocationPermission = "granted";
+      return "granted";
+    }
+
+    if (location === "denied") {
+      nativeLocationPermission = "denied";
+      return "denied";
+    }
   } catch {
-    // requestPermissions is a no-op on some platforms; ignore.
+    // Fall through to request.
   }
+
+  try {
+    const requested = await Geolocation.requestPermissions?.();
+    const location = requested?.location ?? requested?.coarseLocation;
+
+    if (location === "granted") {
+      nativeLocationPermission = "granted";
+      return "granted";
+    }
+
+    nativeLocationPermission = "denied";
+    return "denied";
+  } catch {
+    // Older Capacitor builds may lack permission APIs; try getCurrentPosition once.
+    return "granted";
+  }
+}
+
+async function capacitorGetPosition(accuracy: LocationAccuracy): Promise<SpotGeoLocation> {
+  const permission = await ensureNativeLocationPermission();
+
+  if (permission === "denied") {
+    throw new Error(
+      "Location permission denied. Enable Location in Settings to tag this spot."
+    );
+  }
+
+  const { Geolocation } = await import("@capacitor/geolocation");
 
   const opts = buildGeolocationOptions(accuracy);
   const position = await Geolocation.getCurrentPosition({
@@ -226,7 +293,8 @@ export async function reverseGeocode(latitude: number, longitude: number): Promi
   url.searchParams.set("format", "jsonv2");
   url.searchParams.set("lat", String(latitude));
   url.searchParams.set("lon", String(longitude));
-  url.searchParams.set("zoom", "14");
+  // Street-level zoom so minor paths are eligible; never trust neighbourhood-level roads.
+  url.searchParams.set("zoom", String(NOMINATIM_STREET_ZOOM));
   url.searchParams.set("addressdetails", "1");
 
   const response = await fetch(url.toString(), {
@@ -237,20 +305,21 @@ export async function reverseGeocode(latitude: number, longitude: number): Promi
     throw new Error("Reverse geocoding failed.");
   }
 
-  const data = (await response.json()) as {
-    display_name?: string;
-    address?: Record<string, string | undefined>;
-  };
+  const data = (await response.json()) as NominatimReversePayload;
 
   const addressParts = data.address ?? {};
   const city = cityFromNominatimAddress(addressParts);
   const country = addressParts.country ?? null;
   const canonical = canonicalizeGeoLocationFields({ city, country });
 
+  // Store only a confident street (road/path/…) — never full display_name.
+  const street = extractConfidentStreetName(data);
+
   return {
-    address: data.display_name ?? null,
+    address: street,
     city: canonical.city,
     country: canonical.country,
+    addressDetails: addressParts,
   };
 }
 

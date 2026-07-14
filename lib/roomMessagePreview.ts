@@ -20,6 +20,10 @@ export function formatRoomMessagePreview(content: string | null | undefined, t: 
     return t("chats.preview.roomPhoto");
   }
 
+  if (parsed.kind === "map_mark") {
+    return t("chats.preview.mapMark");
+  }
+
   if (parsed.kind === "location_card") {
     return t("chats.preview.locationCard");
   }

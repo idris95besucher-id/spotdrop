@@ -1,10 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Loader2 } from "lucide-react";
 import { useI18n } from "@/components/I18nProvider";
 import { bottomSheetLayout, useBottomSheetScrollLock } from "@/lib/bottomSheetScrollLock";
+import {
+  useChromeNavHidden,
+  useEnsureFocusedInputVisible,
+  useKeyboardViewportFrame,
+} from "@/lib/keyboardSystem";
 import { GALLERY_DESCRIPTION_MAX_LENGTH } from "@/lib/profileGallery";
 
 type ProfileGalleryDescriptionSheetProps = {
@@ -25,8 +30,12 @@ export default function ProfileGalleryDescriptionSheet({
   const { t } = useI18n();
   const [mounted, setMounted] = useState(false);
   const [draft, setDraft] = useState(initialDescription);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const { overlayStyle, sheetMaxHeight, footerPadding } = useKeyboardViewportFrame();
 
   useBottomSheetScrollLock(isOpen);
+  useChromeNavHidden("sheet-input", isOpen);
+  useEnsureFocusedInputVisible(textareaRef, isOpen);
 
   useEffect(() => {
     setMounted(true);
@@ -43,7 +52,11 @@ export default function ProfileGalleryDescriptionSheet({
   }
 
   return createPortal(
-    <div className={`${bottomSheetLayout.overlay} z-[210]`} role="presentation">
+    <div
+      className="fixed inset-x-0 z-[210] flex items-end justify-center overscroll-none sm:items-center sm:p-4"
+      style={overlayStyle}
+      role="presentation"
+    >
       <button
         type="button"
         className={bottomSheetLayout.backdrop}
@@ -57,6 +70,7 @@ export default function ProfileGalleryDescriptionSheet({
         aria-labelledby="profile-gallery-description-title"
         data-bottom-sheet-panel=""
         className={`${bottomSheetLayout.panel} select-none touch-manipulation`}
+        style={{ maxHeight: sheetMaxHeight }}
         onClick={(event) => event.stopPropagation()}
       >
         <div className="border-b border-white/10 px-5 py-4">
@@ -67,8 +81,9 @@ export default function ProfileGalleryDescriptionSheet({
           </h2>
         </div>
 
-        <div className="space-y-3 px-4 py-4 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+        <div className="space-y-3 px-4 py-4" style={{ paddingBottom: footerPadding }}>
           <textarea
+            ref={textareaRef}
             value={draft}
             rows={4}
             maxLength={GALLERY_DESCRIPTION_MAX_LENGTH}

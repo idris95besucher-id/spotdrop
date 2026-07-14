@@ -1,13 +1,12 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { Loader2, UserRound } from "lucide-react";
-import OwnContentMenu from "@/components/OwnContentMenu";
+import { Loader2 } from "lucide-react";
+import EditPublicationScreen from "@/components/EditPublicationScreen";
+import PublicationAuthorHeader from "@/components/PublicationAuthorHeader";
 import { useSpotLocationModal } from "@/components/SpotLocationModalProvider";
 import PostCommentsSection from "@/components/PostCommentsSection";
 import PostDetailActionRail from "@/components/PostDetailActionRail";
-import SaveToCollectionSheet from "@/components/SaveToCollectionSheet";
 import SendSpotSheet from "@/components/SendSpotSheet";
 import PostReelMedia, { type ReelMediaPreload } from "@/components/PostReelMedia";
 import SpotMediaCarousel, { type SpotCarouselSlide } from "@/components/SpotMediaCarousel";
@@ -15,7 +14,7 @@ import SpotViewerCarouselIndicator from "@/components/SpotViewerCarouselIndicato
 import GuidePlaceCard from "@/components/GuidePlaceCard";
 import LocationCardViewerFrame from "@/components/LocationCardViewerFrame";
 import SpotLocationSummary from "@/components/SpotLocationSummary";
-import { deleteOwnedSpot } from "@/lib/deleteContent";
+import { deleteOwnedPublication } from "@/lib/deleteContent";
 import { isDemoPostId, postIdsEqual } from "@/lib/postIds";
 import {
   findDemoPost,
@@ -35,7 +34,12 @@ import { isSpotLocationCardPost, getSpotLocationCardViewerTitle, probeImageAspec
 import { normalizeSpotPublicStats, type SpotPublicStats } from "@/lib/spotRanking";
 import { SPOT_STATS_UPDATED_EVENT, dispatchSpotStatsUpdated, type SpotStatsUpdatedDetail } from "@/lib/spotStatsEvents";
 import { seeSpotLocation } from "@/lib/seeSpotLocation";
-import { loadSpotCollectionSaveState } from "@/lib/collections";
+import {
+  isSpotSavedByUser,
+  SPOT_SAVE_CHANGED_EVENT,
+  toggleSpotSave,
+  type SpotSaveChangedDetail,
+} from "@/lib/savedSpots";
 import { getViewerSpotMediaUrl, type ViewerPostListItem } from "@/lib/postViewer";
 import { perfLog, perfSince } from "@/lib/perfLog";
 import { useI18n } from "@/components/I18nProvider";
@@ -128,17 +132,18 @@ export default function PostViewerSlide({
   const [carouselSlides, setCarouselSlides] = useState<SpotCarouselSlide[]>([]);
   const [carouselActiveIndex, setCarouselActiveIndex] = useState(0);
   const [commentsOpen, setCommentsOpen] = useState(false);
-  const [saveSheetOpen, setSaveSheetOpen] = useState(false);
   const [sendSpotSheetOpen, setSendSpotSheetOpen] = useState(false);
-  const [savedCollectionIds, setSavedCollectionIds] = useState<string[]>([]);
+  const [editPublicationOpen, setEditPublicationOpen] = useState(false);
+  const [isSpotSaved, setIsSpotSaved] = useState(false);
   const [saveStateLoading, setSaveStateLoading] = useState(false);
+  const [savePending, setSavePending] = useState(false);
+  const [saveToast, setSaveToast] = useState<string | null>(null);
   const [mediaAspectRatio, setMediaAspectRatio] = useState<number | null>(null);
   const isSpot = isSpotContent({
     content_kind: post.content_kind,
     spot_latitude: post.spot_latitude,
     spot_longitude: post.spot_longitude,
   });
-  const isSpotSaved = savedCollectionIds.length > 0;
   const { openSpotLocation } = useSpotLocationModal();
 
   useEffect(() => {
@@ -148,9 +153,10 @@ export default function PostViewerSlide({
     setIsDemo(isDemoPostId(item.id));
     setReactions(EMPTY_REACTIONS);
     setCommentsOpen(false);
-    setSaveSheetOpen(false);
     setSendSpotSheetOpen(false);
-    setSavedCollectionIds([]);
+    setEditPublicationOpen(false);
+    setIsSpotSaved(false);
+    setSaveToast(null);
     setCommentCount(item.comments_count ?? 0);
     setSpotStats(normalizeSpotPublicStats(item));
     setAuthResolved(false);
@@ -320,7 +326,7 @@ export default function PostViewerSlide({
 
   useEffect(() => {
     if (!isActive || !isSpot || !userId || isDemoPostId(item.id)) {
-      setSavedCollectionIds([]);
+      setIsSpotSaved(false);
       return;
     }
 
@@ -330,20 +336,20 @@ export default function PostViewerSlide({
       setSaveStateLoading(true);
 
       try {
-        const result = await loadSpotCollectionSaveState(userId, item.id);
+        const result = await isSpotSavedByUser(userId, item.id);
 
         if (cancelled) {
           return;
         }
 
-        setSavedCollectionIds(result.savedCollectionIds);
+        setIsSpotSaved(result.saved);
 
         if (result.error) {
-          console.error("[PostViewerSlide] loadSpotCollectionSaveState failed:", result.error);
+          console.error("[PostViewerSlide] isSpotSavedByUser failed:", result.error);
         }
       } catch (loadError) {
         if (!cancelled) {
-          console.error("[PostViewerSlide] loadSpotCollectionSaveState threw:", loadError);
+          console.error("[PostViewerSlide] isSpotSavedByUser threw:", loadError);
         }
       } finally {
         if (!cancelled) {
@@ -358,6 +364,40 @@ export default function PostViewerSlide({
       cancelled = true;
     };
   }, [isActive, isSpot, item.id, userId]);
+
+  useEffect(() => {
+    const handleSaveChanged = (event: Event) => {
+      const detail = (event as CustomEvent<SpotSaveChangedDetail>).detail;
+
+      if (!detail?.postId || !postIdsEqual(detail.postId, item.id)) {
+        return;
+      }
+
+      setIsSpotSaved(detail.saved);
+
+      if (typeof detail.savedCount === "number") {
+        setSpotStats((current) => ({ ...current, saved_count: detail.savedCount! }));
+      }
+    };
+
+    window.addEventListener(SPOT_SAVE_CHANGED_EVENT, handleSaveChanged);
+
+    return () => {
+      window.removeEventListener(SPOT_SAVE_CHANGED_EVENT, handleSaveChanged);
+    };
+  }, [item.id]);
+
+  useEffect(() => {
+    if (!saveToast) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => setSaveToast(null), 1600);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [saveToast]);
 
   useEffect(() => {
     if (!isActive && !shouldPreloadMedia) {
@@ -466,7 +506,6 @@ export default function PostViewerSlide({
   const viewerCaption = getSpotCaption(post.content);
   const viewerTitle = isLocationCard ? getSpotLocationCardViewerTitle(post, locale) : null;
   const isOwnPost = Boolean(userId && post.user_id === userId && !isDemo);
-  const isOwnSpot = isSpot && isOwnPost;
   const engagementDisabled = isDemo;
 
   useEffect(() => {
@@ -491,14 +530,44 @@ export default function PostViewerSlide({
     setAuthHint("Sign in to save or comment.");
   };
 
-  const handleOpenSaveSheet = () => {
-    console.log("OPEN COLLECTION SHEET", {
-      source: "PostViewerSlide",
-      postId: post.id,
-      isActive,
-      userId: userId ?? "guest",
-    });
-    setSaveSheetOpen(true);
+  const handleToggleSave = async () => {
+    if (!userId) {
+      handleRequireAuth();
+      return;
+    }
+
+    if (!isSpot || savePending || engagementDisabled) {
+      return;
+    }
+
+    const previousSaved = isSpotSaved;
+    const previousCount = spotStats.saved_count;
+    const nextSaved = !previousSaved;
+
+    setIsSpotSaved(nextSaved);
+    setSpotStats((current) => ({
+      ...current,
+      saved_count: Math.max(0, current.saved_count + (nextSaved ? 1 : -1)),
+    }));
+    setSavePending(true);
+
+    const result = await toggleSpotSave(userId, post.id);
+
+    setSavePending(false);
+
+    if (result.error) {
+      setIsSpotSaved(previousSaved);
+      setSpotStats((current) => ({ ...current, saved_count: previousCount }));
+      return;
+    }
+
+    setIsSpotSaved(result.saved);
+
+    if (typeof result.savedCount === "number") {
+      setSpotStats((current) => ({ ...current, saved_count: result.savedCount! }));
+    }
+
+    setSaveToast(result.saved ? t("postDetail.savedToast") : t("postDetail.unsavedToast"));
   };
 
   const handleOpenSpotLocation = () => {
@@ -619,27 +688,6 @@ export default function PostViewerSlide({
         </div>
       )}
 
-      {isOwnSpot ? (
-        <div className="absolute right-3 z-30" data-spot-viewer-chrome-menu-top>
-          <OwnContentMenu
-            triggerClassName="bg-black/45 ring-1 ring-white/15 backdrop-blur-md"
-            deleteMenuLabel={t("content.deleteSpot")}
-            confirmTitle={t("content.deleteSpotTitle")}
-            confirmBody={t("content.deleteSpotBody")}
-            deletedToast={t("content.spotDeleted")}
-            onDelete={async () => {
-              if (!userId) {
-                return { ok: false, error: "Sign in required." };
-              }
-
-              setSendSpotSheetOpen(false);
-              return deleteOwnedSpot(String(post.id), userId);
-            }}
-            onDeleted={() => onItemDeleted?.(post.id)}
-          />
-        </div>
-      ) : null}
-
       <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 bg-gradient-to-t from-black/95 via-black/60 to-transparent px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-28 pr-16">
         <div className="pointer-events-auto relative space-y-2">
           {!isLocationCard && hasCarousel ? (
@@ -651,18 +699,23 @@ export default function PostViewerSlide({
             />
           ) : null}
           {postAuthor ? (
-            <Link href={`/user?id=${post.user_id}`} className="inline-flex max-w-full items-center gap-2">
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/15 bg-slate-900">
-                {postAuthor.avatar_url ? (
-                  <img src={postAuthor.avatar_url} alt="" className="h-full w-full object-cover" />
-                ) : (
-                  <UserRound className="h-4 w-4 text-slate-400" strokeWidth={1.5} aria-hidden />
-                )}
-              </div>
-              <span className="truncate text-sm font-semibold text-white">
-                {authorUsername}
-              </span>
-            </Link>
+            <PublicationAuthorHeader
+              authorUserId={post.user_id}
+              authorUsername={authorUsername}
+              avatarUrl={postAuthor.avatar_url}
+              viewerUserId={userId}
+              menuTriggerClassName="bg-black/45 ring-1 ring-white/15 backdrop-blur-md"
+              onEdit={isOwnPost ? () => setEditPublicationOpen(true) : undefined}
+              onDelete={async () => {
+                if (!userId) {
+                  return { ok: false, error: "Sign in required." };
+                }
+
+                setSendSpotSheetOpen(false);
+                return deleteOwnedPublication(String(post.id), post, userId);
+              }}
+              onDeleted={() => onItemDeleted?.(post.id)}
+            />
           ) : null}
 
           {viewerTitle ? (
@@ -725,10 +778,10 @@ export default function PostViewerSlide({
           isSpotSaved={isSpotSaved}
           savedCount={spotStats.saved_count}
           visitedCount={spotStats.visited_count}
-          savePending={saveStateLoading && isSpot}
+          savePending={(saveStateLoading || savePending) && isSpot}
           onRequireAuth={handleRequireAuth}
           onCommentClick={() => setCommentsOpen(true)}
-          onSaveClick={handleOpenSaveSheet}
+          onSaveClick={() => void handleToggleSave()}
           onVisitedClick={isSpot && showSpotLocation ? handleOpenSpotLocation : undefined}
           onSendSpotClick={
             isSpot
@@ -771,15 +824,12 @@ export default function PostViewerSlide({
         />
       ) : null}
 
-      {isSpot && !engagementDisabled ? (
-        <SaveToCollectionSheet
-          postId={post.id}
-          userId={userId}
-          isOpen={saveSheetOpen}
-          onClose={() => setSaveSheetOpen(false)}
-          onSavedChange={setSavedCollectionIds}
-          onRequireAuth={handleRequireAuth}
-        />
+      {saveToast ? (
+        <div className="pointer-events-none absolute inset-x-0 top-[max(4.5rem,calc(env(safe-area-inset-top)+3.25rem))] z-40 flex justify-center px-4">
+          <p className="rounded-full bg-black/70 px-3.5 py-1.5 text-xs font-medium text-white shadow-lg ring-1 ring-white/10 backdrop-blur-md">
+            {saveToast}
+          </p>
+        </div>
       ) : null}
 
       {isSpot && sendSpotSheetOpen && post.id ? (
@@ -790,6 +840,23 @@ export default function PostViewerSlide({
           isOpen={sendSpotSheetOpen}
           onClose={() => setSendSpotSheetOpen(false)}
           onRequireAuth={handleRequireAuth}
+        />
+      ) : null}
+
+      {isOwnPost && userId ? (
+        <EditPublicationScreen
+          isOpen={editPublicationOpen}
+          userId={userId}
+          postId={String(post.id)}
+          post={post}
+          onClose={() => setEditPublicationOpen(false)}
+          onSaved={(next) => {
+            setPost((current) => ({
+              ...current,
+              content: next.content ?? current.content,
+              spot_name: next.spot_name ?? current.spot_name,
+            }));
+          }}
         />
       ) : null}
     </section>

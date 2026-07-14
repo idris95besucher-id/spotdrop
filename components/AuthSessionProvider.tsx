@@ -71,35 +71,57 @@ export function AuthSessionProvider({ children }: AuthSessionProviderProps) {
     let active = true;
 
     const bootstrap = async () => {
-      const { data } = await supabase.auth.getSession();
+      const SESSION_BOOTSTRAP_TIMEOUT_MS = 12_000;
 
-      if (!active) {
-        return;
+      const withTimeout = <T,>(promise: Promise<T>) =>
+        Promise.race([
+          promise,
+          new Promise<T>((_, reject) => {
+            window.setTimeout(() => reject(new Error("session_timeout")), SESSION_BOOTSTRAP_TIMEOUT_MS);
+          }),
+        ]);
+
+      try {
+        const { data } = await withTimeout(supabase.auth.getSession());
+
+        if (!active) {
+          return;
+        }
+
+        const initialSession = data.session ?? null;
+
+        setState({
+          session: initialSession,
+          loading: false,
+          expired: false,
+        });
+
+        if (!initialSession) {
+          return;
+        }
+
+        const result = await withTimeout(getSafeAuthSession());
+
+        if (!active) {
+          return;
+        }
+
+        setState({
+          session: result.session ?? initialSession,
+          loading: false,
+          expired: result.expired,
+        });
+      } catch {
+        if (!active) {
+          return;
+        }
+
+        setState({
+          session: null,
+          loading: false,
+          expired: false,
+        });
       }
-
-      const initialSession = data.session ?? null;
-
-      setState({
-        session: initialSession,
-        loading: false,
-        expired: false,
-      });
-
-      if (!initialSession) {
-        return;
-      }
-
-      const result = await getSafeAuthSession();
-
-      if (!active) {
-        return;
-      }
-
-      setState({
-        session: result.session ?? initialSession,
-        loading: false,
-        expired: result.expired,
-      });
     };
 
     void bootstrap();

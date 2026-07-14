@@ -31,6 +31,12 @@ import { resolveVideoCoverFile } from "@/lib/videoCover";
 import { timeUploadStep } from "@/lib/spotUploadTiming";
 import { isGuideAccountUsername, publicProfileUsername } from "@/lib/publicProfile";
 import { addSpotToCollection, loadCollectionById, spotVisibilityForCollection } from "@/lib/collections";
+import { removeStorageObjectsForUrls } from "@/lib/deleteContent";
+import { SPOT_MAX_PHOTOS } from "@/lib/spotMaxPhotos";
+import {
+  logSpotPublishStep,
+  spotPublishFail,
+} from "@/lib/spotPublishError";
 import { supabase } from "@/lib/supabaseClient";
 
 export type MapSpotPin = {
@@ -101,6 +107,7 @@ export type CreateGeoSpotResult = {
   matchedPlace: DiscoveryPlace | null;
   error: string | null;
   carouselWarning?: string | null;
+  failedPhotoIndex?: number | null;
 };
 
 const NEAREST_PLACE_KM = 8;
@@ -112,7 +119,15 @@ function isMissingSpotColumns(error: { code?: string; message?: string } | null)
 
   const message = error.message?.toLowerCase() ?? "";
 
-  return error.code === "42703" || message.includes("spot_latitude") || message.includes("spot_");
+  return (
+    error.code === "42703" &&
+    (message.includes("spot_latitude") ||
+      message.includes("spot_longitude") ||
+      message.includes("spot_address") ||
+      message.includes("spot_city") ||
+      message.includes("spot_country") ||
+      message.includes("discovery_place_id"))
+  );
 }
 
 function isMissingSpotNameColumn(error: { code?: string; message?: string } | null) {
@@ -266,6 +281,8 @@ async function uploadCarouselMediaItem(
 }
 
 async function fetchInsertedPost(userId: string, mediaUrl: string) {
+  logSpotPublishStep("fetch_post", { userId, mediaUrl });
+
   const { data, error } = await supabase
     .from("posts")
     .select("id, spot_name, media_url, video_url, thumbnail_url, video_cover_url, media_type, image_url")
@@ -274,6 +291,19 @@ async function fetchInsertedPost(userId: string, mediaUrl: string) {
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
+
+  console.log("POST FETCH RESULT", {
+    found: Boolean(data?.id),
+    postId: data?.id ?? null,
+    error: error
+      ? {
+          message: error.message,
+          code: error.code,
+          details: error.details,
+          hint: error.hint,
+        }
+      : null,
+  });
 
   return { data, error };
 }
@@ -295,7 +325,7 @@ export async function createGeoSpot(input: CreateSpotInput): Promise<CreateGeoSp
 
   const carouselPrepared =
     input.carouselPreparedItems && input.carouselPreparedItems.length > 0
-      ? input.carouselPreparedItems
+      ? input.carouselPreparedItems.slice(0, SPOT_MAX_PHOTOS)
       : [
           {
             file: input.file,
@@ -303,6 +333,33 @@ export async function createGeoSpot(input: CreateSpotInput): Promise<CreateGeoSp
             coverFile: input.coverFile ?? null,
           },
         ];
+
+  if (carouselPrepared.length > SPOT_MAX_PHOTOS) {
+    return {
+      postId: null,
+      matchedPlace: null,
+      error: `A Spot can include at most ${SPOT_MAX_PHOTOS} photos.`,
+    };
+  }
+
+  const uploadedMediaUrls: string[] = [];
+
+  async function rollbackUploadedMedia() {
+    if (uploadedMediaUrls.length === 0) {
+      return;
+    }
+
+    await removeStorageObjectsForUrls(uploadedMediaUrls);
+    uploadedMediaUrls.length = 0;
+  }
+
+  async function rollbackCreatedPost(postId: string) {
+    await supabase
+      .from("posts")
+      .delete()
+      .eq("id", postIdForQuery(postId))
+      .eq("user_id", input.userId);
+  }
 
   type UploadedCarouselPayload = {
     mediaUrl: string;
@@ -363,6 +420,7 @@ export async function createGeoSpot(input: CreateSpotInput): Promise<CreateGeoSp
         videoCoverUrl: coverUploadResult.mediaUrl,
         storagePath: uploadResult.storagePath,
       };
+      uploadedMediaUrls.push(uploadResult.mediaUrl, coverUploadResult.mediaUrl);
     } else {
       const uploadResult = await uploadPostMedia(input.userId, primaryItem.file, {
         ...uploadOptions,
@@ -379,6 +437,7 @@ export async function createGeoSpot(input: CreateSpotInput): Promise<CreateGeoSp
         videoCoverUrl: null,
         storagePath: uploadResult.storagePath,
       };
+      uploadedMediaUrls.push(uploadResult.mediaUrl);
     }
 
     logSpotPublish("primary uploaded", { mediaUrl: primaryUpload.mediaUrl });
@@ -411,13 +470,24 @@ export async function createGeoSpot(input: CreateSpotInput): Promise<CreateGeoSp
         extraStart + (index / extras.length) * (extraEnd - extraStart)
       );
 
-      const uploaded = await uploadCarouselMediaItem(input.userId, extra, {
-        ...uploadOptions,
-        onProgress: (percent) => {
-          const local = (index + percent / 100) / extras.length;
-          input.onPublishStage?.("uploading_extra", extraStart + local * (extraEnd - extraStart));
-        },
-      });
+      let uploaded;
+
+      try {
+        uploaded = await uploadCarouselMediaItem(input.userId, extra, {
+          ...uploadOptions,
+          onProgress: (percent) => {
+            const local = (index + percent / 100) / extras.length;
+            input.onPublishStage?.("uploading_extra", extraStart + local * (extraEnd - extraStart));
+          },
+        });
+      } catch (extraUploadError) {
+        const wrapped =
+          extraUploadError instanceof Error
+            ? extraUploadError
+            : new Error("Unable to upload media.");
+        (wrapped as Error & { failedPhotoIndex?: number }).failedPhotoIndex = index + 1;
+        throw wrapped;
+      }
 
       logSpotPublish("extra media uploaded", {
         index: index + 1,
@@ -430,6 +500,12 @@ export async function createGeoSpot(input: CreateSpotInput): Promise<CreateGeoSp
         videoCoverUrl: uploaded.videoCoverUrl,
         audioMuted: extra.mediaType === "video" ? Boolean(extra.audioMuted) : false,
       });
+
+      uploadedMediaUrls.push(uploaded.mediaUrl);
+
+      if (uploaded.videoCoverUrl) {
+        uploadedMediaUrls.push(uploaded.videoCoverUrl);
+      }
     }
 
     if (extras.length > 0) {
@@ -447,9 +523,27 @@ export async function createGeoSpot(input: CreateSpotInput): Promise<CreateGeoSp
     const storageMs = finishStorage();
     input.onTiming?.("storage", storageMs);
   } catch (uploadError) {
-    const message = uploadError instanceof Error ? uploadError.message : "Unable to upload media.";
+    const message = spotPublishFail(
+      uploadedMediaUrls.length === 0 ? "upload_primary" : "upload_extra",
+      uploadError,
+      {
+        uploadedCount: uploadedMediaUrls.length,
+        preparedCount: carouselPrepared.length,
+      }
+    );
+    const failedPhotoIndex =
+      typeof (uploadError as { failedPhotoIndex?: number }).failedPhotoIndex === "number"
+        ? (uploadError as { failedPhotoIndex?: number }).failedPhotoIndex!
+        : carouselPayload.length;
+
+    await rollbackUploadedMedia();
     console.log("UPLOAD FILE RESULT", { step: "createGeoSpot", failed: true, error: message });
-    return { postId: null, matchedPlace: null, error: message };
+    return {
+      postId: null,
+      matchedPlace: null,
+      error: message,
+      failedPhotoIndex,
+    };
   }
 
   const upload = {
@@ -530,6 +624,14 @@ export async function createGeoSpot(input: CreateSpotInput): Promise<CreateGeoSp
     video_cover_url: row.video_cover_url,
     spot_name: row.spot_name,
     media_type: row.media_type,
+    spot_address: row.spot_address,
+    spot_city: row.spot_city,
+    spot_country: row.spot_country,
+    spot_latitude: row.spot_latitude,
+    spot_longitude: row.spot_longitude,
+    visibility: row.visibility,
+    content_kind: row.content_kind,
+    carousel_count: carouselPayload.length,
   });
 
   const finishDbInsert = timeUploadStep("[UPLOAD] Post Insert");
@@ -537,6 +639,7 @@ export async function createGeoSpot(input: CreateSpotInput): Promise<CreateGeoSp
   try {
     logSpotPublish("post insert start", { postIdType: "bigint" });
     logSpotPublishStage("creating_post");
+    logSpotPublishStep("create_post", { mediaUrl: row.media_url });
     input.onPublishStage?.("creating_post", 74);
 
     const insertOutcome = await withSpotPublishTimeout(
@@ -554,7 +657,13 @@ export async function createGeoSpot(input: CreateSpotInput): Promise<CreateGeoSp
           | "spot_speed"
           | "spot_heading"
         > = row;
-        let { error: insertError } = await supabase.from("posts").insert(insertRow);
+
+        // Prefer insert+select so we get the id without a separate read race.
+        let insertResult = await supabase.from("posts").insert(insertRow).select(
+          "id, spot_name, media_url, video_url, thumbnail_url, video_cover_url, media_type, image_url"
+        ).maybeSingle();
+        let insertError = insertResult.error;
+        let data = insertResult.data;
 
         if (insertError && isMissingVideoCoverColumn(insertError)) {
           const {
@@ -563,15 +672,21 @@ export async function createGeoSpot(input: CreateSpotInput): Promise<CreateGeoSp
             ...legacyRow
           } = row;
           insertRow = legacyRow;
-          const retry = await supabase.from("posts").insert(legacyRow);
-          insertError = retry.error;
+          insertResult = await supabase.from("posts").insert(legacyRow).select(
+            "id, spot_name, media_url, video_url, thumbnail_url, video_cover_url, media_type, image_url"
+          ).maybeSingle();
+          insertError = insertResult.error;
+          data = insertResult.data;
         }
 
         if (insertError && isMissingAudioMutedColumn(insertError)) {
           const { audio_muted: _audioMuted, ...withoutAudioMuted } = insertRow as typeof row;
           insertRow = withoutAudioMuted;
-          const retry = await supabase.from("posts").insert(withoutAudioMuted);
-          insertError = retry.error;
+          insertResult = await supabase.from("posts").insert(withoutAudioMuted).select(
+            "id, spot_name, media_url, video_url, thumbnail_url, video_cover_url, media_type, image_url"
+          ).maybeSingle();
+          insertError = insertResult.error;
+          data = insertResult.data;
         }
 
         if (insertError && isMissingSpotGpsMetaColumn(insertError)) {
@@ -588,17 +703,28 @@ export async function createGeoSpot(input: CreateSpotInput): Promise<CreateGeoSp
             spot_heading?: number | null;
           };
           insertRow = withoutGpsMeta;
-          const retry = await supabase.from("posts").insert(withoutGpsMeta);
-          insertError = retry.error;
+          insertResult = await supabase.from("posts").insert(withoutGpsMeta).select(
+            "id, spot_name, media_url, video_url, thumbnail_url, video_cover_url, media_type, image_url"
+          ).maybeSingle();
+          insertError = insertResult.error;
+          data = insertResult.data;
         }
 
-        let { data, error: fetchError } = await fetchInsertedPost(input.userId, upload.mediaUrl);
+        // Insert may have committed even when Prefer: return=representation fails (PGRST116).
+        if ((!data || insertError) && (isInsertSelectError(insertError) || !data)) {
+          const fetched = await fetchInsertedPost(input.userId, upload.mediaUrl);
 
-        if (!data && !fetchError && insertError && isInsertSelectError(insertError)) {
-          ({ data, error: fetchError } = await fetchInsertedPost(input.userId, upload.mediaUrl));
+          if (fetched.data) {
+            data = fetched.data;
+            if (isInsertSelectError(insertError)) {
+              insertError = null;
+            }
+          }
+
+          return { insertError, data, fetchError: fetched.error };
         }
 
-        return { insertError, data, fetchError };
+        return { insertError, data, fetchError: null };
       })(),
       SPOT_PUBLISH_POST_INSERT_TIMEOUT_MS,
       "Creating Spot"
@@ -607,8 +733,22 @@ export async function createGeoSpot(input: CreateSpotInput): Promise<CreateGeoSp
     const { insertError, data, fetchError } = insertOutcome;
 
     console.log("POST INSERT RESULT", {
-      insertError,
-      fetchError,
+      insertError: insertError
+        ? {
+            message: insertError.message,
+            code: insertError.code,
+            details: insertError.details,
+            hint: insertError.hint,
+          }
+        : null,
+      fetchError: fetchError
+        ? {
+            message: fetchError.message,
+            code: fetchError.code,
+            details: fetchError.details,
+            hint: fetchError.hint,
+          }
+        : null,
       storage_path: upload.storagePath,
       media_url: data?.media_url ?? row.media_url,
       video_url: data?.video_url ?? row.video_url,
@@ -621,13 +761,18 @@ export async function createGeoSpot(input: CreateSpotInput): Promise<CreateGeoSp
     });
 
     if (insertError && !data) {
-      logSpotPublish("post insert error", { message: insertError.message });
+      const message = spotPublishFail("create_post", insertError, {
+        storage_path: upload.storagePath,
+        media_url: row.media_url,
+      });
+      logSpotPublish("post insert error", { message });
+      await rollbackUploadedMedia();
 
       if (isMissingSpotNameColumn(insertError)) {
         return {
           postId: null,
           matchedPlace,
-          error: "Run database/add-spot-name.sql in Supabase to enable spot names.",
+          error: "Spot names are temporarily unavailable. Please try again later.",
         };
       }
 
@@ -635,30 +780,45 @@ export async function createGeoSpot(input: CreateSpotInput): Promise<CreateGeoSp
         return {
           postId: null,
           matchedPlace,
-          error: "Run database/add-spot-location.sql in Supabase to enable geo spots.",
+          error: "Location tagging is temporarily unavailable. Please try again later.",
         };
       }
 
-      return { postId: null, matchedPlace, error: insertError.message };
+      return { postId: null, matchedPlace, error: message };
     }
 
-    if (fetchError && !data) {
-      logSpotPublish("post insert error", { message: fetchError.message });
+    if (!data && fetchError) {
+      const message = spotPublishFail("fetch_post", fetchError, {
+        storage_path: upload.storagePath,
+        media_url: row.media_url,
+        note: "Insert may have succeeded; storage was NOT rolled back to avoid orphans.",
+      });
+      logSpotPublish("post insert error", { message });
+      // Do not delete uploaded files here — the post row may already exist.
       return {
         postId: null,
         matchedPlace,
-        error: fetchError.message || "Post was saved but could not be loaded.",
+        error: message,
       };
     }
 
     const postId = data?.id ? String(data.id) : null;
 
     if (!postId) {
-      logSpotPublish("post insert error", { message: "missing post id after insert" });
+      const message = spotPublishFail(
+        "fetch_post",
+        "Post insert returned no id (insert had no error, fetch found no row).",
+        {
+          storage_path: upload.storagePath,
+          media_url: row.media_url,
+        }
+      );
+      logSpotPublish("post insert error", { message });
+      // Do not delete uploaded files — row may exist under a delayed read.
       return {
         postId: null,
         matchedPlace,
-        error: "Post insert succeeded but no id was returned.",
+        error: message,
       };
     }
 
@@ -666,8 +826,6 @@ export async function createGeoSpot(input: CreateSpotInput): Promise<CreateGeoSp
       postId,
       postIdQuery: postIdForQuery(postId),
     });
-
-    let carouselWarning: string | null = null;
 
     if (carouselPayload.length > 1) {
       logSpotPublishStage("saving_media_items", { itemCount: carouselPayload.length });
@@ -687,15 +845,26 @@ export async function createGeoSpot(input: CreateSpotInput): Promise<CreateGeoSp
         });
 
         if (!mediaItemsResult.ok) {
-          carouselWarning =
-            mediaItemsResult.error ??
-            "Your Spot was published, but additional photos could not be saved.";
+          const message = spotPublishFail(
+            "save_media_items",
+            mediaItemsResult.error ?? "Unable to save all photos for this Spot.",
+            { postId, itemCount: carouselPayload.length }
+          );
+
+          await rollbackCreatedPost(postId);
+          await rollbackUploadedMedia();
+
+          return {
+            postId: null,
+            matchedPlace,
+            error: message,
+          };
         }
       } catch (mediaItemsError) {
-        const message =
-          mediaItemsError instanceof Error
-            ? mediaItemsError.message
-            : "Your Spot was published, but additional photos could not be saved.";
+        const message = spotPublishFail("save_media_items", mediaItemsError, {
+          postId,
+          itemCount: carouselPayload.length,
+        });
 
         logSpotPublishPostMediaItemsInsertResult({
           ok: false,
@@ -704,7 +873,15 @@ export async function createGeoSpot(input: CreateSpotInput): Promise<CreateGeoSp
         });
 
         logSpotPublish("media items insert error", { postId, message });
-        carouselWarning = message;
+
+        await rollbackCreatedPost(postId);
+        await rollbackUploadedMedia();
+
+        return {
+          postId: null,
+          matchedPlace,
+          error: message,
+        };
       }
     }
 
@@ -723,7 +900,7 @@ export async function createGeoSpot(input: CreateSpotInput): Promise<CreateGeoSp
     logSpotPublishStage("finalizing");
     input.onPublishStage?.("finalizing", 98);
 
-    return { postId, matchedPlace, error: null, carouselWarning };
+    return { postId, matchedPlace, error: null };
   } finally {
     const postInsertMs = finishDbInsert();
     input.onTiming?.("postInsert", postInsertMs);

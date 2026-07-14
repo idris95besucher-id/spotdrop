@@ -18,9 +18,10 @@ import { supabase } from "@/lib/supabaseClient";
 import SignOutButton from "@/components/SignOutButton";
 import Shell from "@/components/Shell";
 import { useI18n } from "@/components/I18nProvider";
-import { localizeUserMessage } from "@/lib/i18n/localizeUserMessage";
+import { localizeCaughtError, localizeUserMessage } from "@/lib/i18n/localizeUserMessage";
 import { localizeCountryName, localizeCityName } from "@/lib/i18n/localizeGeo";
 import type { TranslationKey } from "@/lib/i18n/messages";
+import { toUserFacingError } from "@/lib/userFacingError";
 
 type CountryOption = {
   id: string;
@@ -177,8 +178,8 @@ export default function EditProfilePage() {
         .order("name", { ascending: true });
 
       if (countriesError) {
-        console.error("Failed to load profile countries:", JSON.stringify(countriesError, null, 2));
-        setError(countriesError.message || "Unable to load countries.");
+        console.error("Failed to load profile countries:", countriesError.code ?? "unknown");
+        setError(toUserFacingError(countriesError, "Unable to load countries."));
       } else {
         setCountryOptions(countriesData ?? []);
       }
@@ -226,8 +227,8 @@ export default function EditProfilePage() {
         .order("name", { ascending: true });
 
       if (citiesError) {
-        console.error("Failed to load profile cities:", citiesError);
-        setError(citiesError.message || "Unable to load cities.");
+        console.error("Failed to load profile cities:", citiesError.code ?? "unknown");
+        setError(toUserFacingError(citiesError, "Unable to load cities."));
         setCityOptions([]);
         setSelectedCitySlug("");
         setLoadingCities(false);
@@ -264,7 +265,7 @@ export default function EditProfilePage() {
       const publicUrl = await uploadAvatarImage(session.user.id, file);
       setFormAvatarUrl(publicUrl);
     } catch (uploadError) {
-      setError(uploadError instanceof Error ? uploadError.message : "Unable to upload profile photo.");
+      setError(localizeCaughtError(t, uploadError, "common.somethingWentWrong"));
     } finally {
       setUploadingAvatar(false);
       event.target.value = "";
@@ -354,8 +355,8 @@ export default function EditProfilePage() {
       .maybeSingle();
 
     if (usernameError) {
-      console.error("Failed to validate profile username uniqueness:", usernameError);
-      setError(usernameError.message || "Unable to validate your username.");
+      console.error("Failed to validate profile username uniqueness:", usernameError.code ?? "unknown");
+      setError(toUserFacingError(usernameError, "Unable to validate your username."));
       setSavingProfile(false);
       return;
     }
@@ -385,8 +386,8 @@ export default function EditProfilePage() {
       .eq("id", session.user.id);
 
     if (updateError) {
-      console.error("Failed to update profile:", updateError);
-      setError(updateError.message || "Unable to save your profile.");
+      console.error("Failed to update profile:", updateError.code ?? "unknown");
+      setError(toUserFacingError(updateError, "Unable to save your profile."));
       setSavingProfile(false);
       return;
     }

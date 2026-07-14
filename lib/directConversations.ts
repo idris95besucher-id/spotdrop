@@ -6,6 +6,7 @@ import {
 import { isProfileUserId } from "@/lib/userPresence";
 import { supabase } from "@/lib/supabaseClient";
 import { isLocationCardShareMessage } from "@/lib/locationCardShareMessage";
+import { toUserFacingError } from "@/lib/userFacingError";
 
 const MESSAGE_PRIVACY_BLOCK_EN: Record<MessagePrivacyBlockReasonKey, string> = {
   "messagePrivacy.blocked.nobody": "This user isn't accepting messages.",
@@ -123,7 +124,7 @@ export async function loadDirectMessagesForThread(userId: string, partnerId: str
     .order("created_at", { ascending: true });
 
   if (error) {
-    return { messages: [] as DirectMessageRow[], error: error.message };
+    return { messages: [] as DirectMessageRow[], error: toUserFacingError(error) };
   }
 
   const messages = (data ?? []).map((row) => normalizeDirectMessageRow(row as DirectMessageRowInput));
@@ -152,7 +153,7 @@ export async function fetchNewDirectMessagesForThread(
   const { data, error } = await query;
 
   if (error) {
-    return { messages: [] as DirectMessageRow[], error: error.message };
+    return { messages: [] as DirectMessageRow[], error: toUserFacingError(error) };
   }
 
   const messages = (data ?? []).map((row) => normalizeDirectMessageRow(row as DirectMessageRowInput));
@@ -237,7 +238,7 @@ export async function resolveDmThreadPartnerId(
     return {
       partnerId: null as string | null,
       partnerUsername: null as string | null,
-      error: error.message,
+      error: toUserFacingError(error),
     };
   }
 
@@ -346,7 +347,7 @@ export async function getDirectConversation(
         return { conversation: null, error: null };
       }
 
-      return { conversation: null, error: error.message };
+      return { conversation: null, error: toUserFacingError(error) };
     }
 
     return { conversation: (data as DirectConversation | null) ?? null, error: null };
@@ -482,7 +483,7 @@ async function createConversationWithStatus(
       return { conversation: null, error: null };
     }
 
-    return { conversation: null, error: error.message };
+    return { conversation: null, error: toUserFacingError(error) };
   }
 
   return { conversation: data as DirectConversation, error: null };
@@ -592,7 +593,7 @@ export async function acceptConversationRequest(
     .maybeSingle();
 
   if (loadError) {
-    return { error: loadError.message };
+    return { error: toUserFacingError(loadError) };
   }
 
   if (!row) {
@@ -620,7 +621,7 @@ export async function acceptConversationRequest(
     .eq("status", "pending")
     .neq("requested_by", userId);
 
-  return { error: error?.message ?? null };
+  return { error: error ? toUserFacingError(error) : null };
 }
 
 export async function declineConversationRequest(
@@ -634,7 +635,7 @@ export async function declineConversationRequest(
     .maybeSingle();
 
   if (loadError) {
-    return { error: loadError.message };
+    return { error: toUserFacingError(loadError) };
   }
 
   if (!row) {
@@ -662,7 +663,7 @@ export async function declineConversationRequest(
     .eq("status", "pending")
     .neq("requested_by", userId);
 
-  return { error: error?.message ?? null };
+  return { error: error ? toUserFacingError(error) : null };
 }
 
 export async function loadUserDirectConversations(userId: string) {
@@ -677,7 +678,7 @@ export async function loadUserDirectConversations(userId: string) {
       return { conversations: [] as DirectConversation[], error: null };
     }
 
-    return { conversations: [] as DirectConversation[], error: error.message };
+    return { conversations: [] as DirectConversation[], error: toUserFacingError(error) };
   }
 
   return { conversations: (data ?? []) as DirectConversation[], error: null };
@@ -703,7 +704,7 @@ export async function loadMessagesForPartners(userId: string, partnerIds: string
     .limit(1000);
 
   if (error) {
-    return { messages: [] as DirectMessageRow[], error: error.message };
+    return { messages: [] as DirectMessageRow[], error: toUserFacingError(error) };
   }
 
   return {
@@ -770,7 +771,7 @@ export async function loadLegacyChatList(userId: string) {
     .limit(500);
 
   if (error) {
-    return { partnerIds: [] as string[], latestByPartner: new Map<string, DirectMessageRow>(), error: error.message };
+    return { partnerIds: [] as string[], latestByPartner: new Map<string, DirectMessageRow>(), error: toUserFacingError(error) };
   }
 
   const messages = (messageRows ?? []).map((row) =>

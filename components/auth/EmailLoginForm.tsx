@@ -24,27 +24,32 @@ export default function EmailLoginForm() {
     setLoading(true);
     setError(null);
 
-    if (!identifier.trim() || !password) {
-      setError(t("auth.error.enterCredentials"));
+    try {
+      if (!identifier.trim() || !password) {
+        setError(t("auth.error.enterCredentials"));
+        return;
+      }
+
+      const result = await signInWithIdentifier(identifier, password);
+
+      if (result.error) {
+        setError(result.error);
+        return;
+      }
+
+      const redirectResult = await completeAuthRedirect(router);
+
+      if (redirectResult.error) {
+        setError(redirectResult.error);
+      }
+    } catch (caught) {
+      setError(
+        localizeUserMessage(t, caught instanceof Error ? caught.message : null) ??
+          t("auth.error.unableSignIn")
+      );
+    } finally {
       setLoading(false);
-      return;
     }
-
-    const result = await signInWithIdentifier(identifier, password);
-
-    if (result.error) {
-      setError(result.error);
-      setLoading(false);
-      return;
-    }
-
-    const redirectResult = await completeAuthRedirect(router);
-
-    if (redirectResult.error) {
-      setError(redirectResult.error);
-    }
-
-    setLoading(false);
   };
 
   return (

@@ -15,6 +15,7 @@ import { formatSpotLocationDisplay } from "@/lib/spotLocationDisplay";
 import { isGuideAccountUsername, publicProfileUsername } from "@/lib/publicProfile";
 import { logExactLoadError } from "@/lib/safeLoad";
 import { supabase } from "@/lib/supabaseClient";
+import { toUserFacingError } from "@/lib/userFacingError";
 
 export type FeedSpotProfile = {
   username: string;
@@ -418,7 +419,7 @@ async function loadSpotFeedPage(
 
   if (result.error) {
     logExactLoadError(result.error);
-    return { posts: [], error: result.error.message || "Unable to load spots.", hasMore: false, fetchedCount: 0 };
+    return { posts: [], error: toUserFacingError(result.error, "Unable to load spots."), hasMore: false, fetchedCount: 0 };
   }
 
   const rawRows = result.data ?? [];
@@ -541,7 +542,7 @@ export async function loadFollowingFeed(viewerId: string | null | undefined): Pr
 
   if (followsError) {
     logExactLoadError(followsError);
-    return { posts: [], error: followsError.message || "Unable to load friends feed." };
+    return { posts: [], error: toUserFacingError(followsError, "Unable to load friends feed.") };
   }
 
   const followingIds = [...new Set((followingRows ?? []).map((row) => String(row.following_id)).filter(Boolean))];
@@ -565,7 +566,7 @@ export async function loadFollowingFeed(viewerId: string | null | undefined): Pr
 
   if (queryResult.error) {
     logExactLoadError(queryResult.error);
-    return { posts: [], error: queryResult.error.message || "Unable to load friends feed." };
+    return { posts: [], error: toUserFacingError(queryResult.error, "Unable to load friends feed.") };
   }
 
   const mapped = (queryResult.data ?? []).map((row) => mapFeedSpotRow(row as unknown as Record<string, unknown>));

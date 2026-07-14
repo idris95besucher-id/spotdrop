@@ -28,9 +28,27 @@ export function createLiveKitVoiceSession(options: VoiceAudioConnectOptions): Vo
     isMuted: () => muted,
     connect: async () => {
       const roomName = buildLiveKitRoomName(countrySlug, citySlug, voiceRoomId);
-      const response = await fetch("/api/livekit/token", {
+      const { data: sessionData } = await import("@/lib/supabaseClient").then((m) =>
+        m.supabase.auth.getSession()
+      );
+      const accessToken = sessionData.session?.access_token;
+
+      if (!accessToken) {
+        throw new Error("Sign in required for voice chat.");
+      }
+
+      const { getHostedApiBaseUrl } = await import("@/lib/hostedApiBase");
+      const isNativeWebView =
+        typeof window !== "undefined" &&
+        (window.location.protocol === "capacitor:" || window.location.protocol === "ionic:");
+      const apiBase = isNativeWebView ? getHostedApiBaseUrl() : "";
+
+      const response = await fetch(`${apiBase}/api/livekit/token`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
         body: JSON.stringify({
           roomName,
           identity: userId,

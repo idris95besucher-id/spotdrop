@@ -58,7 +58,7 @@ export async function loadChannelById(channelId: string) {
     if (isMissingChannelsTable(error)) {
       return {
         channel: null,
-        error: "Run database/add-channels.sql in Supabase to enable Channels.",
+        error: "Channels are temporarily unavailable. Please try again later.",
       };
     }
 
@@ -131,7 +131,7 @@ export async function createChannel(input: {
     if (isMissingChannelsTable(error)) {
       return {
         channel: null,
-        error: "Run database/add-channels.sql in Supabase to enable Channels.",
+        error: "Channels are temporarily unavailable. Please try again later.",
       };
     }
 
@@ -271,7 +271,7 @@ export async function addPostToChannel(channelId: string, postId: string, userId
 
   if (error) {
     if (isMissingChannelsTable(error)) {
-      return { error: "Run database/add-channels.sql in Supabase to enable Channels." };
+      return { error: "Channels are temporarily unavailable. Please try again later." };
     }
 
     return { error: error.message };

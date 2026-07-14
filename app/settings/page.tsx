@@ -144,6 +144,7 @@ export default function SettingsPage() {
       }
 
       if (!nextSession?.user) {
+        setLoading(false);
         router.replace("/auth/login");
         return;
       }

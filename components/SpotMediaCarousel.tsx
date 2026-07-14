@@ -2,13 +2,176 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import SpotMediaCarouselIndicator from "@/components/SpotMediaCarouselIndicator";
+import SpotPanoramaImage from "@/components/SpotPanoramaImage";
 import type { SpotCarouselSlide } from "@/lib/spotCarouselTypes";
-import { applySpotFullscreenVideoAttributes, playSpotFullscreenVideo } from "@/lib/spotViewerVideoPlayback";
 
 export type { SpotCarouselSlide };
 
-const VIDEO_FADE_MS = 180;
-const VIDEO_PAUSE_DELAY_MS = 240;
+/** How long to wait for `loadedmetadata` before treating a source as stuck. */
+const VIDEO_SOURCE_TIMEOUT_MS = 3500;
+
+/**
+ * Video slide — mounted immediately, exactly like the photo slide, instead of
+ * being gated behind a custom tap-to-play overlay.
+ *
+ * `slide.mediaUrl` is tried first; for a freshly-captured native video this is
+ * the native `capacitor://.../_capacitor_file_...` webPath, streamed directly
+ * by WKWebView from disk. That source has a known WKWebView failure mode:
+ * `<video>`/`<audio>` element loads are handled by AVFoundation's own media
+ * pipeline, which does not always route through an app's registered
+ * `WKURLSchemeHandler` the way page-level `fetch()`/`img`/`XHR` do — so a bad
+ * custom-scheme video source can simply hang (no `error` event ever fires)
+ * instead of failing loudly. Relying on `error` alone to trigger the
+ * `slide.fallbackMediaUrl` (`blob:`) retry therefore isn't enough — this also
+ * runs a hard timeout so a source that never calls back gets treated as
+ * failed and swapped out automatically. The loading/error state is rendered
+ * on screen (not just logged) so a stuck source is visibly a "Loading…" or
+ * "couldn't be loaded" message rather than a plain black rectangle.
+ */
+function CarouselVideoSlide({ slide }: { slide: SpotCarouselSlide }) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [activeSrc, setActiveSrc] = useState(slide.mediaUrl);
+  const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
+  const [statusDetail, setStatusDetail] = useState("starting");
+
+  // Reset local playback state when `slide.mediaUrl` itself changes (e.g. the
+  // user re-captures media into the same draft item) — adjusted during render
+  // rather than in an effect, per React's guidance for state derived from
+  // props. A genuinely different slide is already remounted by the parent's
+  // `key={slide.id}`; this only covers the same id getting a new source.
+  const [lastSeenMediaUrl, setLastSeenMediaUrl] = useState(slide.mediaUrl);
+  if (slide.mediaUrl !== lastSeenMediaUrl) {
+    setLastSeenMediaUrl(slide.mediaUrl);
+    setActiveSrc(slide.mediaUrl);
+    setStatus("loading");
+    setStatusDetail("starting");
+  }
+
+  // `activeSrc` starts as `slide.mediaUrl` and only ever moves to
+  // `fallbackMediaUrl` once — so "have we already tried the fallback" is
+  // fully derived from whether they now differ, no separate flag needed.
+  const hasFallenBackAlready = activeSrc !== slide.mediaUrl;
+
+  const failCurrentSource = useCallback(
+    (reason: string) => {
+      if (!hasFallenBackAlready && slide.fallbackMediaUrl && slide.fallbackMediaUrl !== activeSrc) {
+        console.warn(
+          `[SpotMediaCarousel][video] ${reason} — switching to blob fallback | src=${slide.fallbackMediaUrl}`
+        );
+        // `key={activeSrc}` on the element below forces a clean remount on
+        // the new source rather than mutating a <video> that already failed.
+        setActiveSrc(slide.fallbackMediaUrl);
+        setStatus("loading");
+        setStatusDetail("retrying with fallback source");
+        return;
+      }
+
+      console.error(
+        `[SpotMediaCarousel][video] both sources failed | reason=${reason} | mediaUrl=${slide.mediaUrl} | fallbackMediaUrl=${slide.fallbackMediaUrl ?? "(none)"}`
+      );
+      setStatus("error");
+      setStatusDetail(reason);
+    },
+    [activeSrc, hasFallenBackAlready, slide.fallbackMediaUrl, slide.mediaUrl]
+  );
+
+  // Belt-and-suspenders: some bad custom-scheme sources never fire `error` at
+  // all, they just never call back — so also fail over on a hard timeout.
+  useEffect(() => {
+    if (status !== "loading") {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      const video = videoRef.current;
+
+      if (video && video.readyState >= video.HAVE_CURRENT_DATA) {
+        // A frame is already showing even though `loadedmetadata` fired late
+        // for some other reason — don't fail out from under a working video.
+        setStatus("ready");
+        return;
+      }
+
+      console.error(
+        `[SpotMediaCarousel][video] timed out after ${VIDEO_SOURCE_TIMEOUT_MS}ms with no loadedmetadata | src=${activeSrc} | readyState=${video?.readyState} | networkState=${video?.networkState}`
+      );
+      failCurrentSource(`timed out loading (readyState=${video?.readyState ?? "?"})`);
+    }, VIDEO_SOURCE_TIMEOUT_MS);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [activeSrc, status, failCurrentSource]);
+
+  const handleError = useCallback(() => {
+    const video = videoRef.current;
+    const mediaError = video?.error;
+    const detail = `error code=${mediaError?.code ?? "?"} ${mediaError?.message ?? ""}`.trim();
+    console.error(
+      `[SpotMediaCarousel][video] error event | src=${activeSrc} | code=${mediaError?.code ?? "?"} | message=${mediaError?.message ?? "(none)"} | networkState=${video?.networkState} | readyState=${video?.readyState}`
+    );
+    failCurrentSource(detail);
+  }, [activeSrc, failCurrentSource]);
+
+  const handleLoadedMetadata = useCallback(() => {
+    const video = videoRef.current;
+    console.log(
+      `[SpotMediaCarousel][video] loadedmetadata | src=${activeSrc} | duration=${video?.duration} | width=${video?.videoWidth} | height=${video?.videoHeight}`
+    );
+    setStatus("ready");
+  }, [activeSrc]);
+
+  const handleLoadStart = useCallback(() => {
+    console.log(`[SpotMediaCarousel][video] loadstart | src=${activeSrc}`);
+    setStatusDetail("loading");
+  }, [activeSrc]);
+
+  const handleStalled = useCallback(() => {
+    console.warn(`[SpotMediaCarousel][video] stalled | src=${activeSrc}`);
+    setStatusDetail("stalled");
+  }, [activeSrc]);
+
+  const handleCanPlay = useCallback(() => {
+    console.log(`[SpotMediaCarousel][video] canplay | src=${activeSrc}`);
+    setStatus("ready");
+  }, [activeSrc]);
+
+  return (
+    <div className="relative h-full w-full bg-black">
+      <video
+        key={activeSrc}
+        ref={videoRef}
+        src={activeSrc}
+        poster={slide.posterUrl ?? undefined}
+        muted={Boolean(slide.audioMuted)}
+        playsInline
+        controls
+        preload="auto"
+        disablePictureInPicture
+        onError={handleError}
+        onLoadedMetadata={handleLoadedMetadata}
+        onLoadStart={handleLoadStart}
+        onStalled={handleStalled}
+        onCanPlay={handleCanPlay}
+        className="h-full w-full object-contain"
+      />
+
+      {status !== "ready" ? (
+        <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/70">
+          {status === "loading" ? (
+            <>
+              <span className="h-8 w-8 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+              <p className="text-xs text-white/70">Loading video…</p>
+            </>
+          ) : (
+            <p className="px-8 text-center text-sm text-white/80">
+              This video couldn&apos;t be loaded ({statusDetail}). Please record again.
+            </p>
+          )}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 const SCROLL_SETTLE_FALLBACK_MS = 90;
 const PROGRAMMATIC_SCROLL_MS = 240;
 
@@ -21,7 +184,7 @@ type SpotMediaCarouselProps = {
   showIndicator?: boolean;
   indicatorPlacement?: "compact" | "fullscreen";
   showSwipeHint?: boolean;
-  /** Fullscreen viewer playback with publish-time audio rules. */
+  /** Unused — kept for call-site compatibility. Video always plays via CarouselVideoSlide. */
   viewerPlayback?: boolean;
 };
 
@@ -39,10 +202,6 @@ function readScrollIndex(container: HTMLDivElement, length: number) {
   return clampIndex(Math.round(container.scrollLeft / width), length);
 }
 
-function shouldPreloadSlide(index: number, settledIndex: number, scrollIndex: number) {
-  return Math.abs(index - settledIndex) <= 1 || Math.abs(index - scrollIndex) <= 1;
-}
-
 export default function SpotMediaCarousel({
   slides,
   className = "",
@@ -52,40 +211,16 @@ export default function SpotMediaCarousel({
   showIndicator = false,
   indicatorPlacement = "compact",
   showSwipeHint = false,
-  viewerPlayback = false,
 }: SpotMediaCarouselProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
-  const videoRefs = useRef<Array<HTMLVideoElement | null>>([]);
   const scrollSettleTimerRef = useRef<number | null>(null);
-  const pauseTimerRef = useRef<number | null>(null);
-  const playTimerRef = useRef<number | null>(null);
   const settledIndexRef = useRef(0);
-  const isTouchingRef = useRef(false);
 
   const [internalActiveIndex, setInternalActiveIndex] = useState(0);
-  const [scrollIndex, setScrollIndex] = useState(0);
   const [settledIndex, setSettledIndex] = useState(0);
-  const [videoRevealIndexes, setVideoRevealIndexes] = useState<Set<number>>(() => new Set());
 
   const activeIndex = controlledActiveIndex ?? internalActiveIndex;
   const slidesKey = slides.map((slide) => slide.id).join("|");
-
-  const clearTransitionTimers = useCallback(() => {
-    if (scrollSettleTimerRef.current !== null) {
-      window.clearTimeout(scrollSettleTimerRef.current);
-      scrollSettleTimerRef.current = null;
-    }
-
-    if (pauseTimerRef.current !== null) {
-      window.clearTimeout(pauseTimerRef.current);
-      pauseTimerRef.current = null;
-    }
-
-    if (playTimerRef.current !== null) {
-      window.clearTimeout(playTimerRef.current);
-      playTimerRef.current = null;
-    }
-  }, []);
 
   const setActiveIndex = useCallback(
     (index: number) => {
@@ -126,7 +261,6 @@ export default function SpotMediaCarousel({
       const width = container.clientWidth;
       container.scrollTo({ left: width * clamped, behavior: "smooth" });
       setActiveIndex(clamped);
-      setScrollIndex(clamped);
 
       window.setTimeout(() => {
         commitSettledIndex(clamped);
@@ -135,43 +269,6 @@ export default function SpotMediaCarousel({
     [commitSettledIndex, setActiveIndex, slides.length]
   );
 
-  const playSlideVideo = useCallback(
-    async (video: HTMLVideoElement, slide: SpotCarouselSlide) => {
-      if (viewerPlayback) {
-        await playSpotFullscreenVideo(video, { forceMuted: Boolean(slide.audioMuted) });
-        return;
-      }
-
-      video.muted = true;
-      await video.play().catch(() => undefined);
-    },
-    [viewerPlayback]
-  );
-
-  const revealVideo = useCallback((index: number) => {
-    setVideoRevealIndexes((current) => {
-      if (current.has(index)) {
-        return current;
-      }
-
-      const next = new Set(current);
-      next.add(index);
-      return next;
-    });
-  }, []);
-
-  const hideVideo = useCallback((index: number) => {
-    setVideoRevealIndexes((current) => {
-      if (!current.has(index)) {
-        return current;
-      }
-
-      const next = new Set(current);
-      next.delete(index);
-      return next;
-    });
-  }, []);
-
   useEffect(() => {
     settledIndexRef.current = settledIndex;
   }, [settledIndex]);
@@ -179,8 +276,6 @@ export default function SpotMediaCarousel({
   useEffect(() => {
     settledIndexRef.current = 0;
     setSettledIndex(0);
-    setScrollIndex(0);
-    setVideoRevealIndexes(new Set());
   }, [slidesKey]);
 
   useEffect(() => {
@@ -201,45 +296,14 @@ export default function SpotMediaCarousel({
     }
 
     container.scrollTo({ left: width * controlledActiveIndex, behavior: "auto" });
-    setScrollIndex(controlledActiveIndex);
-
-    if (!isTouchingRef.current) {
-      window.requestAnimationFrame(() => {
-        commitSettledIndex(controlledActiveIndex);
-      });
-    }
-  }, [commitSettledIndex, controlledActiveIndex, slides.length]);
+    setActiveIndex(controlledActiveIndex);
+    commitSettledIndex(controlledActiveIndex);
+  }, [commitSettledIndex, controlledActiveIndex, setActiveIndex]);
 
   useEffect(() => {
     const container = scrollRef.current;
 
     if (!container) {
-      return;
-    }
-
-    const handleTouchStart = () => {
-      isTouchingRef.current = true;
-    };
-
-    const handleTouchEnd = () => {
-      isTouchingRef.current = false;
-    };
-
-    container.addEventListener("touchstart", handleTouchStart, { passive: true });
-    container.addEventListener("touchend", handleTouchEnd, { passive: true });
-    container.addEventListener("touchcancel", handleTouchEnd, { passive: true });
-
-    return () => {
-      container.removeEventListener("touchstart", handleTouchStart);
-      container.removeEventListener("touchend", handleTouchEnd);
-      container.removeEventListener("touchcancel", handleTouchEnd);
-    };
-  }, []);
-
-  useEffect(() => {
-    const container = scrollRef.current;
-
-    if (!container || slides.length <= 1) {
       return;
     }
 
@@ -256,7 +320,6 @@ export default function SpotMediaCarousel({
 
     const handleScroll = () => {
       const index = readScrollIndex(container, slides.length);
-      setScrollIndex(index);
       setActiveIndex(index);
       scheduleSettle(index);
     };
@@ -284,123 +347,6 @@ export default function SpotMediaCarousel({
     };
   }, [commitSettledIndex, setActiveIndex, slides.length]);
 
-  useEffect(() => {
-    if (!isActive) {
-      clearTransitionTimers();
-      videoRefs.current.forEach((video) => {
-        if (!video) {
-          return;
-        }
-
-        video.muted = true;
-        video.pause();
-      });
-      return;
-    }
-
-    clearTransitionTimers();
-
-    const slide = slides[settledIndex];
-    const settledVideo = videoRefs.current[settledIndex];
-
-    pauseTimerRef.current = window.setTimeout(() => {
-      videoRefs.current.forEach((video, index) => {
-        if (!video || index === settledIndex) {
-          return;
-        }
-
-        video.pause();
-
-        if (slides[index]?.mediaType === "video") {
-          hideVideo(index);
-        }
-      });
-    }, VIDEO_PAUSE_DELAY_MS);
-
-    if (slide?.mediaType !== "video" || !settledVideo) {
-      return () => {
-        clearTransitionTimers();
-      };
-    }
-
-    let cancelled = false;
-    let handleLoadedData: (() => void) | null = null;
-
-    const beginReveal = () => {
-      if (!cancelled) {
-        revealVideo(settledIndex);
-      }
-    };
-
-    if (settledVideo.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
-      beginReveal();
-    } else {
-      handleLoadedData = () => {
-        beginReveal();
-      };
-
-      settledVideo.addEventListener("loadeddata", handleLoadedData);
-    }
-
-    playTimerRef.current = window.setTimeout(() => {
-      if (!isActive || settledIndexRef.current !== settledIndex) {
-        return;
-      }
-
-      const video = videoRefs.current[settledIndex];
-      const currentSlide = slides[settledIndex];
-
-      if (video && currentSlide?.mediaType === "video") {
-        void playSlideVideo(video, currentSlide);
-      }
-    }, VIDEO_FADE_MS);
-
-    return () => {
-      cancelled = true;
-
-      if (handleLoadedData) {
-        settledVideo.removeEventListener("loadeddata", handleLoadedData);
-      }
-
-      clearTransitionTimers();
-    };
-  }, [
-    clearTransitionTimers,
-    hideVideo,
-    isActive,
-    playSlideVideo,
-    revealVideo,
-    settledIndex,
-    slides,
-  ]);
-
-  useEffect(() => {
-    if (!viewerPlayback || !isActive) {
-      return;
-    }
-
-    const slide = slides[settledIndex];
-
-    if (!slide || slide.mediaType !== "video") {
-      return;
-    }
-
-    const video = videoRefs.current[settledIndex];
-
-    if (!video) {
-      return;
-    }
-
-    const forceMuted = Boolean(slide.audioMuted);
-
-    if (forceMuted) {
-      video.muted = true;
-      return;
-    }
-
-    void playSpotFullscreenVideo(video, { forceMuted: false });
-  }, [isActive, settledIndex, slides, viewerPlayback]);
-
   if (slides.length === 0) {
     return null;
   }
@@ -420,10 +366,7 @@ export default function SpotMediaCarousel({
           scrollBehavior: "smooth",
         }}
       >
-        {slides.map((slide, index) => {
-          const previewMuted = viewerPlayback ? Boolean(slide.audioMuted) : true;
-          const isVideo = slide.mediaType === "video";
-          const isRevealed = videoRevealIndexes.has(index);
+        {slides.map((slide) => {
           const slideGpuStyle = {
             transform: "translate3d(0, 0, 0)",
             willChange: "transform",
@@ -436,54 +379,13 @@ export default function SpotMediaCarousel({
               className="relative h-full w-full shrink-0 grow-0 basis-full snap-center snap-always bg-black"
               style={{ ...slideGpuStyle, scrollSnapStop: "always" }}
             >
-              {isVideo ? (
-                <div className="relative h-full w-full bg-black">
-                  {slide.posterUrl ? (
-                    <img
-                      src={slide.posterUrl}
-                      alt=""
-                      className="absolute inset-0 h-full w-full object-cover"
-                      draggable={false}
-                      decoding="async"
-                      style={slideGpuStyle}
-                    />
-                  ) : null}
-                  <video
-                    ref={(element) => {
-                      videoRefs.current[index] = element;
-
-                      if (element) {
-                        applySpotFullscreenVideoAttributes(element);
-                        element.muted = previewMuted;
-                      }
-                    }}
-                    src={slide.mediaUrl}
-                    poster={slide.posterUrl ?? undefined}
-                    className="absolute inset-0 h-full w-full object-cover transition-opacity ease-out"
-                    style={{
-                      ...slideGpuStyle,
-                      opacity: isRevealed ? 1 : 0,
-                      transitionDuration: `${VIDEO_FADE_MS}ms`,
-                      willChange: "transform, opacity",
-                    }}
-                    playsInline
-                    muted={previewMuted}
-                    loop
-                    controls={false}
-                    disablePictureInPicture
-                    disableRemotePlayback
-                    controlsList="nodownload nofullscreen noremoteplayback"
-                    preload={shouldPreloadSlide(index, settledIndex, scrollIndex) ? "auto" : "metadata"}
-                  />
-                </div>
+              {slide.mediaType === "video" ? (
+                <CarouselVideoSlide slide={slide} />
               ) : (
-                <img
+                <SpotPanoramaImage
                   src={slide.mediaUrl}
-                  alt=""
-                  className="h-full w-full object-cover"
-                  draggable={false}
-                  decoding="async"
-                  style={slideGpuStyle}
+                  forcePanorama={Boolean(slide.isPanorama)}
+                  className="h-full w-full"
                 />
               )}
             </div>

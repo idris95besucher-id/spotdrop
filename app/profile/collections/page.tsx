@@ -3,12 +3,12 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 
-/** Opens profile with Collections tab selected. */
+/** Collections removed — open profile Saved tab instead. */
 export default function ProfileCollectionsRedirectPage() {
   const router = useRouter();
 
   useEffect(() => {
-    window.sessionStorage.setItem("spotdrop:profile-tab", "collections");
+    window.sessionStorage.setItem("spotdrop:profile-tab", "saved");
     router.replace("/profile");
   }, [router]);
 

@@ -4,11 +4,13 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { createPortal } from "react-dom";
 import { ArrowLeft } from "lucide-react";
 import ProfilePostFeedCard from "@/components/ProfilePostFeedCard";
+import EditPublicationScreen from "@/components/EditPublicationScreen";
 import SpotCommentsSheet from "@/components/SpotCommentsSheet";
 import { useAuthSession } from "@/components/AuthSessionProvider";
 import { useI18n } from "@/components/I18nProvider";
 import { findViewerIndexForSpot, type ViewerPostListItem } from "@/lib/postViewer";
 import { normalizePostId, postIdsEqual } from "@/lib/postIds";
+import { deleteOwnedPublication } from "@/lib/deleteContent";
 import { useHorizontalSwipeClose } from "@/lib/useHorizontalSwipeClose";
 import { SPOT_STATS_UPDATED_EVENT, type SpotStatsUpdatedDetail } from "@/lib/spotStatsEvents";
 
@@ -30,7 +32,7 @@ export default function ProfilePostFeedViewer({
   initialSpotId,
   initialMediaUrl = null,
   onClose,
-  onItemDeleted: _onItemDeleted,
+  onItemDeleted,
 }: ProfilePostFeedViewerProps) {
   const { t } = useI18n();
   const { session } = useAuthSession();
@@ -44,6 +46,7 @@ export default function ProfilePostFeedViewer({
   const [mounted, setMounted] = useState(() => typeof document !== "undefined");
   const [posts, setPosts] = useState(initialItems);
   const [commentsPostId, setCommentsPostId] = useState<string | null>(null);
+  const [editPost, setEditPost] = useState<ViewerPostListItem | null>(null);
 
   const setScreenNode = useCallback((node: HTMLDivElement | null) => {
     screenRef.current = node;
@@ -201,7 +204,32 @@ export default function ProfilePostFeedViewer({
           }}
         >
           {posts.map((post) => (
-            <ProfilePostFeedCard key={post.id} post={post} onCommentsClick={handleCommentsClick} />
+            <ProfilePostFeedCard
+              key={post.id}
+              post={post}
+              viewerUserId={viewerId}
+              onCommentsClick={handleCommentsClick}
+              onEdit={() => setEditPost(post)}
+              onDelete={async () => {
+                if (!viewerId) {
+                  return { ok: false, error: "Sign in required." };
+                }
+
+                return deleteOwnedPublication(String(post.id), post, viewerId);
+              }}
+              onDeleted={() => {
+                setPosts((current) => {
+                  const next = current.filter((entry) => !postIdsEqual(entry.id, post.id));
+
+                  if (next.length === 0) {
+                    requestClose();
+                  }
+
+                  return next;
+                });
+                onItemDeleted?.(post.id);
+              }}
+            />
           ))}
         </div>
       </div>
@@ -224,6 +252,30 @@ export default function ProfilePostFeedViewer({
           );
         }}
       />
+
+      {editPost && viewerId ? (
+        <EditPublicationScreen
+          isOpen={Boolean(editPost)}
+          userId={viewerId}
+          postId={String(editPost.id)}
+          post={editPost}
+          onClose={() => setEditPost(null)}
+          onSaved={(next) => {
+            setPosts((current) =>
+              current.map((entry) =>
+                postIdsEqual(entry.id, editPost.id)
+                  ? {
+                      ...entry,
+                      content: next.content ?? entry.content,
+                      spot_name: next.spot_name ?? entry.spot_name,
+                    }
+                  : entry
+              )
+            );
+            setEditPost(null);
+          }}
+        />
+      ) : null}
     </div>,
     document.body
   );

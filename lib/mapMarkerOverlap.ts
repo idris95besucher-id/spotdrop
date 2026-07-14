@@ -1,4 +1,5 @@
 import type { Map as MapLibreMap } from "maplibre-gl";
+import { resolveMapLngLat } from "@/lib/mapMarkerCoords";
 import { resolveSpotMapLngLat } from "@/lib/mapSpotPin";
 import type { MapSpotPin } from "@/lib/spots";
 import type { LiveMapUser } from "@/lib/userLiveLocation";
@@ -105,15 +106,20 @@ export function buildMixedMapOverlapClusters(
   const points: OverlapPoint[] = [];
 
   for (const user of liveUsers) {
-    if (!Number.isFinite(user.latitude) || !Number.isFinite(user.longitude)) {
+    const lngLat = resolveMapLngLat(user.latitude, user.longitude, {
+      kind: "live-user",
+      id: user.user_id,
+    });
+
+    if (!lngLat) {
       continue;
     }
 
     points.push({
       key: `user:${user.user_id}`,
       kind: "user",
-      longitude: user.longitude,
-      latitude: user.latitude,
+      longitude: lngLat[0],
+      latitude: lngLat[1],
       user,
     });
   }
@@ -199,8 +205,19 @@ export function buildMixedMapOverlapClusters(
 
   return {
     clusters,
-    freeUsers: liveUsers.filter((user) => !clusteredUserIds.has(user.user_id)),
-    freeSpots: spots.filter((spot) => !clusteredSpotIds.has(spot.id)),
+    // Only users/spots with valid geographic coords may become free markers.
+    // Invalid coords are skipped above (not clustered) and must not fall through as 0,0 UI pins.
+    freeUsers: liveUsers.filter(
+      (user) =>
+        !clusteredUserIds.has(user.user_id) &&
+        resolveMapLngLat(user.latitude, user.longitude, {
+          kind: "live-user",
+          id: user.user_id,
+        }) !== null
+    ),
+    freeSpots: spots.filter(
+      (spot) => !clusteredSpotIds.has(spot.id) && resolveSpotMapLngLat(spot) !== null
+    ),
   };
 }
 

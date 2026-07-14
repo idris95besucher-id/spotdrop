@@ -163,8 +163,7 @@ export function getSharedSpotPlaceLabel(
     );
   }
 
-  const fromAddress = spot.spot_address?.split(",")[0]?.trim();
-  return fromAddress || "this area";
+  return "this area";
 }
 
 export function spotMatchesCityRoom(spot: SharedSpotRow, room: CityRoomContext) {

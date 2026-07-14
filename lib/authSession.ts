@@ -2,10 +2,13 @@ import type { Session } from "@supabase/supabase-js";
 import {
   AUTH_CONNECTION_ERROR_MESSAGE,
   consumeIntentionalSignOut,
+  isDeletedAccountError,
   isStaleSessionError,
+  mapAuthError,
   SESSION_EXPIRED_MESSAGE,
   shouldLogAuthError,
 } from "@/lib/authMessages";
+import { toUserFacingError } from "@/lib/userFacingError";
 import { supabase } from "@/lib/supabaseClient";
 
 function isBrowserOffline() {
@@ -48,32 +51,9 @@ function authErrorDetails(error: unknown): AuthErrorDetails {
   };
 }
 
-/** User-visible message from Supabase/auth errors — never substitutes a generic fallback. */
+/** User-visible message from Supabase/auth errors — never surface raw codes/status. */
 export function formatAuthErrorMessage(error: unknown) {
-  if (typeof error === "string" && error.trim()) {
-    return error.trim();
-  }
-
-  const details = authErrorDetails(error);
-  const parts: string[] = [];
-
-  if (details.message?.trim()) {
-    parts.push(details.message.trim());
-  }
-
-  if (details.code && details.code !== details.message) {
-    parts.push(`Code: ${details.code}`);
-  }
-
-  if (details.status != null) {
-    parts.push(`HTTP ${details.status}`);
-  }
-
-  if (parts.length === 0 && details.name) {
-    parts.push(details.name);
-  }
-
-  return parts.join(" · ") || "Unknown authentication error";
+  return mapAuthError(error, toUserFacingError(error, AUTH_CONNECTION_ERROR_MESSAGE));
 }
 
 export function logAuthSessionError(error: unknown, context?: string) {
@@ -147,26 +127,36 @@ export async function getSafeAuthSession(): Promise<SafeAuthSessionResult> {
     const { data: userData, error: userError } = await supabase.auth.getUser();
 
     if (userError) {
-      if (isStaleSessionError(userError)) {
+      if (isDeletedAccountError(userError) || isStaleSessionError(userError)) {
+        if (isDeletedAccountError(userError)) {
+          await clearLocalAuthSession();
+          return { session: null, error: null, expired: true };
+        }
+
         const { data: refreshed, error: refreshError } = await supabase.auth.refreshSession();
 
         if (refreshed.session) {
           return { session: refreshed.session, error: null, expired: false };
         }
 
-        if (refreshError && isStaleSessionError(refreshError)) {
+        if (
+          refreshError &&
+          (isDeletedAccountError(refreshError) || isStaleSessionError(refreshError))
+        ) {
           await clearLocalAuthSession();
           return { session: null, error: null, expired: true };
         }
 
-        return { session, error: null, expired: false };
+        await clearLocalAuthSession();
+        return { session: null, error: null, expired: true };
       }
 
       return { session, error: AUTH_CONNECTION_ERROR_MESSAGE, expired: false };
     }
 
     if (!userData.user) {
-      return { session, error: null, expired: false };
+      await clearLocalAuthSession();
+      return { session: null, error: null, expired: true };
     }
 
     return { session, error: null, expired: false };

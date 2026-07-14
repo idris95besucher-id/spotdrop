@@ -201,11 +201,32 @@ body::before {
 
 body[data-immersive-overlay] [data-mobile-bottom-nav] {
   display: none !important;
+  height: 0 !important;
+  min-height: 0 !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  border: none !important;
+  overflow: hidden !important;
+  pointer-events: none !important;
+  visibility: hidden !important;
 }
 
-/* Map search focused / keyboard open — hide bottom nav only on the Map page. */
-body[data-map-search-keyboard] [data-mobile-bottom-nav] {
+/*
+ * Shared chrome hide — keyboard open (data-keyboard-open) and/or explicit
+ * overlay reasons (data-chrome-nav-hidden). Entire nav removed from layout.
+ */
+body[data-keyboard-open] [data-mobile-bottom-nav],
+body[data-chrome-nav-hidden] [data-mobile-bottom-nav] {
   display: none !important;
+  height: 0 !important;
+  min-height: 0 !important;
+  max-height: 0 !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  border: none !important;
+  overflow: hidden !important;
+  pointer-events: none !important;
+  visibility: hidden !important;
 }
 
 body[data-immersive-overlay] .sd-app-root {
@@ -378,6 +399,24 @@ body:has([data-profile-post-feed-screen]) [data-mobile-bottom-nav] {
   height: 52px;
 }
 
+.spot-live-user-marker-anchor {
+  width: 52px;
+  height: 52px;
+  pointer-events: auto;
+  touch-action: manipulation;
+}
+
+/* MapLibre positions anchors via transform — never animate transform on these roots. */
+.spot-live-user-marker-anchor.maplibregl-marker,
+.spot-live-share-marker-anchor.maplibregl-marker,
+.spot-live-spot-marker-anchor.maplibregl-marker,
+.spot-map-overlap-marker-anchor.maplibregl-marker,
+.spot-map-public-mark-anchor.maplibregl-marker,
+.spot-map-public-mark-cluster-anchor.maplibregl-marker,
+.spot-map-tap-pin-marker-anchor.maplibregl-marker {
+  will-change: transform;
+}
+
 .spot-live-user-marker__pulse {
   position: absolute;
   inset: 4px;
@@ -408,10 +447,19 @@ body:has([data-profile-post-feed-screen]) [data-mobile-bottom-nav] {
   object-fit: cover;
 }
 
+.spot-live-share-marker-anchor {
+  width: 48px;
+  height: 48px;
+  pointer-events: auto;
+  touch-action: manipulation;
+}
+
 .spot-live-share-marker {
-  width: 44px;
-  height: 44px;
+  display: block;
+  width: 100%;
+  height: 100%;
   overflow: hidden;
+  padding: 0;
   border-radius: 9999px;
   border: 2px solid #a78bfa;
   background: #0b1026;
@@ -419,23 +467,23 @@ body:has([data-profile-post-feed-screen]) [data-mobile-bottom-nav] {
   font-size: 13px;
   font-weight: 700;
   box-shadow: 0 8px 22px rgba(0, 0, 0, 0.45);
+  touch-action: manipulation;
 }
 
 .spot-live-share-marker img {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  pointer-events: none;
 }
 
 .spot-live-spot-marker-anchor {
   width: 52px;
   height: 52px;
+  padding: 6px;
+  box-sizing: content-box;
   pointer-events: auto;
-}
-
-/* MapLibre positions this wrapper via transform — never animate transform here. */
-.spot-live-spot-marker-anchor.maplibregl-marker {
-  will-change: transform;
+  touch-action: manipulation;
 }
 
 .spot-live-spot-marker {
@@ -473,6 +521,7 @@ body:has([data-profile-post-feed-screen]) [data-mobile-bottom-nav] {
   height: 100%;
   object-fit: cover;
   border-radius: 9999px;
+  pointer-events: none;
 }
 
 .spot-live-spot-marker__icon {
@@ -495,18 +544,27 @@ body:has([data-profile-post-feed-screen]) [data-mobile-bottom-nav] {
   animation: spot-marker-appear 320ms ease-out both;
 }
 
-/* Combined live-user + Spot marker (overlap) */
+/* Combined live-user + Spot marker (overlap) — visual node is nested inside MapLibre anchor */
+.spot-map-overlap-marker-anchor {
+  width: 54px;
+  height: 54px;
+  pointer-events: auto;
+  touch-action: manipulation;
+}
+
 .spot-map-overlap-marker {
   position: relative;
   display: flex;
-  width: 50px;
-  height: 50px;
+  width: 54px;
+  height: 54px;
   align-items: center;
   justify-content: center;
   padding: 0;
   border: none;
   background: transparent;
   cursor: pointer;
+  touch-action: manipulation;
+  transform-origin: center center;
   transition: transform 160ms ease, opacity 160ms ease;
 }
 
@@ -617,6 +675,12 @@ body:has([data-profile-post-feed-screen]) [data-mobile-bottom-nav] {
   animation: spot-marker-appear 280ms ease-out both;
 }
 
+.spot-map-tap-pin-marker-anchor {
+  width: 34px;
+  height: 34px;
+  pointer-events: none;
+}
+
 .spot-map-tap-pin-marker {
   display: flex;
   align-items: center;
@@ -633,17 +697,26 @@ body:has([data-profile-post-feed-screen]) [data-mobile-bottom-nav] {
   height: 30px;
 }
 
+.spot-map-public-mark-anchor {
+  width: 50px;
+  height: 50px;
+  pointer-events: auto;
+  touch-action: manipulation;
+}
+
 .spot-map-public-mark {
   position: relative;
   display: flex;
-  width: 46px;
-  height: 46px;
+  width: 50px;
+  height: 50px;
   align-items: center;
   justify-content: center;
   padding: 0;
   border: none;
   background: transparent;
   cursor: pointer;
+  touch-action: manipulation;
+  transform-origin: center center;
   transition: transform 140ms ease;
 }
 
@@ -700,6 +773,13 @@ body:has([data-profile-post-feed-screen]) [data-mobile-bottom-nav] {
   height: 10px;
 }
 
+.spot-map-public-mark-cluster-anchor {
+  width: 52px;
+  height: 44px;
+  pointer-events: auto;
+  touch-action: manipulation;
+}
+
 .spot-map-public-mark-cluster {
   position: relative;
   display: flex;
@@ -711,6 +791,7 @@ body:has([data-profile-post-feed-screen]) [data-mobile-bottom-nav] {
   border: none;
   background: transparent;
   cursor: pointer;
+  transform-origin: center center;
   transition: transform 140ms ease;
 }
 
@@ -932,9 +1013,25 @@ body:has([data-profile-post-feed-screen]) [data-mobile-bottom-nav] {
   .profile-header-avatar,
   .profile-header-rise,
   .profile-header-rise-delay,
-  .profile-header-rise-delay-2 {
+  .profile-header-rise-delay-2,
+  .sd-room-mark-card {
     animation: none;
   }
+}
+
+@keyframes sd-room-mark-enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.sd-room-mark-card {
+  animation: sd-room-mark-enter 220ms ease-out both;
 }
 
 @keyframes spot-live-pulse {

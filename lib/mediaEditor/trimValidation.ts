@@ -1,17 +1,19 @@
 import type { MediaEditorItem } from "@/lib/mediaEditor/types";
 import { MIN_TRIM_CLIP_SECONDS } from "@/lib/mediaEditor/trimTimeline";
-import { MAX_TRIM_CLIP_SECONDS } from "@/lib/videoTrim";
+import { MAX_TRIM_CLIP_SECONDS, normalizeVideoDurationSeconds } from "@/lib/videoTrim";
 
 export function getResolvedTrimEnd(item: MediaEditorItem, sourceDuration: number) {
-  if (sourceDuration <= 0) {
+  const duration = normalizeVideoDurationSeconds(sourceDuration);
+
+  if (duration <= 0) {
     return 0;
   }
 
   if (item.trimEnd > 0) {
-    return Math.min(item.trimEnd, sourceDuration);
+    return Math.min(normalizeVideoDurationSeconds(item.trimEnd) || item.trimEnd, duration);
   }
 
-  return sourceDuration;
+  return duration;
 }
 
 export function getClipDurationSeconds(item: MediaEditorItem, sourceDuration: number) {

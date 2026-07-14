@@ -1,19 +1,16 @@
 "use client";
 
-import { Suspense } from "react";
-import { useSearchParams } from "next/navigation";
-import CollectionPage from "./[collectionId]/CollectionView";
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
 
-function CollectionPageContent() {
-  const searchParams = useSearchParams();
-  const collectionId = searchParams.get("id") ?? "";
-  return <CollectionPage collectionIdOverride={collectionId} />;
-}
-
+/** Collections removed — redirect to private Saved on profile. */
 export default function CollectionsPage() {
-  return (
-    <Suspense>
-      <CollectionPageContent />
-    </Suspense>
-  );
+  const router = useRouter();
+
+  useEffect(() => {
+    window.sessionStorage.setItem("spotdrop:profile-tab", "saved");
+    router.replace("/profile");
+  }, [router]);
+
+  return null;
 }

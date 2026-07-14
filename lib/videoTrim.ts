@@ -6,7 +6,11 @@ import {
   parseRecorderCodecs,
 } from "@/lib/cameraCapture";
 
+/** Spot create / publish max clip length — kept in sync with camera auto-stop. */
 export const MAX_TRIM_CLIP_SECONDS = CAMERA_MAX_VIDEO_SECONDS;
+
+/** Reject absurd HTMLMediaElement.duration values (corrupt metadata / unit mistakes). */
+const MAX_PLAUSIBLE_VIDEO_SECONDS = 60 * 60;
 
 type VideoWithCaptureStream = HTMLVideoElement & {
   captureStream?: () => MediaStream;
@@ -19,28 +23,120 @@ function getCaptureStream(video: HTMLVideoElement) {
   return extended.captureStream?.() ?? extended.mozCaptureStream?.() ?? null;
 }
 
-export async function getVideoDurationSeconds(source: File | string) {
+/** Accept only finite, positive durations that fit a real Spot clip / gallery file. */
+export function normalizeVideoDurationSeconds(value: unknown): number {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    return 0;
+  }
+
+  if (value > MAX_PLAUSIBLE_VIDEO_SECONDS) {
+    return 0;
+  }
+
+  return value;
+}
+
+/**
+ * Read the real media duration in seconds.
+ *
+ * MediaRecorder / fragmented MP4 on iOS often reports `Infinity` or `NaN` until a
+ * seek forces the browser to compute the length. Always prefer the seeked value.
+ */
+export async function getVideoDurationSeconds(source: File | Blob | string): Promise<number> {
   const url = typeof source === "string" ? source : URL.createObjectURL(source);
   const shouldRevoke = typeof source !== "string";
+  const sourceLabel =
+    typeof source === "string" ? "url" : "name" in source && source.name ? source.name : "blob";
 
   try {
     const video = document.createElement("video");
     video.preload = "metadata";
     video.muted = true;
     video.playsInline = true;
+    video.setAttribute("playsinline", "true");
 
     await new Promise<void>((resolve, reject) => {
-      video.onloadedmetadata = () => resolve();
-      video.onerror = () => reject(new Error("Unable to read video duration."));
+      const onReady = () => {
+        cleanup();
+        resolve();
+      };
+      const onError = () => {
+        cleanup();
+        reject(new Error("Unable to read video duration."));
+      };
+      const cleanup = () => {
+        video.removeEventListener("loadedmetadata", onReady);
+        video.removeEventListener("error", onError);
+      };
+
+      video.addEventListener("loadedmetadata", onReady);
+      video.addEventListener("error", onError);
       video.src = url;
     });
 
-    return Number.isFinite(video.duration) ? video.duration : 0;
+    const initial = normalizeVideoDurationSeconds(video.duration);
+
+    if (initial > 0) {
+      console.log("[Video duration] metadata", {
+        durationSeconds: initial,
+        source: sourceLabel,
+      });
+      return initial;
+    }
+
+    // Force duration discovery for MediaRecorder blobs (Infinity / 0 until seek).
+    await new Promise<void>((resolve) => {
+      const onSeeked = () => {
+        cleanup();
+        resolve();
+      };
+      const onError = () => {
+        cleanup();
+        resolve();
+      };
+      const timeoutId = window.setTimeout(() => {
+        cleanup();
+        resolve();
+      }, 2500);
+      const cleanup = () => {
+        window.clearTimeout(timeoutId);
+        video.removeEventListener("seeked", onSeeked);
+        video.removeEventListener("error", onError);
+      };
+
+      video.addEventListener("seeked", onSeeked);
+      video.addEventListener("error", onError);
+
+      try {
+        video.currentTime = 1e10;
+      } catch {
+        cleanup();
+        resolve();
+      }
+    });
+
+    const afterSeek = normalizeVideoDurationSeconds(video.duration);
+    const fromPlayhead = normalizeVideoDurationSeconds(video.currentTime);
+    const resolved = afterSeek > 0 ? afterSeek : fromPlayhead;
+
+    console.log("[Video duration] seek-forced", {
+      durationSeconds: resolved,
+      metadataDuration: video.duration,
+      currentTime: video.currentTime,
+      source: sourceLabel,
+    });
+
+    return resolved;
   } finally {
     if (shouldRevoke) {
       URL.revokeObjectURL(url);
     }
   }
+}
+
+export function isVideoLongerThanMaxSeconds(durationSeconds: number, maxSeconds = MAX_TRIM_CLIP_SECONDS) {
+  const duration = normalizeVideoDurationSeconds(durationSeconds);
+  return duration > maxSeconds + 0.05;
 }
 
 /** Re-encode a clip from start to end (inclusive start, exclusive end behavior via duration). */

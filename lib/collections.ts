@@ -131,7 +131,7 @@ export async function loadCollectionById(collectionId: string) {
 
   if (error) {
     if (isMissingCollectionsTable(error)) {
-      return { collection: null, error: "Run database/add-collections.sql in Supabase to enable Collections." };
+      return { collection: null, error: "Collections are temporarily unavailable. Please try again later." };
     }
 
     return { collection: null, error: error.message };
@@ -242,7 +242,7 @@ export async function createCollection(input: {
 
   if (error) {
     if (isMissingCollectionsTable(error)) {
-      return { collection: null, error: "Run database/add-collections.sql in Supabase to enable Collections." };
+      return { collection: null, error: "Collections are temporarily unavailable. Please try again later." };
     }
 
     return { collection: null, error: error.message };
@@ -338,7 +338,7 @@ export async function loadSpotCollectionSaveState(userId: string, postId: string
       return {
         collections,
         savedCollectionIds: [] as string[],
-        error: "Run database/add-collections.sql in Supabase to enable Collections.",
+        error: "Collections are temporarily unavailable. Please try again later.",
       };
     }
 

@@ -4,6 +4,17 @@ import { normalizeCountrySlug } from "@/lib/cityAttractionsCatalog";
 import { COUNTRY_SLUG_TO_CODE } from "@/lib/i18n/geoCountryCodes";
 import { supabase } from "@/lib/supabaseClient";
 
+/** Keep in sync with CHATS_INBOX_REFRESH_EVENT in chatsInbox.ts (avoid circular import). */
+const ROOM_INBOX_CHANGED_EVENT = "spotdrop:chats-inbox-refresh";
+
+function notifyRoomInboxChanged() {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.dispatchEvent(new Event(ROOM_INBOX_CHANGED_EVENT));
+}
+
 export type RoomInboxRow = {
   membershipId: string;
   countrySlug: string;
@@ -219,12 +230,18 @@ export async function upsertRoomMembershipOnMessage(
   citySlug: string
 ) {
   const now = new Date().toISOString();
+  const normalizedCountry = countrySlug.trim().toLowerCase();
+  const normalizedCity = citySlug.trim().toLowerCase();
+
+  if (!userId || !normalizedCountry || !normalizedCity) {
+    return { error: "Missing room membership fields." };
+  }
 
   const { error } = await supabase.from("room_memberships").upsert(
     {
       user_id: userId,
-      country_slug: countrySlug,
-      city_slug: citySlug,
+      country_slug: normalizedCountry,
+      city_slug: normalizedCity,
       is_hidden: false,
       joined_by_message: true,
       updated_at: now,
@@ -242,7 +259,38 @@ export async function upsertRoomMembershipOnMessage(
     return { error: error.message };
   }
 
+  notifyRoomInboxChanged();
+
   return { error: null as string | null };
+}
+
+/** Resolve slugs from city_id then upsert — preferred when URL slugs may differ. */
+export async function upsertRoomMembershipForCityId(userId: string, cityId: string) {
+  if (!userId || !cityId) {
+    return { error: "Missing room membership fields." };
+  }
+
+  const { data: cityRow, error: cityError } = await supabase
+    .from("cities")
+    .select("slug, countries(slug)")
+    .eq("id", cityId)
+    .maybeSingle();
+
+  if (cityError) {
+    console.error("[room-memberships] failed to resolve city for membership", cityError);
+    return { error: cityError.message };
+  }
+
+  const countryJoin = cityRow?.countries as { slug?: string } | { slug?: string }[] | null;
+  const country = Array.isArray(countryJoin) ? countryJoin[0] : countryJoin;
+  const countrySlug = country?.slug?.trim().toLowerCase() ?? "";
+  const citySlug = cityRow?.slug?.trim().toLowerCase() ?? "";
+
+  if (!countrySlug || !citySlug) {
+    return { error: "Unable to resolve city room for membership." };
+  }
+
+  return upsertRoomMembershipOnMessage(userId, countrySlug, citySlug);
 }
 
 export async function watchRoomMembership(userId: string, countrySlug: string, citySlug: string) {
@@ -322,8 +370,8 @@ export async function hideRoomFromMessages(userId: string, countrySlug: string, 
     .from("room_memberships")
     .update({ is_hidden: true })
     .eq("user_id", userId)
-    .eq("country_slug", countrySlug)
-    .eq("city_slug", citySlug);
+    .eq("country_slug", countrySlug.trim().toLowerCase())
+    .eq("city_slug", citySlug.trim().toLowerCase());
 
   if (error) {
     if (isMissingRoomMembershipsTable(error)) {
@@ -332,6 +380,8 @@ export async function hideRoomFromMessages(userId: string, countrySlug: string, 
 
     return { error: error.message };
   }
+
+  notifyRoomInboxChanged();
 
   return { error: null as string | null };
 }
@@ -568,15 +618,21 @@ async function loadRoomInboxViaQueries(userId: string) {
 export async function loadRoomInbox(userId: string) {
   const rpcResult = await loadRoomInboxViaRpc(userId);
 
-  if (rpcResult.rooms) {
-    return { rooms: rpcResult.rooms, error: rpcResult.error };
+  if (!rpcResult.error && !rpcResult.rpcMissing && rpcResult.rooms) {
+    return { rooms: rpcResult.rooms, error: null as string | null };
   }
 
-  if (!rpcResult.rpcMissing && rpcResult.error) {
-    return { rooms: rpcResult.rooms ?? [], error: rpcResult.error };
+  // Always fall back to direct membership queries if RPC is missing or fails.
+  const queryResult = await loadRoomInboxViaQueries(userId);
+
+  if (queryResult.error && rpcResult.error && !rpcResult.rpcMissing) {
+    return {
+      rooms: queryResult.rooms,
+      error: queryResult.error || rpcResult.error,
+    };
   }
 
-  return loadRoomInboxViaQueries(userId);
+  return queryResult;
 }
 
 export async function countUnreadRoomMessages(userId: string, excludes?: OptimisticReadExcludes) {

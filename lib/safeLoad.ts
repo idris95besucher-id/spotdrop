@@ -1,3 +1,5 @@
+import { isTechnicalErrorMessage } from "@/lib/userFacingError";
+
 /** Serialize unknown errors so console output is actionable (avoids `{}` from Errors / odd proxies). */
 function serializeLoadError(error: unknown): string | null {
   if (error === null || error === undefined) {
@@ -48,15 +50,22 @@ export function logExactLoadError(error: unknown): void {
 }
 
 /**
- * For read-only list queries (reactions, comments, post lists): only surface a user-visible error
- * when Supabase provides a message. Empty or message-less errors show empty UI, not a red banner.
+ * For read-only list queries: never surface raw engine errors in the UI.
  */
-export function userFacingSupabaseListError(error: { message?: string | null } | null | undefined): string | null {
+export function userFacingSupabaseListError(
+  error: { message?: string | null } | null | undefined
+): string | null {
   if (error == null) {
     return null;
   }
   const msg = typeof error.message === "string" ? error.message.trim() : "";
-  return msg || null;
+  if (!msg) {
+    return null;
+  }
+  if (isTechnicalErrorMessage(msg)) {
+    return null;
+  }
+  return msg;
 }
 
 export function getErrorMessage(error: unknown, fallback: string) {

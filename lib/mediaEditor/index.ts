@@ -3,9 +3,11 @@ export { MEDIA_EDITOR_MAX_ITEMS } from "@/lib/mediaEditor/types";
 export {
   createGalleryMediaEditorItem,
   createMediaEditorItem,
+  createPanoramaMediaEditorItem,
   getActiveMediaEditorItem,
   revokeMediaEditorItem,
   revokeMediaEditorItems,
+  withMeasuredVideoDuration,
 } from "@/lib/mediaEditor/helpers";
 export {
   getClipDurationSeconds,

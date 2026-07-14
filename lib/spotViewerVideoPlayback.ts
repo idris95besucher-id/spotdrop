@@ -22,25 +22,45 @@ export async function playSpotFullscreenVideo(
 ): Promise<SpotFullscreenPlayResult> {
   const wantSound = !options?.forceMuted;
 
-  video.muted = true;
+  // Avoid stacking concurrent play()/mute flips — a common flash source on iOS.
+  if (video.dataset.spotPlayInFlight === "1") {
+    return { started: !video.paused };
+  }
+
+  video.dataset.spotPlayInFlight = "1";
 
   try {
-    await video.play();
-  } catch {
-    return { started: false };
-  }
+    video.muted = true;
 
-  if (wantSound) {
-    video.muted = false;
+    try {
+      await video.play();
+    } catch {
+      return { started: false };
+    }
 
-    if (video.paused) {
-      try {
-        await video.play();
-      } catch {
-        video.muted = true;
+    if (wantSound) {
+      // Wait one frame so the first painted frame is stable before unmute.
+      await new Promise<void>((resolve) => {
+        window.requestAnimationFrame(() => resolve());
+      });
+
+      if (!video.isConnected) {
+        return { started: false };
+      }
+
+      video.muted = false;
+
+      if (video.paused) {
+        try {
+          await video.play();
+        } catch {
+          video.muted = true;
+        }
       }
     }
-  }
 
-  return { started: true };
+    return { started: true };
+  } finally {
+    delete video.dataset.spotPlayInFlight;
+  }
 }

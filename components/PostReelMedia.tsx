@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import SpotPanoramaImage from "@/components/SpotPanoramaImage";
 import { pauseAllGridVideoPreviews } from "@/lib/gridVideoPreviewControl";
 import { logSpotLoadUiFailure } from "@/lib/spotLoadDiagnostics";
 import { releasePreloadedReelVideo } from "@/lib/postViewerMedia";
@@ -51,6 +52,17 @@ type PostReelMediaProps = {
   onPhaseChange?: (phase: SpotLoadPhase) => void;
 };
 
+export default function PostReelMedia(props: PostReelMediaProps) {
+  // `PostReelMediaImage` already fully implements video playback (mount,
+  // autoplay-with-retry, `audioMuted` handling, poster fallback, error
+  // retry) despite its name — it used to be gated off entirely behind a
+  // "video not supported" placeholder from back when the old browser
+  // `MediaRecorder` pipeline produced unreliable files. Native
+  // AVCaptureMovieFileOutput recordings are real, valid video files, so that
+  // gate no longer applies.
+  return <PostReelMediaImage {...props} />;
+}
+
 function retryPlaybackUrl(url: string, attempt: number) {
   if (attempt <= 0) {
     return url;
@@ -64,7 +76,7 @@ function logSpotMedia(event: string, details?: Record<string, unknown>) {
   console.log(`[Spot media] ${event}`, details ?? "");
 }
 
-export default function PostReelMedia({
+function PostReelMediaImage({
   mediaUrl,
   mediaType,
   posterUrl,
@@ -326,11 +338,7 @@ export default function PostReelMedia({
         currentTime: video.currentTime,
       });
       markFirstFrameReady();
-
-      if (isActiveRef.current) {
-        requestActivePlay(video, "loadeddata");
-      }
-
+      // Do not play here — canplay handles start. Dual play()+unmute caused flashes on remote URLs.
       refreshDebugSnapshot();
     };
 
@@ -341,7 +349,7 @@ export default function PostReelMedia({
       });
       markFirstFrameReady();
 
-      if (isActiveRef.current) {
+      if (isActiveRef.current && (video.paused || video.ended)) {
         requestActivePlay(video, "canplay");
       }
 
@@ -362,6 +370,7 @@ export default function PostReelMedia({
         isActive: isActiveRef.current,
         currentTime: video.currentTime,
         readyState: video.readyState,
+        networkState: video.networkState,
         stack: isVideoPlaybackDebugEnabled() ? new Error("pause event trace").stack : undefined,
       });
 
@@ -371,7 +380,15 @@ export default function PostReelMedia({
         return;
       }
 
-      if (resumeAfterPauseRef.current) {
+      // Remote progressive playback often fires pause while buffering.
+      // Auto-calling play() here (especially mute→unmute) causes visible flicker/flash
+      // that never happens with local blob: preview URLs.
+      const buffering =
+        video.readyState < HTMLMediaElement.HAVE_FUTURE_DATA ||
+        video.networkState === HTMLMediaElement.NETWORK_LOADING;
+
+      if (buffering || resumeAfterPauseRef.current) {
+        patchVideoFlags({ playing: !video.paused });
         refreshDebugSnapshot();
         return;
       }
@@ -381,6 +398,10 @@ export default function PostReelMedia({
         if (started) {
           patchVideoFlags({ playing: true });
         }
+        // Allow a later genuine resume if this one was blocked.
+        window.setTimeout(() => {
+          resumeAfterPauseRef.current = false;
+        }, 1200);
         refreshDebugSnapshot();
       });
     };
@@ -400,6 +421,8 @@ export default function PostReelMedia({
         networkState: video.networkState,
         currentTime: video.currentTime,
       });
+      // Keep firstFrameReady true so the poster does not flash back over the video.
+      patchVideoFlags({ playing: false });
       refreshDebugSnapshot();
     };
 
@@ -416,7 +439,7 @@ export default function PostReelMedia({
         { code: mediaError?.code, message: mediaError?.message }
       );
 
-      patchVideoFlags({ playing: false, firstFrameReady: false, error: true });
+      patchVideoFlags({ playing: false, error: true });
 
       if (retryCountRef.current >= MAX_AUTO_RETRIES) {
         logSpotLoadUiFailure("PostReelMedia", "media load failed after retries", {
@@ -568,35 +591,35 @@ export default function PostReelMedia({
           aria-hidden
           loading={loadHeavyMedia ? "eager" : "lazy"}
           decoding="async"
-          className={`absolute inset-0 z-[1] h-full w-full object-cover object-center transition-opacity duration-150 ${
+          className={`absolute inset-0 z-[1] h-full w-full object-cover object-center ${
             showPosterWhileVideo ? "opacity-100" : "pointer-events-none opacity-0"
           }`}
         />
       ) : null}
 
       {showImageLayer ? (
-        <img
-          key={playbackUrl}
-          src={playbackUrl}
-          alt={alt}
-          loading="eager"
-          decoding="async"
-          className={`absolute inset-0 z-[2] h-full w-full object-cover object-center transition-opacity duration-150 ${
+        <div
+          className={`absolute inset-0 z-[2] transition-opacity duration-150 ${
             imageReady ? "opacity-100" : "opacity-0"
           }`}
-          onLoad={() => {
-            setImageReady(true);
-            setPhase("loaded");
-            logSpotMedia("loaded", { mediaUrl: playbackUrl, mediaType: "image" });
-          }}
-          onError={() => setPhase("error")}
-        />
+        >
+          <SpotPanoramaImage
+            src={playbackUrl}
+            alt={alt}
+            className="h-full w-full"
+            onLoad={() => {
+              setImageReady(true);
+              setPhase("loaded");
+              logSpotMedia("loaded", { mediaUrl: playbackUrl, mediaType: "image" });
+            }}
+            onError={() => setPhase("error")}
+          />
+        </div>
       ) : null}
 
       {shouldMountVideo ? (
         <video
           ref={videoRef}
-          key={playbackUrl}
           src={playbackUrl}
           playsInline
           autoPlay={isActive}

@@ -224,7 +224,7 @@ export default function NotificationsPage() {
 
   return (
     <Shell flushTop>
-      <MobileSecondaryHeader title={t("notifications.title")} backHref="/profile" />
+      <MobileSecondaryHeader title={t("notifications.title")} backHref="/profile" preferFallback />
 
       <div className="mx-auto w-full max-w-2xl">
         <div className="hidden items-center justify-between border-b border-white/10 px-4 py-4 md:flex">

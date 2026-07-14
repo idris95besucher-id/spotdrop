@@ -99,6 +99,14 @@ export default function EmailRegisterForm() {
         return;
       }
 
+      // Supabase often returns a user without a session for existing emails
+      // (confirm-email / duplicate obfuscation). Treat empty identities as taken.
+      const identities = (authUser as { identities?: unknown[] }).identities;
+      if (!data.session && Array.isArray(identities) && identities.length === 0) {
+        setError(t("auth.error.emailExists"));
+        return;
+      }
+
       if (!data.session) {
         setError(t("auth.error.accountCreatedConfirm"));
         return;

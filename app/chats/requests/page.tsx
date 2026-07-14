@@ -92,7 +92,7 @@ export default function ChatRequestsPage() {
   return (
     <Shell showHeader={false} flushTop>
       <div className={`mx-auto flex min-h-0 w-full max-w-lg flex-1 flex-col ${MOBILE_WIDTH_SAFE_CLASS}`}>
-        <MobileSecondaryHeader title={t("chats.requests")} backHref="/chats" />
+        <MobileSecondaryHeader title={t("chats.requests")} backHref="/chats" preferFallback />
 
         {loadingSession ? (
           <div className="px-4 py-12 text-center text-sm text-muted">{t("common.loading")}</div>
