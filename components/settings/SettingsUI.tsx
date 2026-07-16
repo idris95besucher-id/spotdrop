@@ -146,19 +146,22 @@ export function SettingsSelectRow({
   value,
   options,
   onChange,
+  disabled = false,
 }: {
   label: string;
   value: string;
   options: { value: string; label: string }[];
   onChange: (value: string) => void;
+  disabled?: boolean;
 }) {
   return (
     <label className="flex flex-col gap-2 px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between">
       <span className="text-sm font-medium text-white">{label}</span>
       <select
         value={value}
+        disabled={disabled}
         onChange={(event) => onChange(event.target.value)}
-        className="rounded-xl border border-white/10 bg-[#050816] px-3 py-2 text-sm text-white outline-none focus:border-primary/45"
+        className="rounded-xl border border-white/10 bg-[#050816] px-3 py-2 text-sm text-white outline-none focus:border-primary/45 disabled:opacity-50"
       >
         {options.map((option) => (
           <option key={option.value} value={option.value}>

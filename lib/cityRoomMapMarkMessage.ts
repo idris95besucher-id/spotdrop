@@ -20,6 +20,15 @@ export type CityRoomMapMarkPayload = {
   placeName: string | null;
   latitude: number;
   longitude: number;
+  /**
+   * The Mark's original author — denormalized at share time so the card always credits the
+   * creator, even when a different member forwards the Mark into a DM/group/room. Optional
+   * because older room messages (auto-shared before this field existed) don't carry it; card
+   * renderers fall back to the message's own sender profile in that case.
+   */
+  creatorUserId: string | null;
+  creatorUsername: string | null;
+  creatorAvatarUrl: string | null;
 };
 
 export function encodeCityRoomMapMarkMessage(payload: CityRoomMapMarkPayload) {
@@ -38,6 +47,9 @@ export function encodeCityRoomMapMarkMessage(payload: CityRoomMapMarkPayload) {
     placeName: payload.placeName,
     latitude: payload.latitude,
     longitude: payload.longitude,
+    creatorUserId: payload.creatorUserId,
+    creatorUsername: payload.creatorUsername,
+    creatorAvatarUrl: payload.creatorAvatarUrl,
   })}`;
 }
 
@@ -61,6 +73,9 @@ export function parseCityRoomMapMarkMessage(content: string): CityRoomMapMarkPay
       placeName?: string | null;
       latitude?: number;
       longitude?: number;
+      creatorUserId?: string | null;
+      creatorUsername?: string | null;
+      creatorAvatarUrl?: string | null;
     };
 
     const mapMarkId = raw.mapMarkId?.trim();
@@ -86,6 +101,9 @@ export function parseCityRoomMapMarkMessage(content: string): CityRoomMapMarkPay
       placeName: raw.placeName?.trim() || null,
       latitude,
       longitude,
+      creatorUserId: raw.creatorUserId?.trim() || null,
+      creatorUsername: raw.creatorUsername?.trim() || null,
+      creatorAvatarUrl: raw.creatorAvatarUrl?.trim() || null,
     };
   } catch {
     return null;
@@ -94,6 +112,40 @@ export function parseCityRoomMapMarkMessage(content: string): CityRoomMapMarkPay
 
 export function isCityRoomMapMarkMessage(content: string) {
   return parseCityRoomMapMarkMessage(content) != null;
+}
+
+/** Builds a shareable payload straight from a loaded MapMark — used whenever a Mark is sent (auto-share to its region room, or an explicit Share to DM/group/room). */
+export function mapMarkToSharePayload(mark: {
+  id: string;
+  category: MapMarkCategoryKey;
+  text: string;
+  photo_url: string | null;
+  municipality: string | null;
+  region_name: string | null;
+  country_slug: string | null;
+  place_name: string | null;
+  latitude: number;
+  longitude: number;
+  user_id: string;
+  username: string;
+  avatar_url: string | null;
+}): CityRoomMapMarkPayload {
+  return {
+    mapMarkId: mark.id,
+    category: normalizeMapMarkCategory(mark.category),
+    text: mark.text,
+    photoUrl: mark.photo_url,
+    municipality: mark.municipality,
+    regionName: mark.region_name,
+    cantonName: mark.region_name,
+    countryName: mark.country_slug,
+    placeName: mark.place_name,
+    latitude: mark.latitude,
+    longitude: mark.longitude,
+    creatorUserId: mark.user_id,
+    creatorUsername: mark.username,
+    creatorAvatarUrl: mark.avatar_url,
+  };
 }
 
 export function buildMapMarkDeepLink(mapMarkId: string) {

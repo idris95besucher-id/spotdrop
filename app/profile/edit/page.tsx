@@ -285,8 +285,9 @@ export default function EditProfilePage() {
     const result = await saveProfileGalleryVisibility(session.user.id, nextVisibility);
 
     if (result.error) {
+      console.error("[Gallery privacy] profile edit save failed", result.error);
       setGalleryVisibility(previousVisibility);
-      setError(t("profileEdit.error.galleryVisibilityFailed"));
+      setError(result.error);
     }
 
     setSavingGalleryVisibility(false);
@@ -627,37 +628,43 @@ export default function EditProfilePage() {
               <div>
                 <p className={labelClass}>{t("profile.galleryVisibility.sectionTitle")}</p>
                 <div className="mt-3 space-y-2">
-                  {PROFILE_GALLERY_VISIBILITY_VALUES.map((value) => {
-                    const labelKey =
-                      value === "everyone"
-                        ? "profile.galleryVisibility.everyone"
-                        : value === "friends"
-                          ? "profile.galleryVisibility.friends"
-                          : "profile.galleryVisibility.onlyMe";
-
-                    return (
-                      <label
-                        key={value}
-                        className={`flex cursor-pointer items-center gap-3 rounded-xl border px-3.5 py-3 transition ${
-                          galleryVisibility === value
-                            ? "border-cyan-400/40 bg-cyan-400/10"
-                            : "border-white/10 bg-slate-950/50 hover:border-white/15"
-                        }`}
-                      >
-                        <input
-                          type="radio"
-                          name="galleryVisibility"
-                          value={value}
-                          checked={galleryVisibility === value}
-                          disabled={savingGalleryVisibility}
-                          onChange={() => void handleGalleryVisibilityChange(value)}
-                          className="h-4 w-4 accent-cyan-400"
-                        />
-                        <span className="text-sm font-medium text-white">{t(labelKey)}</span>
-                      </label>
-                    );
-                  })}
+                  {PROFILE_GALLERY_VISIBILITY_VALUES.map((value) => (
+                    <label
+                      key={value}
+                      className={`flex cursor-pointer items-center gap-3 rounded-xl border px-3.5 py-3 transition ${
+                        galleryVisibility === value
+                          ? "border-cyan-400/40 bg-cyan-400/10"
+                          : "border-white/10 bg-slate-950/50 hover:border-white/15"
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="galleryVisibility"
+                        value={value}
+                        checked={galleryVisibility === value}
+                        disabled={savingGalleryVisibility}
+                        onChange={() => void handleGalleryVisibilityChange(value)}
+                        className="h-4 w-4 accent-cyan-400"
+                      />
+                      <span className="text-sm font-medium text-white">
+                        {t(
+                          value === "everyone"
+                            ? "profile.galleryVisibility.everyone"
+                            : value === "followers"
+                              ? "profile.galleryVisibility.followers"
+                              : value === "friends"
+                                ? "profile.galleryVisibility.friends"
+                                : "profile.galleryVisibility.selected"
+                        )}
+                      </span>
+                    </label>
+                  ))}
                 </div>
+                {galleryVisibility === "selected" ? (
+                  <p className="mt-2 text-xs leading-relaxed text-slate-500">
+                    {t("settings.galleryPrivacy.selectedHint")}
+                  </p>
+                ) : null}
               </div>
             </section>
 

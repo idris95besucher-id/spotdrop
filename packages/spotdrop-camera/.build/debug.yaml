@@ -1,0 +1,47 @@
+client:
+  name: basic
+  file-system: device-agnostic
+tools: {}
+targets:
+  "PackageStructure": ["<PackageStructure>"]
+  "SpotDropCameraPlugin-arm64-apple-macosx-debug.module": ["<SpotDropCameraPlugin-arm64-apple-macosx-debug.module>"]
+  "main": ["<SpotDropCameraPlugin-arm64-apple-macosx-debug.module>"]
+  "test": ["<SpotDropCameraPlugin-arm64-apple-macosx-debug.module>"]
+default: "main"
+nodes:
+  "/Users/idris/Desktop/spotdrop/packages/spotdrop-camera/ios/Sources/SpotDropCameraPlugin/":
+    is-directory-structure: true
+    content-exclusion-patterns: [".git",".build"]
+commands:
+  "/Users/idris/Desktop/spotdrop/packages/spotdrop-camera/.build/arm64-apple-macosx/debug/SpotDropCameraPlugin.build/sources":
+    tool: write-auxiliary-file
+    inputs: ["<sources-file-list>","/Users/idris/Desktop/spotdrop/packages/spotdrop-camera/ios/Sources/SpotDropCameraPlugin/CameraDeviceRig.swift","/Users/idris/Desktop/spotdrop/packages/spotdrop-camera/ios/Sources/SpotDropCameraPlugin/PhotoCaptureViewController.swift","/Users/idris/Desktop/spotdrop/packages/spotdrop-camera/ios/Sources/SpotDropCameraPlugin/SpotDropCameraPlugin.swift","/Users/idris/Desktop/spotdrop/packages/spotdrop-camera/ios/Sources/SpotDropCameraPlugin/VideoCaptureViewController.swift"]
+    outputs: ["/Users/idris/Desktop/spotdrop/packages/spotdrop-camera/.build/arm64-apple-macosx/debug/SpotDropCameraPlugin.build/sources"]
+    description: "Write auxiliary file /Users/idris/Desktop/spotdrop/packages/spotdrop-camera/.build/arm64-apple-macosx/debug/SpotDropCameraPlugin.build/sources"
+
+  "/Users/idris/Desktop/spotdrop/packages/spotdrop-camera/.build/arm64-apple-macosx/debug/swift-version--58304C5D6DBC2206.txt":
+    tool: write-auxiliary-file
+    inputs: ["<swift-get-version>","/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc"]
+    outputs: ["/Users/idris/Desktop/spotdrop/packages/spotdrop-camera/.build/arm64-apple-macosx/debug/swift-version--58304C5D6DBC2206.txt"]
+    always-out-of-date: "true"
+    description: "Write auxiliary file /Users/idris/Desktop/spotdrop/packages/spotdrop-camera/.build/arm64-apple-macosx/debug/swift-version--58304C5D6DBC2206.txt"
+
+  "<SpotDropCameraPlugin-arm64-apple-macosx-debug.module>":
+    tool: phony
+    inputs: ["/Users/idris/Desktop/spotdrop/packages/spotdrop-camera/.build/arm64-apple-macosx/debug/SpotDropCameraPlugin.build/CameraDeviceRig.swift.o","/Users/idris/Desktop/spotdrop/packages/spotdrop-camera/.build/arm64-apple-macosx/debug/SpotDropCameraPlugin.build/PhotoCaptureViewController.swift.o","/Users/idris/Desktop/spotdrop/packages/spotdrop-camera/.build/arm64-apple-macosx/debug/SpotDropCameraPlugin.build/SpotDropCameraPlugin.swift.o","/Users/idris/Desktop/spotdrop/packages/spotdrop-camera/.build/arm64-apple-macosx/debug/SpotDropCameraPlugin.build/VideoCaptureViewController.swift.o","/Users/idris/Desktop/spotdrop/packages/spotdrop-camera/.build/arm64-apple-macosx/debug/Modules/SpotDropCameraPlugin.swiftmodule"]
+    outputs: ["<SpotDropCameraPlugin-arm64-apple-macosx-debug.module>"]
+
+  "C.SpotDropCameraPlugin-arm64-apple-macosx-debug.module":
+    tool: shell
+    inputs: ["/Users/idris/Desktop/spotdrop/packages/spotdrop-camera/ios/Sources/SpotDropCameraPlugin/CameraDeviceRig.swift","/Users/idris/Desktop/spotdrop/packages/spotdrop-camera/ios/Sources/SpotDropCameraPlugin/PhotoCaptureViewController.swift","/Users/idris/Desktop/spotdrop/packages/spotdrop-camera/ios/Sources/SpotDropCameraPlugin/SpotDropCameraPlugin.swift","/Users/idris/Desktop/spotdrop/packages/spotdrop-camera/ios/Sources/SpotDropCameraPlugin/VideoCaptureViewController.swift","/Users/idris/Desktop/spotdrop/packages/spotdrop-camera/.build/arm64-apple-macosx/debug/swift-version--58304C5D6DBC2206.txt","/Users/idris/Desktop/spotdrop/packages/spotdrop-camera/.build/arm64-apple-macosx/debug/SpotDropCameraPlugin.build/sources"]
+    outputs: ["/Users/idris/Desktop/spotdrop/packages/spotdrop-camera/.build/arm64-apple-macosx/debug/SpotDropCameraPlugin.build/CameraDeviceRig.swift.o","/Users/idris/Desktop/spotdrop/packages/spotdrop-camera/.build/arm64-apple-macosx/debug/SpotDropCameraPlugin.build/PhotoCaptureViewController.swift.o","/Users/idris/Desktop/spotdrop/packages/spotdrop-camera/.build/arm64-apple-macosx/debug/SpotDropCameraPlugin.build/SpotDropCameraPlugin.swift.o","/Users/idris/Desktop/spotdrop/packages/spotdrop-camera/.build/arm64-apple-macosx/debug/SpotDropCameraPlugin.build/VideoCaptureViewController.swift.o","/Users/idris/Desktop/spotdrop/packages/spotdrop-camera/.build/arm64-apple-macosx/debug/Modules/SpotDropCameraPlugin.swiftmodule"]
+    description: "Compiling Swift Module 'SpotDropCameraPlugin' (4 sources)"
+    args: ["/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc","-module-name","SpotDropCameraPlugin","-emit-dependencies","-emit-module","-emit-module-path","/Users/idris/Desktop/spotdrop/packages/spotdrop-camera/.build/arm64-apple-macosx/debug/Modules/SpotDropCameraPlugin.swiftmodule","-output-file-map","/Users/idris/Desktop/spotdrop/packages/spotdrop-camera/.build/arm64-apple-macosx/debug/SpotDropCameraPlugin.build/output-file-map.json","-parse-as-library","-incremental","-c","@/Users/idris/Desktop/spotdrop/packages/spotdrop-camera/.build/arm64-apple-macosx/debug/SpotDropCameraPlugin.build/sources","-I","/Users/idris/Desktop/spotdrop/packages/spotdrop-camera/.build/arm64-apple-macosx/debug/Modules","-target","arm64-apple-macosx10.13","-incremental","-enable-batch-mode","-serialize-diagnostics","-index-store-path","/Users/idris/Desktop/spotdrop/packages/spotdrop-camera/.build/arm64-apple-macosx/debug/index/store","-Onone","-enable-testing","-j8","-DSWIFT_PACKAGE","-DDEBUG","-DSWIFT_MODULE_RESOURCE_BUNDLE_UNAVAILABLE","-module-cache-path","/Users/idris/Desktop/spotdrop/packages/spotdrop-camera/.build/arm64-apple-macosx/debug/ModuleCache","-parseable-output","-parse-as-library","-emit-objc-header","-emit-objc-header-path","/Users/idris/Desktop/spotdrop/packages/spotdrop-camera/.build/arm64-apple-macosx/debug/SpotDropCameraPlugin.build/include/SpotDropCameraPlugin-Swift.h","-swift-version","5","-plugin-path","/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/host/plugins/testing","-sdk","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk","-F","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks","-I","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib","-L","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/usr/lib","-g","-Xcc","-isysroot","-Xcc","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.5.sdk","-Xcc","-F","-Xcc","/Applications/Xcode.app/Contents/Developer/Platforms/MacOSX.platform/Developer/Library/Frameworks","-Xcc","-fPIC","-Xcc","-g","-package-name","spotdrop_camera"]
+
+  "PackageStructure":
+    tool: package-structure-tool
+    inputs: ["/Users/idris/Desktop/spotdrop/packages/spotdrop-camera/ios/Sources/SpotDropCameraPlugin/","/Users/idris/Desktop/spotdrop/packages/spotdrop-camera/Package.swift","/Users/idris/Desktop/spotdrop/packages/spotdrop-camera/Package.resolved"]
+    outputs: ["<PackageStructure>"]
+    description: "Planning build"
+    allow-missing-inputs: true
+

@@ -8,7 +8,8 @@ export type MessageNotificationSoundSkipReason =
   | "not_member"
   | "messages_disabled"
   | "locked"
-  | "play_failed";
+  | "play_failed"
+  | "system_event";
 
 let audio: HTMLAudioElement | null = null;
 let unlocked = false;

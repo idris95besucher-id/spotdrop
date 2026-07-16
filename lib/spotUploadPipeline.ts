@@ -17,10 +17,14 @@ import { requireAuthenticatedUser } from "@/lib/storageUpload";
 import { supabase } from "@/lib/supabaseClient";
 import {
   finalizeUploadTimingSummary,
+  recordProcessedVideoSize,
   recordUploadStepDuration,
   resetUploadTimingSummary,
   timeUploadStep,
+  type UploadTimingSummary,
 } from "@/lib/spotUploadTiming";
+import type { RetryAttemptInfo } from "@/lib/uploadRetry";
+import { logUploadLifecycleEvent } from "@/lib/uploadLifecycleTrace";
 
 export type SpotUploadProgress = {
   percent: number;
@@ -31,6 +35,7 @@ export type SpotUploadProgress = {
 export type PublishSpotResult = {
   postId: string | null;
   carouselWarning?: string | null;
+  timing?: UploadTimingSummary;
 };
 
 export type PublishSpotInput = {
@@ -40,12 +45,20 @@ export type PublishSpotInput = {
   spotName: string;
   location: CreateSpotInput["location"];
   collectionId?: string | null;
+  /** "My Spots" destination — private to the owner, independent of collectionId. */
+  publishToMySpots?: boolean;
   discoveryPlaces?: DiscoveryPlace[];
   onProgress?: (progress: SpotUploadProgress) => void;
   /** Generated SpotDrop location card (text-only spot). */
   locationCard?: boolean;
   /** Optional user caption — stored in posts.content. */
   caption?: string;
+  /** Cancels in-flight uploads (and any pending retry backoff) — an explicit user cancel or leaving the upload flow, never a rerender or timer. */
+  signal?: AbortSignal;
+  /** Fired before each automatic upload retry so the UI can show retry status without losing progress. */
+  onUploadRetry?: (info: RetryAttemptInfo) => void;
+  /** Ties every log line for this publish attempt together — see lib/uploadLifecycleTrace.ts. */
+  requestId?: string;
 };
 
 /** Integer percent for the upload bar — never stalls below 100 on completion. */
@@ -162,6 +175,17 @@ export async function publishSpotWithProgress(input: PublishSpotInput): Promise<
         );
       }
 
+      if (index === 0) {
+        recordProcessedVideoSize(prepared.file.size);
+        logUploadLifecycleEvent("media-prepared", {
+          requestId: input.requestId,
+          index,
+          originalSizeBytes: item.file.size,
+          processedSizeBytes: prepared.file.size,
+          reEncoded: prepared.file !== item.file,
+        });
+      }
+
       preparedFiles.push({
         file: prepared.file,
         mediaType: item.mediaType,
@@ -186,9 +210,13 @@ export async function publishSpotWithProgress(input: PublishSpotInput): Promise<
     spotName: input.spotName,
     location: input.location,
     collectionId: input.collectionId ?? null,
+    publishToMySpots: input.publishToMySpots,
     coverFile: preparedFiles[0]!.coverFile,
     discoveryPlaces: input.discoveryPlaces,
     accessToken,
+    signal: input.signal,
+    requestId: input.requestId,
+    onUploadRetry: input.onUploadRetry,
     carouselPreparedItems: preparedFiles,
     locationCard: input.locationCard,
     caption: input.caption,
@@ -208,11 +236,31 @@ export async function publishSpotWithProgress(input: PublishSpotInput): Promise<
 
   if (result.error) {
     console.timeEnd("[UPLOAD] Total");
-    const uploadError = new Error(result.error) as Error & { failedPhotoIndex?: number };
+    const failedAtDurationMs = Math.round(performance.now() - totalStartedAt);
+    const timing = finalizeUploadTimingSummary(failedAtDurationMs);
+
+    logUploadLifecycleEvent("publish-failed", {
+      requestId: input.requestId,
+      stage: "upload_primary",
+      errorKind: result.errorKind ?? null,
+      timing,
+    });
+
+    const uploadError = new Error(result.error) as Error & {
+      failedPhotoIndex?: number;
+      errorKind?: string;
+      timing?: UploadTimingSummary;
+    };
 
     if (result.failedPhotoIndex != null) {
       uploadError.failedPhotoIndex = result.failedPhotoIndex;
     }
+
+    if (result.errorKind) {
+      uploadError.errorKind = result.errorKind;
+    }
+
+    uploadError.timing = timing;
 
     throw uploadError;
   }
@@ -222,11 +270,18 @@ export async function publishSpotWithProgress(input: PublishSpotInput): Promise<
 
   const totalDurationMs = Math.round(performance.now() - totalStartedAt);
   console.timeEnd("[UPLOAD] Total");
-  finalizeUploadTimingSummary(totalDurationMs);
+  const timing = finalizeUploadTimingSummary(totalDurationMs);
+
+  logUploadLifecycleEvent("publish-succeeded", {
+    requestId: input.requestId,
+    postId: result.postId,
+    timing,
+  });
 
   return {
     postId: result.postId,
     carouselWarning: result.carouselWarning ?? null,
+    timing,
   };
 }
 

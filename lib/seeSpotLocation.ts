@@ -1,5 +1,5 @@
 import type { SpotLocationDisplayFields } from "@/lib/spotLocationDisplay";
-import { recordSpotSeeVisit } from "@/lib/spotRanking";
+import type { SpotLocationViewerContext } from "@/lib/spotVisitContext";
 
 type SeeSpotLocationInput = {
   location: SpotLocationDisplayFields;
@@ -7,10 +7,15 @@ type SeeSpotLocationInput = {
   ownerId?: string | null;
   authResolved?: boolean;
   currentVisitedCount?: number;
-  openSpotLocation: (location: SpotLocationDisplayFields) => void;
+  openSpotLocation: (location: SpotLocationDisplayFields, viewerContext: SpotLocationViewerContext) => void;
 };
 
-/** Open spot location sheet and record a unique See Spot visit. */
+/**
+ * Open the Spot location sheet. The visit itself is NOT recorded here — a
+ * "See Spot" tap only opens the sheet; the actual visit is recorded later,
+ * when the user taps "Open in Maps" and the map genuinely shows the Spot's
+ * marker (see SpotLocationSheet.tsx).
+ */
 export function seeSpotLocation({
   location,
   viewerId,
@@ -19,17 +24,10 @@ export function seeSpotLocation({
   currentVisitedCount,
   openSpotLocation,
 }: SeeSpotLocationInput) {
-  const postId = location.id;
-
-  if (postId) {
-    void recordSpotSeeVisit({
-      postId,
-      viewerId,
-      ownerId: ownerId ?? location.user_id ?? null,
-      authResolved,
-      currentVisitedCount,
-    });
-  }
-
-  openSpotLocation(location);
+  openSpotLocation(location, {
+    viewerId,
+    ownerId: ownerId ?? location.user_id ?? null,
+    authResolved,
+    currentVisitedCount,
+  });
 }

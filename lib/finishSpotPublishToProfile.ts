@@ -5,16 +5,19 @@ export const PROFILE_TAB_STORAGE_KEY = "spotdrop:profile-tab";
 export const PROFILE_REFRESH_AFTER_PUBLISH_KEY = "spotdrop:profile-refresh-after-publish";
 
 /**
- * After a successful Spot publish: land on My profile → Posts/Spots,
- * refresh the grid, and replace the current history entry so Back never
- * reopens camera / share / post-viewer overlays.
+ * After a successful Spot publish: land on My profile → Posts/Spots (or My Spots, if that
+ * was the publish destination), refresh the grid, and replace the current history entry so
+ * Back never reopens camera / share / post-viewer overlays.
  */
-export function finishSpotPublishToProfile(router: AppRouterInstance) {
+export function finishSpotPublishToProfile(
+  router: AppRouterInstance,
+  destinationTab: "spots" | "my-spots" = "spots"
+) {
   if (typeof window !== "undefined") {
-    window.sessionStorage.setItem(PROFILE_TAB_STORAGE_KEY, "spots");
+    window.sessionStorage.setItem(PROFILE_TAB_STORAGE_KEY, destinationTab);
     window.sessionStorage.setItem(PROFILE_REFRESH_AFTER_PUBLISH_KEY, "1");
   }
 
-  dispatchProfileContentRefresh({ tab: "spots" });
+  dispatchProfileContentRefresh({ tab: destinationTab });
   router.replace("/profile");
 }

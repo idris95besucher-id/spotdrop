@@ -18,8 +18,9 @@ type OpenPostViewerOptions = {
   initialMediaUrl?: string | null;
   /**
    * profile-feed = Instagram-style continuous list (profile grid).
-   * search-reel = fullscreen pager with swipe-right close (Search grid).
-   * reel = fullscreen pager (back button only).
+   * search-reel / reel = fullscreen pager. Both support swipe-right-to-close
+   * (back button also works); the two are behaviourally identical and kept
+   * separate only so call sites can stay self-documenting.
    */
   mode?: PostViewerMode;
 };
@@ -168,7 +169,7 @@ export default function PostViewerProvider({ children }: { children: ReactNode }
             initialMediaUrl={viewerState.initialMediaUrl}
             onClose={closePostViewer}
             onItemDeleted={handleItemDeleted}
-            enableHorizontalSwipeClose={viewerState.mode === "search-reel"}
+            enableHorizontalSwipeClose
           />
         )
       ) : null}

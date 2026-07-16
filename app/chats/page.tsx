@@ -4,11 +4,13 @@ import Link from "next/link";
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { Session } from "@supabase/supabase-js";
+import { Search, SquarePen } from "lucide-react";
 import ChatInboxActionSheet, {
   type ChatInboxActionSheetTarget,
 } from "@/components/ChatInboxActionSheet";
 import { useChatNotifications } from "@/components/ChatNotificationsProvider";
 import DmInboxListItem from "@/components/DmInboxListItem";
+import GroupInboxListItem from "@/components/GroupInboxListItem";
 import { useI18n } from "@/components/I18nProvider";
 import type { MessageRequestItemData } from "@/components/MessageRequestItem";
 import RoomInboxListItem from "@/components/RoomInboxListItem";
@@ -22,6 +24,7 @@ import { formatUnreadBadge } from "@/lib/chatNotifications";
 import {
   CHATS_INBOX_REFRESH_EVENT,
   CHATS_INBOX_SILENT_REFRESH_EVENT,
+  filterInboxItems,
   getCachedChatsInbox,
   loadChatsInbox,
   type InboxChatRow,
@@ -41,13 +44,15 @@ import {
   type OptimisticInboxReadDetail,
   type RoomIncomingDetail,
 } from "@/lib/chatUnreadSync";
+import { deleteGroupChat, leaveGroupChat, type GroupChatSummary } from "@/lib/groupChats";
 import { hideRoomFromMessages, setRoomMuted, type RoomInboxRow } from "@/lib/roomMemberships";
 import { PRESENCE_HEARTBEAT_MS } from "@/lib/userPresence";
 import { supabase } from "@/lib/supabaseClient";
 
 type ActionTarget =
   | { kind: "dm"; chat: InboxChatRow }
-  | { kind: "room"; room: RoomInboxRow };
+  | { kind: "room"; room: RoomInboxRow }
+  | { kind: "group"; group: GroupChatSummary };
 
 function ChatsPageFallback() {
   const { t } = useI18n();
@@ -71,6 +76,7 @@ function ChatsPageContent() {
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [actionTarget, setActionTarget] = useState<ActionTarget | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
   const { refreshUnreadCount } = useChatNotifications();
   const silentReloadRef = useRef(false);
   const refreshDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -358,6 +364,28 @@ function ChatsPageContent() {
           debouncedRefresh();
         }
       )
+      .on(
+        // RLS restricts these to the caller's own groups, so no extra filter is needed.
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "group_chat_messages" },
+        () => {
+          debouncedRefresh();
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "group_chats" },
+        () => {
+          debouncedRefresh();
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "group_chat_members", filter: `user_id=eq.${userId}` },
+        () => {
+          debouncedRefresh();
+        }
+      )
       .subscribe();
 
     return () => {
@@ -369,6 +397,19 @@ function ChatsPageContent() {
   const requestsBadge = formatUnreadBadge(pendingCount);
   const hasInboxItems = items.length > 0;
 
+  const filteredItems = useMemo(() => {
+    return filterInboxItems(items, searchQuery, {
+      localizeCityName: (room) =>
+        localizeCityName(locale, {
+          slug: room.citySlug,
+          name: room.cityName,
+          countrySlug: room.countrySlug,
+        }),
+    });
+  }, [items, locale, searchQuery]);
+
+  const isSearching = searchQuery.trim().length > 0;
+
   const actionSheetTarget = useMemo((): ChatInboxActionSheetTarget | null => {
     if (!actionTarget) {
       return null;
@@ -379,6 +420,14 @@ function ChatsPageContent() {
         kind: "dm",
         title: actionTarget.chat.username,
         isMuted: actionTarget.chat.isMuted,
+      };
+    }
+
+    if (actionTarget.kind === "group") {
+      return {
+        kind: "group",
+        title: actionTarget.group.name,
+        isOwner: actionTarget.group.role === "owner",
       };
     }
 
@@ -400,7 +449,7 @@ function ChatsPageContent() {
 
     if (actionTarget.kind === "dm") {
       await setDmMuted(session.user.id, actionTarget.chat.partnerId, !actionTarget.chat.isMuted);
-    } else {
+    } else if (actionTarget.kind === "room") {
       await setRoomMuted(
         session.user.id,
         actionTarget.room.countrySlug,
@@ -414,6 +463,17 @@ function ChatsPageContent() {
 
   const handleRemove = useCallback(async () => {
     if (!session?.user?.id || !actionTarget) {
+      return;
+    }
+
+    if (actionTarget.kind === "group") {
+      if (actionTarget.group.role === "owner") {
+        await deleteGroupChat(actionTarget.group.id);
+      } else {
+        await leaveGroupChat(actionTarget.group.id);
+      }
+
+      refresh();
       return;
     }
 
@@ -433,6 +493,34 @@ function ChatsPageContent() {
   return (
     <Shell showHeader={false} immersive>
       <div className={`mx-auto flex min-h-0 w-full max-w-lg flex-1 flex-col ${MOBILE_WIDTH_SAFE_CLASS}`}>
+        {session?.user ? (
+          <div className="shrink-0 px-4 pb-2 pt-[max(0.75rem,env(safe-area-inset-top))]">
+            <div className="flex items-center gap-2">
+              <h1 className="min-w-0 flex-1 truncate text-xl font-bold text-white">{t("nav.myChats")}</h1>
+              <Link
+                href="/chats/new"
+                aria-label={t("chats.newMessage")}
+                className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-white transition hover:bg-white/10 active:scale-95"
+              >
+                <SquarePen className="h-5 w-5" strokeWidth={1.75} aria-hidden />
+              </Link>
+            </div>
+            <label className="relative mt-3 block">
+              <Search
+                className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted"
+                aria-hidden
+              />
+              <input
+                type="search"
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                placeholder={t("chats.searchPlaceholder")}
+                className="w-full rounded-2xl border border-white/10 bg-[#0d1322] py-2.5 pl-10 pr-4 text-sm text-white outline-none transition placeholder:text-slate-500 focus:border-primary/45"
+              />
+            </label>
+          </div>
+        ) : null}
+
         {loadingSession ? (
           <div className="px-4 py-12 text-center text-sm text-muted">{t("common.loading")}</div>
         ) : !session?.user ? (
@@ -471,14 +559,22 @@ function ChatsPageContent() {
               </Link>
             )}
           </div>
+        ) : isSearching && filteredItems.length === 0 ? (
+          <div className="px-4 py-16 text-center text-sm text-muted">{t("chats.noResultsFound")}</div>
         ) : (
           <ul className="min-h-0 flex-1 divide-y divide-white/[0.06] overflow-y-auto px-2 py-1 select-none sm:px-3">
-            {items.map((item) =>
+            {filteredItems.map((item) =>
               item.kind === "room" ? (
                 <RoomInboxListItem
                   key={`room-${item.room.membershipId}`}
                   room={item.room}
                   onLongPress={(room) => setActionTarget({ kind: "room", room })}
+                />
+              ) : item.kind === "group" ? (
+                <GroupInboxListItem
+                  key={`group-${item.group.id}`}
+                  group={item.group}
+                  onLongPress={(group) => setActionTarget({ kind: "group", group })}
                 />
               ) : (
                 <DmInboxListItem

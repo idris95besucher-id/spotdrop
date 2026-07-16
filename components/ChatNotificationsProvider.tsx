@@ -41,6 +41,9 @@ import {
   isViewingCityRoomThread,
   isViewingDirectMessageThread,
 } from "@/lib/chatThreadRoutes";
+import { groupThreadHref, isViewingGroupThread } from "@/lib/groupChatRoutes";
+import { markGroupThreadRead } from "@/lib/groupChats";
+import { isGroupSystemEventMessage } from "@/lib/groupChatSystemEvents";
 import {
   playMessageNotificationSound,
   skipMessageNotificationSound,
@@ -503,6 +506,100 @@ export default function ChatNotificationsProvider({ children }: { children: Reac
           console.error("[Room global] status TIMED_OUT", { userId });
         } else if (status === "CLOSED") {
           console.log("[Room global] status CLOSED", { userId });
+        }
+      });
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [userId]);
+
+  useEffect(() => {
+    if (!userId) {
+      return;
+    }
+
+    console.log("[Group global] subscribe start", { userId });
+
+    const messagesEnabled = () => loadUserSettingsPreferences().notifications.messages;
+
+    // RLS on group_chat_messages restricts SELECT (and therefore Realtime delivery)
+    // to members of the group, so no client-side "is my group" filter is needed here.
+    const channel = supabase
+      .channel(`group_global_${userId}`)
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "group_chat_messages" },
+        (payload) => {
+          const row = payload.new as {
+            id: string;
+            group_id: string;
+            sender_id: string;
+            message_type?: string | null;
+            body?: string | null;
+            created_at: string;
+          };
+
+          if (row.sender_id === userId) {
+            skipMessageNotificationSound("own_message");
+            return;
+          }
+
+          console.log("[Group global] incoming message", { id: row.id, groupId: row.group_id });
+
+          const openThreadPath = groupThreadHref(row.group_id);
+
+          if (isViewingGroupThread(pathnameRef.current, row.group_id)) {
+            skipMessageNotificationSound("viewing_thread");
+            void markGroupThreadRead(row.group_id, userId);
+            return;
+          }
+
+          adjustDmUnreadTotalRef.current(1);
+          window.dispatchEvent(new Event(CHATS_INBOX_SILENT_REFRESH_EVENT));
+          console.log("[Group global] inbox updated", { groupId: row.group_id });
+
+          if (isGroupSystemEventMessage(row.body)) {
+            skipMessageNotificationSound("system_event");
+            return;
+          }
+
+          void (async () => {
+            if (!messagesEnabled()) {
+              skipMessageNotificationSound("messages_disabled");
+              return;
+            }
+
+            const { data: groupRow } = await supabase
+              .from("group_chats")
+              .select("name")
+              .eq("id", row.group_id)
+              .maybeSingle();
+
+            const { username } = await fetchProfileUsername(row.sender_id);
+            const senderName = username === "Someone" ? tRef.current("common.someone") : username;
+            const groupName = (groupRow?.name as string | null) ?? tRef.current("group.chatInfo");
+            const message = tRef.current("chats.toast.message", { name: `${senderName} · ${groupName}` });
+
+            void playMessageNotificationSound();
+
+            showToastRef.current({
+              id: `${row.group_id}-${Date.now()}`,
+              message,
+              href: openThreadPath,
+            });
+          })();
+        }
+      )
+      .subscribe((status) => {
+        if (status === "SUBSCRIBED") {
+          console.log("[Group global] subscribed", { userId });
+        } else if (status === "CHANNEL_ERROR") {
+          console.error("[Group global] status CHANNEL_ERROR", { userId });
+        } else if (status === "TIMED_OUT") {
+          console.error("[Group global] status TIMED_OUT", { userId });
+        } else if (status === "CLOSED") {
+          console.log("[Group global] status CLOSED", { userId });
         }
       });
 

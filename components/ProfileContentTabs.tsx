@@ -10,15 +10,11 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
-import { Bookmark, LayoutGrid, Play } from "lucide-react";
+import { Bookmark, LayoutGrid, MapPin } from "lucide-react";
 import { useI18n } from "@/components/I18nProvider";
-import OwnContentMenu from "@/components/OwnContentMenu";
-import EditPublicationScreen from "@/components/EditPublicationScreen";
 import PostCardMedia from "@/components/PostCardMedia";
 import PostMediaLink from "@/components/PostMediaLink";
 import { MOBILE_WIDTH_SAFE_CLASS } from "@/lib/mobileLayout";
-import { deleteOwnedPublication } from "@/lib/deleteContent";
-import { dispatchProfileContentRefresh } from "@/lib/profileContentRefresh";
 import {
   getProfilePostMedia,
   getSpotDisplayLabel,
@@ -27,12 +23,22 @@ import {
 import { normalizePostId } from "@/lib/postIds";
 import { profilePostsToViewerItems, type ViewerPostAuthor } from "@/lib/postViewer";
 
-/** Profile main tabs: Spots/Posts (public) and Saved (owner-only). Gallery is separate. */
-export type ProfileContentTab = "spots" | "saved" | "collections" | "posts";
-export type ProfileMainTab = "spots" | "saved";
+/**
+ * Profile main tabs: Posts (public), My Spots (owner-only — own Spots published privately),
+ * Saved (owner-only — other users' Spots/posts the owner bookmarked). Gallery is separate.
+ */
+export type ProfileContentTab = "spots" | "my-spots" | "saved" | "collections" | "posts";
+export type ProfileMainTab = "spots" | "my-spots" | "saved";
 
-/** @deprecated Use "saved". Kept so old sessionStorage values still resolve. */
+/** Left-to-right tab order — also drives the swipe pager's page index math. */
+const TAB_ORDER: ProfileMainTab[] = ["spots", "my-spots", "saved"];
+
+/** @deprecated Use the real tab value. Kept so old sessionStorage values still resolve. */
 export function normalizeProfileMainTab(tab: string | null | undefined): ProfileMainTab {
+  if (tab === "my-spots") {
+    return "my-spots";
+  }
+
   if (tab === "saved" || tab === "collections") {
     return "saved";
   }
@@ -52,7 +58,7 @@ const VELOCITY_SAMPLE_WINDOW_MS = 100;
 type ProfileContentTabBarProps = {
   activeTab: ProfileMainTab;
   onTabChange: (tab: ProfileMainTab) => void;
-  /** 0 = Posts, 1 = Saved — drives the small underline during swipe. */
+  /** Continuous page index (0 = Posts, 1 = My Spots, 2 = Saved) — drives the underline during swipe. */
   progress?: number;
   compact?: boolean;
 };
@@ -65,14 +71,18 @@ export function ProfileContentTabBar({
 }: ProfileContentTabBarProps) {
   const { t } = useI18n();
   const rowPad = compact ? "py-2.5" : "py-3";
-  const clampedProgress = Math.min(1, Math.max(0, progress ?? (activeTab === "saved" ? 1 : 0)));
-  const visualTab: ProfileMainTab = clampedProgress >= 0.5 ? "saved" : "spots";
-  const indicatorCenter = `${25 + clampedProgress * 50}%`;
+  const tabCount = TAB_ORDER.length;
+  const clampedProgress = Math.min(
+    tabCount - 1,
+    Math.max(0, progress ?? TAB_ORDER.indexOf(activeTab))
+  );
+  const visualTab: ProfileMainTab = TAB_ORDER[Math.round(clampedProgress)] ?? activeTab;
+  const indicatorCenter = `${((clampedProgress + 0.5) / tabCount) * 100}%`;
 
   return (
     <div
       role="tablist"
-      className={`relative grid w-full min-w-0 max-w-full grid-cols-2 border-b border-white/10 bg-card ${MOBILE_WIDTH_SAFE_CLASS}`}
+      className={`relative grid w-full min-w-0 max-w-full grid-cols-3 border-b border-white/10 bg-card ${MOBILE_WIDTH_SAFE_CLASS}`}
     >
       <button
         type="button"
@@ -87,6 +97,22 @@ export function ProfileContentTabBar({
         <LayoutGrid
           className="h-[22px] w-[22px]"
           strokeWidth={visualTab === "spots" ? 2.25 : 1.75}
+          aria-hidden
+        />
+      </button>
+      <button
+        type="button"
+        role="tab"
+        onClick={() => onTabChange("my-spots")}
+        aria-label={t("profile.mySpots")}
+        aria-selected={activeTab === "my-spots"}
+        className={`flex ${rowPad} items-center justify-center transition-colors duration-200 ${
+          visualTab === "my-spots" ? "text-primary" : "text-muted hover:text-slate-300"
+        }`}
+      >
+        <MapPin
+          className="h-[22px] w-[22px]"
+          strokeWidth={visualTab === "my-spots" ? 2.25 : 1.75}
           aria-hidden
         />
       </button>
@@ -130,10 +156,11 @@ type ProfileContentGridPanelProps = {
   onPostDeleted?: (postId: string) => void;
   viewerAuthor?: ViewerPostAuthor | null;
   savedPanel?: ReactNode;
+  mySpotsPanel?: ReactNode;
   compact?: boolean;
 };
 
-/** Renders Posts/Spots grid or Saved panel for a single tab (non-swipe callers). */
+/** Renders Posts/Spots grid, My Spots panel, or Saved panel for a single tab (non-swipe callers). */
 export function ProfileContentGridPanel({
   activeTab,
   personalPosts,
@@ -145,10 +172,15 @@ export function ProfileContentGridPanel({
   onPostDeleted,
   viewerAuthor = null,
   savedPanel = null,
+  mySpotsPanel = null,
   compact: _compact = false,
 }: ProfileContentGridPanelProps) {
   if (activeTab === "saved" || activeTab === "collections") {
     return <div className={MOBILE_WIDTH_SAFE_CLASS}>{savedPanel}</div>;
+  }
+
+  if (activeTab === "my-spots") {
+    return <div className={MOBILE_WIDTH_SAFE_CLASS}>{mySpotsPanel}</div>;
   }
 
   return (
@@ -173,7 +205,6 @@ function ProfilePostsGrid({
   loading = false,
   emptyPostsMessage,
   emptySpotsMessage,
-  viewerUserId = null,
   onPostDeleted,
   viewerAuthor = null,
 }: {
@@ -188,7 +219,6 @@ function ProfilePostsGrid({
   viewerAuthor?: ViewerPostAuthor | null;
 }) {
   const { t } = useI18n();
-  const [editPost, setEditPost] = useState<ProfileContentPost | null>(null);
   const activeItems = (mode === "posts" ? personalPosts : spotPosts).filter((post) =>
     Boolean(normalizePostId(post.id))
   );
@@ -239,7 +269,6 @@ function ProfilePostsGrid({
         const { mediaUrl, mediaType } = getProfilePostMedia(post);
         const spotTitle = getSpotDisplayLabel(post);
         const clickedSpot = viewerItems[gridIndex];
-        const isOwner = Boolean(viewerUserId && post.user_id === viewerUserId);
         const isVideo = mediaType === "video" || Boolean(post.video_url?.trim());
 
         return (
@@ -247,17 +276,6 @@ function ProfilePostsGrid({
             key={post.id}
             className="relative aspect-square min-w-0 overflow-hidden bg-slate-950"
           >
-            {isOwner ? (
-              <div className="pointer-events-auto absolute right-1 top-1 z-30">
-                <OwnContentMenu
-                  triggerClassName="bg-black/50 backdrop-blur-sm"
-                  onEdit={() => setEditPost(post)}
-                  onDelete={() => deleteOwnedPublication(post.id, post, viewerUserId!)}
-                  onDeleted={() => onPostDeleted?.(post.id)}
-                />
-              </div>
-            ) : null}
-
             {mediaUrl ? (
               <PostMediaLink
                 postId={post.id}
@@ -265,7 +283,7 @@ function ProfilePostsGrid({
                 viewerItems={viewerItems.length > 0 ? viewerItems : undefined}
                 clickedSpot={clickedSpot}
                 onViewerItemDeleted={onPostDeleted}
-                viewerMode="profile-feed"
+                viewerMode={isVideo ? "reel" : "profile-feed"}
               >
                 <ProfileGridTileMedia
                   post={post}
@@ -286,29 +304,9 @@ function ProfilePostsGrid({
                 <span className="line-clamp-4">{spotTitle || post.content?.trim() || t("profile.spotFallback")}</span>
               </PostMediaLink>
             )}
-
-            {isVideo ? (
-              <span className="pointer-events-none absolute right-1.5 top-1.5 z-10 drop-shadow-[0_1px_2px_rgba(0,0,0,0.85)]">
-                <Play className="h-3.5 w-3.5 fill-white text-white" strokeWidth={0} aria-hidden />
-              </span>
-            ) : null}
           </article>
         );
       })}
-
-      {editPost && viewerUserId ? (
-        <EditPublicationScreen
-          isOpen={Boolean(editPost)}
-          userId={viewerUserId}
-          postId={String(editPost.id)}
-          post={editPost}
-          onClose={() => setEditPost(null)}
-          onSaved={() => {
-            setEditPost(null);
-            dispatchProfileContentRefresh();
-          }}
-        />
-      ) : null}
     </div>
   );
 }
@@ -345,6 +343,7 @@ type ProfileContentSwipePagerProps = {
   onTabChange: (tab: ProfileMainTab) => void;
   onDragProgress?: (progress: number | null) => void;
   postsPage: ReactNode;
+  mySpotsPage: ReactNode;
   savedPage: ReactNode;
 };
 
@@ -353,11 +352,13 @@ function ProfileContentSwipePager({
   onTabChange,
   onDragProgress,
   postsPage,
+  mySpotsPage,
   savedPage,
 }: ProfileContentSwipePagerProps) {
+  const pageCount = TAB_ORDER.length;
   const viewportRef = useRef<HTMLDivElement>(null);
   const trackRef = useRef<HTMLDivElement>(null);
-  const pageIndexRef = useRef(activeTab === "saved" ? 1 : 0);
+  const pageIndexRef = useRef(TAB_ORDER.indexOf(activeTab));
   const widthRef = useRef(0);
   const dragOffsetRef = useRef(0);
   const draggingRef = useRef(false);
@@ -413,15 +414,15 @@ function ProfileContentSwipePager({
         return;
       }
 
-      onDragProgress(Math.min(1, Math.max(0, -offsetPx / width)));
+      onDragProgress(Math.min(pageCount - 1, Math.max(0, -offsetPx / width)));
     },
-    [measureWidth, onDragProgress]
+    [measureWidth, onDragProgress, pageCount]
   );
 
   const snapToIndex = useCallback(
     (index: number, animate: boolean) => {
-      const nextIndex = index <= 0 ? 0 : 1;
-      const nextTab: ProfileMainTab = nextIndex === 1 ? "saved" : "spots";
+      const nextIndex = Math.min(pageCount - 1, Math.max(0, index));
+      const nextTab = TAB_ORDER[nextIndex]!;
       pageIndexRef.current = nextIndex;
       dragOffsetRef.current = settledOffsetForIndex(nextIndex);
       applyTransform(dragOffsetRef.current, animate);
@@ -437,7 +438,7 @@ function ProfileContentSwipePager({
         snapTimeoutRef.current = null;
       }
     },
-    [applyTransform, onDragProgress, onTabChange, settledOffsetForIndex]
+    [applyTransform, onDragProgress, onTabChange, pageCount, settledOffsetForIndex]
   );
 
   // Keep track aligned when tab changes via icon tap (or external state).
@@ -446,7 +447,7 @@ function ProfileContentSwipePager({
       return;
     }
 
-    const nextIndex = activeTab === "saved" ? 1 : 0;
+    const nextIndex = TAB_ORDER.indexOf(activeTab);
     pageIndexRef.current = nextIndex;
     dragOffsetRef.current = settledOffsetForIndex(nextIndex);
     applyTransform(dragOffsetRef.current, true);
@@ -565,11 +566,12 @@ function ProfileContentSwipePager({
     event.preventDefault();
     const width = widthRef.current || measureWidth();
     const base = settledOffsetForIndex(pageIndexRef.current);
+    const maxOffset = -width * (pageCount - 1);
     let next = base + dx;
     if (next > 0) {
       next = next * 0.35;
-    } else if (next < -width) {
-      next = -width + (next + width) * 0.35;
+    } else if (next < maxOffset) {
+      next = maxOffset + (next - maxOffset) * 0.35;
     }
 
     dragOffsetRef.current = next;
@@ -607,16 +609,17 @@ function ProfileContentSwipePager({
       const goPrev = (passedDistance ? delta > 0 : false) || (passedVelocity ? vx > 0 : false);
 
       if (goNext && !goPrev) {
-        nextIndex = Math.min(1, currentIndex + 1);
+        nextIndex = Math.min(pageCount - 1, currentIndex + 1);
       } else if (goPrev && !goNext) {
         nextIndex = Math.max(0, currentIndex - 1);
       } else if (vx < 0 || delta < 0) {
-        nextIndex = Math.min(1, currentIndex + 1);
+        nextIndex = Math.min(pageCount - 1, currentIndex + 1);
       } else {
         nextIndex = Math.max(0, currentIndex - 1);
       }
     } else {
-      nextIndex = -offset / Math.max(width, 1) > 0.5 ? 1 : 0;
+      const rawIndex = -offset / Math.max(width, 1);
+      nextIndex = Math.min(pageCount - 1, Math.max(0, Math.round(rawIndex)));
     }
 
     snapToIndex(nextIndex, true);
@@ -723,10 +726,11 @@ function ProfileContentSwipePager({
     >
       <div
         ref={trackRef}
-        className="flex w-[200%] will-change-transform [transform:translate3d(0,0,0)]"
+        className="flex w-[300%] will-change-transform [transform:translate3d(0,0,0)]"
       >
-        <div className="w-1/2 min-w-[50%] max-w-[50%] shrink-0 grow-0">{postsPage}</div>
-        <div className="w-1/2 min-w-[50%] max-w-[50%] shrink-0 grow-0">{savedPage}</div>
+        <div className="w-1/3 min-w-[33.3334%] max-w-[33.3334%] shrink-0 grow-0">{postsPage}</div>
+        <div className="w-1/3 min-w-[33.3334%] max-w-[33.3334%] shrink-0 grow-0">{mySpotsPage}</div>
+        <div className="w-1/3 min-w-[33.3334%] max-w-[33.3334%] shrink-0 grow-0">{savedPage}</div>
       </div>
     </div>
   );
@@ -744,8 +748,9 @@ type ProfileContentTabsProps = {
   onPostDeleted?: (postId: string) => void;
   viewerAuthor?: ViewerPostAuthor | null;
   savedPanel?: ReactNode;
-  /** Owner-only Saved tab. Hidden for public profile visitors. */
-  showSavedTab?: boolean;
+  mySpotsPanel?: ReactNode;
+  /** Owner-only My Spots + Saved tabs. Hidden for public profile visitors. */
+  showPrivateTabs?: boolean;
   compact?: boolean;
   /** Stick the tab bar under the profile header (own profile). */
   stickyTabBar?: boolean;
@@ -763,7 +768,8 @@ export default function ProfileContentTabs({
   onPostDeleted,
   viewerAuthor = null,
   savedPanel = null,
-  showSavedTab = true,
+  mySpotsPanel = null,
+  showPrivateTabs = true,
   compact = false,
   stickyTabBar = false,
 }: ProfileContentTabsProps) {
@@ -791,7 +797,7 @@ export default function ProfileContentTabs({
     />
   );
 
-  if (!showSavedTab) {
+  if (!showPrivateTabs) {
     return (
       <div className={`w-full min-w-0 max-w-full space-y-0 overflow-x-hidden ${MOBILE_WIDTH_SAFE_CLASS}`}>
         {postsGrid}
@@ -823,6 +829,7 @@ export default function ProfileContentTabs({
         onTabChange={handleTabChange}
         onDragProgress={setDragProgress}
         postsPage={postsGrid}
+        mySpotsPage={<div className={MOBILE_WIDTH_SAFE_CLASS}>{mySpotsPanel}</div>}
         savedPage={<div className={MOBILE_WIDTH_SAFE_CLASS}>{savedPanel}</div>}
       />
     </div>

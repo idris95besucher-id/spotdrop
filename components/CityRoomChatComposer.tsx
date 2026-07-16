@@ -17,6 +17,10 @@ type CityRoomChatComposerProps = {
   footer?: ReactNode;
   preview?: ReactNode;
   textareaRef?: RefObject<HTMLTextAreaElement | null>;
+  /** Rendered in place of the send button while the textarea is empty (e.g. a voice-message mic button). */
+  emptyInputAction?: ReactNode;
+  /** Rendered to the left of the textarea (e.g. the "+" attachment button). */
+  leadingAction?: ReactNode;
 };
 
 export default function CityRoomChatComposer({
@@ -31,6 +35,8 @@ export default function CityRoomChatComposer({
   footer = null,
   preview = null,
   textareaRef,
+  emptyInputAction,
+  leadingAction,
 }: CityRoomChatComposerProps) {
   const { t } = useI18n();
   const { isKeyboardOpen, composerStyle } = useComposerKeyboardStyle();
@@ -56,7 +62,8 @@ export default function CityRoomChatComposer({
 
       {preview ? <div className="mb-2.5">{preview}</div> : null}
 
-      <div className="flex items-end gap-2">
+      <div className="relative flex items-end gap-2">
+        {leadingAction}
         <textarea
           ref={textareaRef}
           name="spotdrop-room-message"
@@ -68,20 +75,17 @@ export default function CityRoomChatComposer({
           rows={1}
           className="max-h-28 min-h-11 flex-1 resize-none rounded-3xl border border-white/10 bg-slate-900/95 px-4 py-2.5 text-sm leading-5 text-white outline-none transition placeholder:text-slate-500 focus:border-cyan-400 disabled:cursor-not-allowed disabled:opacity-60"
         />
-        <button
-          type="submit"
-          disabled={sendDisabled}
-          className="inline-flex h-11 w-11 shrink-0 items-center justify-center self-end rounded-full bg-cyan-500 text-slate-950 transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-50"
-          aria-label={t("rooms.composer.sendMessage")}
-        >
-          {sending ? (
-            <span className="text-xs font-semibold">…</span>
-          ) : (
-            <svg aria-hidden="true" viewBox="0 0 24 24" className="h-4 w-4 fill-current">
-              <path d="M3.4 20.6 22 12 3.4 3.4l2.8 7.2L16 11l-9.8.8 2.8 7.2z" />
-            </svg>
-          )}
-        </button>
+        {!value.trim() && emptyInputAction ? (
+          emptyInputAction
+        ) : (
+          <button
+            type="submit"
+            disabled={sendDisabled}
+            className="shrink-0 rounded-2xl bg-primary px-4 py-3 text-xs font-semibold text-[#050816] transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {sending ? "…" : t("common.send")}
+          </button>
+        )}
       </div>
 
       {footer}

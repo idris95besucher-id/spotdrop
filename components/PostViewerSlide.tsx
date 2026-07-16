@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Loader2 } from "lucide-react";
 import EditPublicationScreen from "@/components/EditPublicationScreen";
 import PublicationAuthorHeader from "@/components/PublicationAuthorHeader";
+import OwnContentMenu from "@/components/OwnContentMenu";
 import { useSpotLocationModal } from "@/components/SpotLocationModalProvider";
 import PostCommentsSection from "@/components/PostCommentsSection";
 import PostDetailActionRail from "@/components/PostDetailActionRail";
@@ -603,6 +604,33 @@ export default function PostViewerSlide({
       className="relative h-full min-h-[100svh] w-full shrink-0 snap-start snap-always bg-slate-950"
       aria-label={`Post by ${authorUsername}`}
     >
+      {isOwnPost ? (
+        <div
+          className="pointer-events-auto absolute right-3 z-50"
+          data-spot-viewer-chrome-top
+          onClick={(event) => event.stopPropagation()}
+        >
+          <OwnContentMenu
+            triggerClassName="bg-black/50 ring-1 ring-white/15 backdrop-blur-md hover:bg-black/70"
+            deleteMenuLabel={t("content.deletePublication")}
+            editMenuLabel={t("content.editPublication")}
+            confirmTitle={t("content.deletePublicationTitle")}
+            confirmBody={t("content.deletePublicationBody")}
+            deletedToast={t("content.spotDeleted")}
+            onEdit={() => setEditPublicationOpen(true)}
+            onDelete={async () => {
+              if (!userId) {
+                return { ok: false, error: "Sign in required." };
+              }
+
+              setSendSpotSheetOpen(false);
+              return deleteOwnedPublication(String(post.id), post, userId);
+            }}
+            onDeleted={() => onItemDeleted?.(post.id)}
+          />
+        </div>
+      ) : null}
+
       {guidePlace && !mediaUrl && !posterUrl ? (
         <div className="absolute inset-0 z-[1] flex items-center justify-center overflow-y-auto px-4 pb-36 pt-[max(3.5rem,env(safe-area-inset-top,0px))]">
           <div className="w-full max-w-md">
@@ -704,17 +732,6 @@ export default function PostViewerSlide({
               authorUsername={authorUsername}
               avatarUrl={postAuthor.avatar_url}
               viewerUserId={userId}
-              menuTriggerClassName="bg-black/45 ring-1 ring-white/15 backdrop-blur-md"
-              onEdit={isOwnPost ? () => setEditPublicationOpen(true) : undefined}
-              onDelete={async () => {
-                if (!userId) {
-                  return { ok: false, error: "Sign in required." };
-                }
-
-                setSendSpotSheetOpen(false);
-                return deleteOwnedPublication(String(post.id), post, userId);
-              }}
-              onDeleted={() => onItemDeleted?.(post.id)}
             />
           ) : null}
 

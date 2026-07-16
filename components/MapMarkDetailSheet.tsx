@@ -2,9 +2,11 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { Loader2, MapPinned, X } from "lucide-react";
+import { Loader2, MapPinned, Share2, X } from "lucide-react";
+import ShareMapMarkSheet from "@/components/ShareMapMarkSheet";
 import { useI18n } from "@/components/I18nProvider";
 import { usePostViewerOptional } from "@/components/PostViewerProvider";
+import { mapMarkToSharePayload } from "@/lib/cityRoomMapMarkMessage";
 import { openGoogleMapsAtCoordinates } from "@/lib/externalMaps";
 import {
   deleteMapMark,
@@ -71,6 +73,7 @@ export default function MapMarkDetailSheet({
   const [fullscreenPhoto, setFullscreenPhoto] = useState(false);
   const [relatedSpotId, setRelatedSpotId] = useState<string | null>(null);
   const [openingSpot, setOpeningSpot] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
 
   const placeLine = useMemo(() => {
     return mark.place_name?.trim() || mark.address?.trim() || t("map.selectedLocation");
@@ -251,6 +254,8 @@ export default function MapMarkDetailSheet({
     openGoogleMapsAtCoordinates(mark.latitude, mark.longitude);
   };
 
+  const sharePayload = useMemo(() => mapMarkToSharePayload(mark), [mark]);
+
   if (fullscreenPhoto && photoPreview) {
     return (
       <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black">
@@ -427,14 +432,24 @@ export default function MapMarkDetailSheet({
             </div>
           ) : (
             <>
-              <button
-                type="button"
-                onClick={handleOpenGoogleMaps}
-                className="flex w-full items-center justify-center gap-2 rounded-full bg-cyan-500 py-3.5 text-sm font-bold text-slate-950 shadow-lg shadow-cyan-500/20 transition hover:bg-cyan-400 active:scale-[0.99]"
-              >
-                <span aria-hidden>🗺️</span>
-                {t("map.markOpenInGoogleMaps")}
-              </button>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={handleOpenGoogleMaps}
+                  className="inline-flex flex-1 items-center justify-center gap-2 rounded-full bg-cyan-500 py-3.5 text-sm font-bold text-slate-950 shadow-lg shadow-cyan-500/20 transition hover:bg-cyan-400 active:scale-[0.99]"
+                >
+                  <span aria-hidden>🗺️</span>
+                  {t("map.markOpenInGoogleMaps")}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShareOpen(true)}
+                  className="inline-flex shrink-0 items-center justify-center gap-2 rounded-full border border-white/12 px-4 py-3.5 text-sm font-semibold text-white transition hover:bg-white/10"
+                  aria-label={t("map.shareMark.action")}
+                >
+                  <Share2 className="h-4 w-4" aria-hidden />
+                </button>
+              </div>
 
               {isOwner ? (
                 <div className="flex gap-2">
@@ -470,6 +485,13 @@ export default function MapMarkDetailSheet({
           )}
         </div>
       </div>
+
+      <ShareMapMarkSheet
+        mark={sharePayload}
+        userId={viewerId}
+        isOpen={shareOpen}
+        onClose={() => setShareOpen(false)}
+      />
     </div>
   );
 }

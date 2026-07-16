@@ -2,7 +2,7 @@
 
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useI18n } from "@/components/I18nProvider";
 import { supabase } from "@/lib/supabaseClient";
@@ -25,6 +25,23 @@ export default function VisitMapPanel() {
   const { t } = useI18n();
   const searchParams = useSearchParams();
   const focusMarkId = searchParams.get("mark");
+  const focusLat = searchParams.get("lat");
+  const focusLng = searchParams.get("lng");
+  const focusPlaceName = searchParams.get("place");
+  const focusPlaceCoords = useMemo(() => {
+    const latitude = Number(focusLat);
+    const longitude = Number(focusLng);
+
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+      return null;
+    }
+
+    return {
+      latitude,
+      longitude,
+      name: focusPlaceName,
+    };
+  }, [focusLat, focusLng, focusPlaceName]);
   const [userId, setUserId] = useState<string | null>(null);
   const [authChecked, setAuthChecked] = useState(false);
 
@@ -65,7 +82,12 @@ export default function VisitMapPanel() {
 
   return (
     <div className="h-full min-h-0 w-full">
-      <SpotLiveMap userId={userId} embedded focusMarkId={focusMarkId} />
+      <SpotLiveMap
+        userId={userId}
+        embedded
+        focusMarkId={focusMarkId}
+        focusPlaceCoords={focusPlaceCoords}
+      />
     </div>
   );
 }

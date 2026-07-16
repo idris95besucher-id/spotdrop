@@ -2,18 +2,20 @@
 
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { MoreVertical, UserMinus } from "lucide-react";
 import { useI18n } from "@/components/I18nProvider";
 import { localizeError } from "@/lib/i18n/localizeError";
 import { getSafeAuthSession } from "@/lib/authSession";
 import { isGuideAccountProfile, publicProfileUsername } from "@/lib/publicProfile";
 import { ensureProfileRow } from "@/lib/profile";
-import { followUser, loadFollowConnections, loadFollowRelationship, unfollowUser } from "@/lib/follows";
+import { followUser, loadFollowConnections, loadFollowRelationship, removeFollower, unfollowUser } from "@/lib/follows";
 import { checkCanMessageUser } from "@/lib/messagePrivacy";
 import ProfileContentTabs, {
   type ProfileMainTab,
 } from "@/components/ProfileContentTabs";
 import ProfileSavedTab from "@/components/ProfileSavedTab";
+import ProfileMySpotsTab from "@/components/ProfileMySpotsTab";
 import ProfileGalleryAvatarLink from "@/components/profile/ProfileGalleryAvatarLink";
 import MobileSecondaryHeader from "@/components/MobileSecondaryHeader";
 import NavigationStackScreen from "@/components/NavigationStackScreen";
@@ -28,11 +30,14 @@ import {
   type ResolvedProfileLocation,
 } from "@/lib/profileLocation";
 import ProfileScreenLayout from "@/components/profile/ProfileScreenLayout";
+import ProfileMenuSheet, { type ProfileMenuItem } from "@/components/ProfileMenuSheet";
+import RemoveFollowerConfirmSheet from "@/components/RemoveFollowerConfirmSheet";
 import UserPresenceLabel from "@/components/UserPresenceLabel";
 import Shell from "@/components/Shell";
 import { useUserPresence } from "@/lib/useUserPresence";
 import { useCanSeeOnlineStatus } from "@/lib/useCanSeeOnlineStatus";
 import { supabase } from "@/lib/supabaseClient";
+import { dispatchProfileFollowersRefresh } from "@/lib/profileContentRefresh";
 import { MOBILE_BOTTOM_NAV_PADDING, MOBILE_MAIN_SCROLL_CLASS } from "@/lib/mobileLayout";
 import { navigateBack } from "@/lib/navigateBack";
 
@@ -101,6 +106,7 @@ export default function UserPage({ userIdOverride }: { userIdOverride?: string }
   const [profile, setProfile] = useState<Profile | null>(null);
   const [viewerId, setViewerId] = useState<string | null>(null);
   const [viewerFollowsTarget, setViewerFollowsTarget] = useState(false);
+  const [targetFollowsViewer, setTargetFollowsViewer] = useState(false);
   const [personalPosts, setPersonalPosts] = useState<ProfileContentPost[]>([]);
   const [spotPosts, setSpotPosts] = useState<ProfileContentPost[]>([]);
   const [activeContentTab, setActiveContentTab] = useState<ProfileMainTab>("spots");
@@ -110,6 +116,9 @@ export default function UserPage({ userIdOverride }: { userIdOverride?: string }
   const [loading, setLoading] = useState(true);
   const [loadingPosts, setLoadingPosts] = useState(false);
   const [loadingFollowAction, setLoadingFollowAction] = useState(false);
+  const [removingFollower, setRemovingFollower] = useState(false);
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+  const [removeFollowerConfirmOpen, setRemoveFollowerConfirmOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [relationshipError, setRelationshipError] = useState<string | null>(null);
   const [canMessageTarget, setCanMessageTarget] = useState(false);
@@ -149,6 +158,7 @@ export default function UserPage({ userIdOverride }: { userIdOverride?: string }
       setFollowersCount(0);
       setFriendsCount(0);
       setViewerFollowsTarget(false);
+      setTargetFollowsViewer(false);
       setCanMessageTarget(false);
 
       const timeoutId = window.setTimeout(() => {
@@ -262,6 +272,7 @@ export default function UserPage({ userIdOverride }: { userIdOverride?: string }
           setRelationshipError(relationshipResult.error);
         } else {
           setViewerFollowsTarget(relationshipResult.data?.viewerFollowsTarget ?? false);
+          setTargetFollowsViewer(relationshipResult.data?.targetFollowsViewer ?? false);
         }
 
         const messagePermission = await checkCanMessageUser(session.user.id, loadedProfile.id);
@@ -306,6 +317,7 @@ export default function UserPage({ userIdOverride }: { userIdOverride?: string }
       setRelationshipError(relationshipResult.error);
     } else {
       setViewerFollowsTarget(relationshipResult.data?.viewerFollowsTarget ?? false);
+      setTargetFollowsViewer(relationshipResult.data?.targetFollowsViewer ?? false);
     }
 
     const followConnectionsResult = await loadFollowConnections(profile.id);
@@ -323,6 +335,54 @@ export default function UserPage({ userIdOverride }: { userIdOverride?: string }
     setLoadingFollowAction(false);
   };
 
+  const handleRemoveFollower = async () => {
+    if (!viewerId || !profile?.id || !targetFollowsViewer) {
+      return;
+    }
+
+    setRemovingFollower(true);
+    setRelationshipError(null);
+
+    const wasFriend = viewerFollowsTarget && targetFollowsViewer;
+    const actionError = await removeFollower(viewerId, profile.id);
+
+    if (actionError) {
+      setRelationshipError(actionError);
+      setRemovingFollower(false);
+      return;
+    }
+
+    setTargetFollowsViewer(false);
+    if (wasFriend) {
+      setFriendsCount((current) => Math.max(0, current - 1));
+    }
+
+    dispatchProfileFollowersRefresh();
+    setRemoveFollowerConfirmOpen(false);
+    setProfileMenuOpen(false);
+
+    const messagePermission = await checkCanMessageUser(viewerId, profile.id);
+    setCanMessageTarget(messagePermission.allowed);
+
+    setRemovingFollower(false);
+  };
+
+  const profileMenuItems = useMemo<ProfileMenuItem[]>(() => {
+    if (!targetFollowsViewer || isOwnProfile || !viewerId) {
+      return [];
+    }
+
+    return [
+      {
+        id: "remove-follower",
+        label: t("profile.removeFollower"),
+        icon: UserMinus,
+        destructive: true,
+        onClick: () => setRemoveFollowerConfirmOpen(true),
+      },
+    ];
+  }, [isOwnProfile, t, targetFollowsViewer, viewerId]);
+
   const locationLine = formatProfileLocationLineLocalized(location, locale);
   const headerTitle = profile
     ? profile.name?.trim() || `@${profile.username}`
@@ -331,7 +391,22 @@ export default function UserPage({ userIdOverride }: { userIdOverride?: string }
   return (
     <Shell showHeader={false} flushTop fixedLayout>
       <NavigationStackScreen fallbackHref="/search/people">
-        <MobileSecondaryHeader title={headerTitle} backHref="/search/people" />
+        <MobileSecondaryHeader
+          title={headerTitle}
+          backHref="/search/people"
+          trailing={
+            profileMenuItems.length > 0 ? (
+              <button
+                type="button"
+                onClick={() => setProfileMenuOpen(true)}
+                className="inline-flex h-10 w-10 items-center justify-center rounded-full text-white transition hover:bg-white/10"
+                aria-label={t("profile.removeFollower")}
+              >
+                <MoreVertical className="h-5 w-5" aria-hidden />
+              </button>
+            ) : undefined
+          }
+        />
 
         <div
           data-mobile-main-scroll=""
@@ -373,6 +448,11 @@ export default function UserPage({ userIdOverride }: { userIdOverride?: string }
                     {profile.name?.trim() || profile.username}
                   </h1>
                   <p className="text-sm font-medium text-slate-500 sm:text-center">@{profile.username}</p>
+                  {!isOwnProfile && targetFollowsViewer ? (
+                    <p className="text-xs font-semibold uppercase tracking-wide text-cyan-300/90 sm:text-center">
+                      {t("profile.followsYou")}
+                    </p>
+                  ) : null}
                   {!isOwnProfile && canSeeProfilePresence === true ? (
                     <UserPresenceLabel
                       userId={profile.id}
@@ -476,7 +556,18 @@ export default function UserPage({ userIdOverride }: { userIdOverride?: string }
                       }
                     : null
                 }
-                showSavedTab={isOwnProfile}
+                showPrivateTabs={isOwnProfile}
+                mySpotsPanel={
+                  isOwnProfile && profile && viewerId ? (
+                    <ProfileMySpotsTab
+                      userId={viewerId}
+                      viewerAuthor={{
+                        username: profile.username,
+                        avatar_url: profile.avatar_url,
+                      }}
+                    />
+                  ) : null
+                }
                 savedPanel={
                   isOwnProfile && profile && viewerId ? (
                     <ProfileSavedTab
@@ -499,6 +590,21 @@ export default function UserPage({ userIdOverride }: { userIdOverride?: string }
           </ProfileScreenLayout>
         </div>
       </NavigationStackScreen>
+
+      <ProfileMenuSheet
+        isOpen={profileMenuOpen}
+        onClose={() => setProfileMenuOpen(false)}
+        items={profileMenuItems}
+        title={t("profile.viewProfile")}
+      />
+
+      <RemoveFollowerConfirmSheet
+        isOpen={removeFollowerConfirmOpen}
+        username={profile?.username ?? ""}
+        removing={removingFollower}
+        onClose={() => setRemoveFollowerConfirmOpen(false)}
+        onConfirm={() => void handleRemoveFollower()}
+      />
     </Shell>
   );
 }

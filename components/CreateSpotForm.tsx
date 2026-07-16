@@ -7,7 +7,6 @@ import SpotInstagramCamera, { type SpotCreateCameraMode } from "@/components/Spo
 import SpotTextCardEditorScreen from "@/components/SpotTextCardEditorScreen";
 import SpotPublishScreen from "@/components/SpotPublishScreen";
 import { useI18n } from "@/components/I18nProvider";
-import { loadUserCollections, type CollectionWithMeta } from "@/lib/collections";
 import {
   captureDeviceSpotLocation,
   SPOT_GPS_CAPTURE_FAILED_MESSAGE,
@@ -15,7 +14,7 @@ import {
 import { findNearestDiscoveryPlace, loadDiscoveryPlacesForMatching } from "@/lib/spots";
 import type { DiscoveryPlace } from "@/lib/discoveryMap";
 import { NOT_SIGNED_IN_UPLOAD_MESSAGE } from "@/lib/postMedia";
-import { resolveSpotName } from "@/lib/spotPublish";
+import { resolveSpotName, type SpotPublishDestination } from "@/lib/spotPublish";
 import { normalizeSpotCaption } from "@/lib/spotCaption";
 import { isDeviceOnline, isLikelyNetworkError } from "@/lib/deviceOnline";
 import {
@@ -26,7 +25,16 @@ import {
   type MediaEditorItem,
 } from "@/lib/mediaEditor";
 import { publishSpotWithProgress, type SpotUploadProgress } from "@/lib/spotUploadPipeline";
+import type { UploadTimingSummary } from "@/lib/spotUploadTiming";
 import { setImmersiveOverlayActive } from "@/lib/immersiveOverlay";
+import { acquireUploadWakeLock } from "@/lib/screenWakeLock";
+import type { RetryAttemptInfo } from "@/lib/uploadRetry";
+import {
+  generateUploadRequestId,
+  logUploadLifecycleEvent,
+  logUploadPerfSummary,
+  watchUploadEnvironment,
+} from "@/lib/uploadLifecycleTrace";
 import { localizeCaughtError } from "@/lib/i18n/localizeUserMessage";
 import { hasVerifiedSpotCaptureLocation } from "@/lib/spotCaptureLocation";
 import type { SpotGeoLocation } from "@/lib/spotLocation";
@@ -68,9 +76,7 @@ export default function CreateSpotForm({
   const [step, setStep] = useState<Step>("camera");
   const [cameraMode, setCameraMode] = useState<SpotCreateCameraMode>("photo");
   const [caption, setCaption] = useState("");
-  const [collectionId, setCollectionId] = useState("");
-  const [collections, setCollections] = useState<CollectionWithMeta[]>([]);
-  const [collectionsLoading, setCollectionsLoading] = useState(false);
+  const [publishDestination, setPublishDestination] = useState<SpotPublishDestination>("public");
   const [publishPreviewItems, setPublishPreviewItems] = useState<MediaEditorItem[]>([]);
   const [location, setLocation] = useState<SpotGeoLocation | null>(null);
   const [places, setPlaces] = useState<DiscoveryPlace[]>([]);
@@ -81,6 +87,15 @@ export default function CreateSpotForm({
   const [uploadFailed, setUploadFailed] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [publishAsLocationCard, setPublishAsLocationCard] = useState(false);
+  const [retryStatus, setRetryStatus] = useState<RetryAttemptInfo | null>(null);
+  // Created fresh per publish attempt and stored in a ref (not state) so re-renders while
+  // publishing — progress updates, retry status, etc. — never recreate it or accidentally
+  // abort it. Nothing auto-aborts this anymore (see handlePublish) — only a brand new
+  // handlePublish() call replaces it with a fresh one for the next attempt.
+  const uploadAbortControllerRef = useRef<AbortController | null>(null);
+  const uploadRequestIdRef = useRef<string | null>(null);
+  const renderCountRef = useRef(0);
+  renderCountRef.current += 1;
 
   const [cardText, setCardText] = useState("");
   const [templateId, setTemplateId] = useState<SpotTextCardTemplateId>("classic");
@@ -113,11 +128,13 @@ export default function CreateSpotForm({
     setStep("camera");
     setCameraMode("photo");
     setCaption("");
+    setPublishDestination("public");
     setLocation(null);
     setPickingMedia(false);
     setPublishing(false);
     setUploadProgress(null);
     setUploadFailed(false);
+    setRetryStatus(null);
     setError(null);
     setPublishAsLocationCard(false);
     setCardText("");
@@ -152,23 +169,53 @@ export default function CreateSpotForm({
       void loadDiscoveryPlacesForMatching().then((loaded) => {
         setPlaces(loaded);
       });
-      setCollectionsLoading(true);
-      void loadUserCollections(userId, userId).then((result) => {
-        setCollections(result.collections);
-        setCollectionsLoading(false);
-      });
     } else {
       setPlaces([]);
-      setCollections([]);
-      setCollectionsLoading(false);
     }
 
     return () => {
+      // If this cleanup runs while a publish is in flight, that's a genuine "user left the
+      // upload flow" (isOpen/launch/userId changed out from under an in-progress publish —
+      // normally impossible via the in-app Close button, which handleClose already blocks
+      // while publishing, but possible if the parent forcibly tears this screen down) — abort
+      // for real here. This is the *only* automatic abort left in the pipeline, and it fires
+      // for the reason requirement 5 actually allows: leaving the upload flow, not a rerender,
+      // not a progress update, not a wall-clock guess.
+      if (publishingRef.current) {
+        logUploadLifecycleEvent("create-spot-form-cleanup-while-publishing", {
+          requestId: uploadRequestIdRef.current,
+        });
+        uploadAbortControllerRef.current?.abort();
+      }
+
       setImmersiveOverlayActive(false);
       revokeMediaEditorItems(publishPreviewItemsRef.current);
       publishPreviewItemsRef.current = [];
     };
   }, [isOpen, launch, resetAll, startLocationCapture, userId]);
+
+  useEffect(() => {
+    logUploadLifecycleEvent("create-spot-form-mounted", {});
+
+    return () => {
+      logUploadLifecycleEvent("create-spot-form-unmounted", {
+        requestId: uploadRequestIdRef.current,
+        wasPublishing: publishingRef.current,
+      });
+    };
+  }, []);
+
+  useEffect(() => {
+    if (publishing) {
+      logUploadLifecycleEvent("rerender-during-publish", {
+        requestId: uploadRequestIdRef.current,
+        renderCount: renderCountRef.current,
+        percent: uploadProgress?.percent ?? null,
+        stage: uploadProgress?.stage ?? null,
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  });
 
   const handleClose = () => {
     if (publishing) {
@@ -400,6 +447,19 @@ export default function CreateSpotForm({
     setUploadFailed(false);
     setError(null);
     setUploadProgress(null);
+    setRetryStatus(null);
+
+    const requestId = generateUploadRequestId();
+    uploadRequestIdRef.current = requestId;
+    const originalFileSizeBytes = itemsToPublish[0]!.file.size;
+
+    logUploadLifecycleEvent("publish-attempt-started", {
+      requestId,
+      itemCount: itemsToPublish.length,
+      mediaType: itemsToPublish[0]!.mediaType,
+      originalFileSizeBytes,
+      renderCount: renderCountRef.current,
+    });
 
     logSpotPublishMediaItemsPayload(
       itemsToPublish.map((item) => ({
@@ -409,7 +469,28 @@ export default function CreateSpotForm({
       }))
     );
 
-    const PUBLISH_TIMEOUT_MS = 180_000;
+    // A fresh controller per attempt, kept in a ref so re-renders during this publish
+    // (progress ticks, retry status) can never recreate or drop it.
+    //
+    // IMPORTANT — this used to also be wrapped in `window.setTimeout(() => controller.abort(),
+    // 180_000)` as a whole-pipeline safety net. That net is exactly what caused the
+    // "[post-media upload] Upload aborted" bug: once automatic upload retries (with backoff)
+    // were added, a 30s video needing even one retry on a slow connection could legitimately
+    // take longer than 180s end-to-end (location + media prep + upload attempts + backoff
+    // delays + DB insert), so the timer fired and killed a request that was still healthy and
+    // making progress — often moments before it would have succeeded. Confirmed via
+    // `grep -rn "\.abort("` across lib/ and components/: that setTimeout was the *only*
+    // application-level call to controller.abort() in the entire codebase; every other abort
+    // path is storageUpload.ts's own per-attempt stall/absolute-cap watchdogs, which are
+    // failure-driven, not wall-clock-driven, and already bounded per attempt (see
+    // ABSOLUTE_MAX_UPLOAD_MS) — so a second, blunter pipeline-level clock on top of them was
+    // both redundant and actively harmful. Removed. This controller now only aborts for a
+    // genuinely explicit reason (see uploadLifecycleTrace logs for every abort() call site).
+    logUploadLifecycleEvent("abort-controller-created", { requestId });
+    const controller = new AbortController();
+    uploadAbortControllerRef.current = controller;
+    const wakeLock = acquireUploadWakeLock();
+    const stopWatchingEnvironment = watchUploadEnvironment(requestId);
 
     try {
       let publishLocation = await ensureLocationForPublish();
@@ -434,34 +515,47 @@ export default function CreateSpotForm({
       const matchedPlace = findNearestDiscoveryPlace(publishLocation!, placesRef.current)?.name ?? null;
       const label = formatSpotGeoLocationShortLabel(publishLocation!, locale);
 
-      const result = await Promise.race([
-        publishSpotWithProgress({
-          userId,
-          mediaItems: itemsToPublish,
-          spotName: publishAsLocationCard
-            ? resolveSpotName(cardText)
-            : resolveSpotName(matchedPlace || label),
-          caption: publishAsLocationCard
-            ? undefined
-            : normalizeSpotCaption(caption).trim() || undefined,
-          location: publishLocation!,
-          collectionId: collectionId || null,
-          discoveryPlaces: placesRef.current,
-          locationCard: publishAsLocationCard,
-          onProgress: (progress) => {
-            setUploadProgress(progress);
-          },
-        }),
-        new Promise<never>((_, reject) => {
-          window.setTimeout(() => {
-            reject(new Error(t("spotEditor.error.uploadFailed")));
-          }, PUBLISH_TIMEOUT_MS);
-        }),
-      ]);
+      const result = await publishSpotWithProgress({
+        userId,
+        mediaItems: itemsToPublish,
+        spotName: publishAsLocationCard
+          ? resolveSpotName(cardText)
+          : resolveSpotName(matchedPlace || label),
+        caption: publishAsLocationCard
+          ? undefined
+          : normalizeSpotCaption(caption).trim() || undefined,
+        location: publishLocation!,
+        publishToMySpots: publishDestination === "my-spots",
+        discoveryPlaces: placesRef.current,
+        locationCard: publishAsLocationCard,
+        signal: controller.signal,
+        requestId,
+        onProgress: (progress) => {
+          setUploadProgress(progress);
+        },
+        onUploadRetry: (info) => {
+          setRetryStatus(info);
+        },
+      });
 
       const postId = result.postId;
 
+      if (result.timing) {
+        logUploadPerfSummary({
+          requestId,
+          originalFileSizeBytes,
+          processedFileSizeBytes: Math.round(result.timing.processedVideoSizeMb * 1024 * 1024),
+          preprocessingDurationMs: result.timing.exportDurationMs,
+          uploadDurationMs: result.timing.storageDurationMs,
+          averageUploadSpeedMbps: result.timing.averageUploadSpeedMbps,
+          abortedAt: null,
+        });
+      }
+
       if (postId) {
+        // Capture before resetAll() below resets it back to "public".
+        const publishedDestinationTab = publishDestination === "my-spots" ? "my-spots" : "spots";
+
         // 1) Tear down temporary camera/media state before navigation.
         revokeMediaEditorItems(itemsToPublish);
         publishPreviewItemsRef.current = [];
@@ -472,21 +566,40 @@ export default function CreateSpotForm({
         // 2) Close create overlays (camera / share) — no history entries for these portals.
         onCreated();
 
-        // 3) Replace current route with My profile → Posts/Spots (never open /posts viewer).
-        //    router.replace removes this intermediate entry so Back cannot reopen create/share.
-        finishSpotPublishToProfile(router);
+        // 3) Replace current route with My profile → Posts/Spots (or My Spots — never open
+        //    /posts viewer). router.replace removes this intermediate entry so Back cannot
+        //    reopen create/share.
+        finishSpotPublishToProfile(router, publishedDestinationTab);
         return;
       }
     } catch (caught) {
       setUploadFailed(true);
       setUploadProgress(null);
+      setRetryStatus(null);
 
       const failedPhotoIndex = (caught as { failedPhotoIndex?: number }).failedPhotoIndex;
+      const errorKind = (caught as { errorKind?: string }).errorKind;
+      const failedTiming = (caught as { timing?: UploadTimingSummary }).timing;
+      const wasAborted =
+        errorKind === "aborted" || (caught instanceof DOMException && caught.name === "AbortError");
       const rawPublishError = publishErrorForUi(caught);
 
+      logUploadPerfSummary({
+        requestId,
+        originalFileSizeBytes,
+        processedFileSizeBytes: Math.round((failedTiming?.processedVideoSizeMb ?? 0) * 1024 * 1024),
+        preprocessingDurationMs: failedTiming?.exportDurationMs ?? 0,
+        uploadDurationMs: failedTiming?.storageDurationMs ?? 0,
+        averageUploadSpeedMbps: failedTiming?.averageUploadSpeedMbps ?? 0,
+        abortedAt: wasAborted ? `upload_primary (errorKind=${errorKind ?? "unknown"})` : null,
+      });
+
       console.error("[SPOT PUBLISH] CreateSpotForm catch", {
+        requestId,
         rawPublishError,
         failedPhotoIndex,
+        errorKind,
+        wasAborted,
         caught,
       });
 
@@ -494,13 +607,29 @@ export default function CreateSpotForm({
         setError(
           `${t("spotEditor.uploadFailedPhoto", { index: failedPhotoIndex + 1 })} — ${rawPublishError}`
         );
-      } else if (isLikelyNetworkError(caught) && !rawPublishError.includes("[SPOT PUBLISH]")) {
+      } else if (errorKind === "no-internet") {
+        setError(t("spotEditor.error.noInternet"));
+      } else if (errorKind === "timeout" || errorKind === "stalled" || wasAborted) {
+        setError(t("spotEditor.error.timeout"));
+      } else if (errorKind === "auth") {
+        setError(t("spotEditor.error.authExpired"));
+      } else if (errorKind === "file-too-large") {
+        setError(t("spotEditor.error.fileTooLarge"));
+      } else if (errorKind === "network" || (isLikelyNetworkError(caught) && !rawPublishError.includes("[SPOT PUBLISH]"))) {
         setError(`${t("spotEditor.error.uploadFailed")} — ${rawPublishError}`);
       } else {
         // Debug: show the real storage/database error, not a generic localized fallback.
         setError(rawPublishError);
       }
     } finally {
+      wakeLock.release();
+      stopWatchingEnvironment();
+      logUploadLifecycleEvent("publish-attempt-finished", { requestId });
+
+      if (uploadAbortControllerRef.current === controller) {
+        uploadAbortControllerRef.current = null;
+      }
+
       publishingRef.current = false;
       setPublishing(false);
     }
@@ -514,18 +643,19 @@ export default function CreateSpotForm({
     return createPortal(
       <SpotPublishScreen
         mediaItems={publishPreviewItems}
-        collections={collections}
-        collectionId={collectionId}
-        collectionsLoading={collectionsLoading}
+        destination={publishDestination}
         caption={caption}
         locationLabel={shortLocationLabel}
         publishing={publishing}
         uploadProgress={uploadProgress}
         uploadFailed={uploadFailed}
+        retryLabel={
+          retryStatus ? t("spotEditor.retrying", { attempt: retryStatus.attempt, max: retryStatus.maxAttempts }) : null
+        }
         offlineMode={offlineMode}
         error={error}
         onCaptionChange={setCaption}
-        onCollectionChange={setCollectionId}
+        onDestinationChange={setPublishDestination}
         onBack={handlePublishBack}
         onPublish={() => void handlePublish()}
       />,

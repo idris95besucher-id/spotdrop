@@ -33,8 +33,11 @@ export type CoreTranslationKey =
   | "profile.spots"
   | "profile.collections"
   | "profile.saved"
+  | "profile.mySpots"
   | "profile.noSavedSpotsYet"
   | "profile.noSavedSpotsYetSubtitle"
+  | "profile.noMySpotsYet"
+  | "profile.noMySpotsYetSubtitle"
   | "profile.channels"
   | "profile.viewProfile"
   | "profile.openMyProfile"
@@ -51,9 +54,29 @@ export type CoreTranslationKey =
   | "profile.galleryStatVideoMany"
   | "profile.galleryAdd"
   | "profile.galleryAddPhoto"
-  | "profile.galleryAddVideo"
+  | "profile.galleryPhotosOnlyHint"
   | "profile.galleryUploading"
   | "profile.galleryUploadFailed"
+  | "profile.galleryEditor.crop"
+  | "profile.galleryEditor.effects"
+  | "profile.galleryEditor.caption"
+  | "profile.galleryEditor.captionLabel"
+  | "profile.galleryEditor.next"
+  | "profile.galleryEditor.upload"
+  | "profile.galleryEditor.reset"
+  | "profile.galleryEditor.rotate"
+  | "profile.galleryEditor.zoomIn"
+  | "profile.galleryEditor.zoomOut"
+  | "profile.galleryEditor.ratioSquare"
+  | "profile.galleryEditor.ratioPortrait"
+  | "profile.galleryEditor.ratioOriginal"
+  | "profile.galleryEditor.effect.original"
+  | "profile.galleryEditor.effect.brightness"
+  | "profile.galleryEditor.effect.contrast"
+  | "profile.galleryEditor.effect.saturation"
+  | "profile.galleryEditor.effect.warmth"
+  | "profile.galleryEditor.effect.fade"
+  | "profile.galleryEditor.effect.blackWhite"
   | "profile.galleryOpenPhoto"
   | "profile.galleryOpenVideo"
   | "profile.galleryPhotoLabel"
@@ -78,8 +101,9 @@ export type CoreTranslationKey =
   | "profile.galleryDeleted"
   | "profile.galleryVisibility.sectionTitle"
   | "profile.galleryVisibility.everyone"
+  | "profile.galleryVisibility.followers"
   | "profile.galleryVisibility.friends"
-  | "profile.galleryVisibility.onlyMe"
+  | "profile.galleryVisibility.selected"
   | "profile.openGallery"
   | "channels.new"
   | "channels.create"
@@ -116,6 +140,9 @@ export type CoreTranslationKey =
   | "profile.noFollowersYet"
   | "profile.noFriendsYet"
   | "profile.followsYou"
+  | "profile.removeFollower"
+  | "profile.removeFollowerConfirmTitle"
+  | "profile.removeFollowerConfirmBody"
   | "profile.mutualFollow"
   | "profile.notSignedIn"
   | "profile.signInPrompt"
@@ -274,6 +301,42 @@ export type CoreTranslationKey =
   | "map.overlapCombinedLabel"
   | "map.closeOverlap"
   | "map.markClusterTitle"
+  | "map.sharePlace.action"
+  | "map.sharePlace.title"
+  | "map.sharePlace.subtitle"
+  | "map.sharePlace.sendToCityRoom"
+  | "map.sharePlace.sendToCityRoomDesc"
+  | "map.sharePlace.sendInDm"
+  | "map.sharePlace.sendInDmDesc"
+  | "map.sharePlace.shareExternally"
+  | "map.sharePlace.shareExternallyDesc"
+  | "map.sharePlace.externalUnavailable"
+  | "map.sharePlace.sent"
+  | "map.sharePlace.openInSpotDrop"
+  | "map.sharePlace.opening"
+  | "map.sharePlace.unavailable"
+  | "map.sharePlace.signIn"
+  | "map.sharePlace.loadingRooms"
+  | "map.sharePlace.recentRooms"
+  | "map.sharePlace.browseAllRooms"
+  | "map.sharePlace.chooseCountry"
+  | "map.sharePlace.chooseCity"
+  | "map.sharePlace.searchCountries"
+  | "map.sharePlace.searchCities"
+  | "map.sharePlace.sendToCount"
+  | "map.sharePlace.sectionPeople"
+  | "map.sharePlace.sectionGroups"
+  | "map.sharePlace.error.sendFailed"
+  | "map.sharePlace.error.shareFailed"
+  | "map.sharePlace.copiedFallback"
+  | "map.shareMark.action"
+  | "map.shareMark.title"
+  | "map.shareMark.subtitle"
+  | "map.shareMark.sendToCityRoomDesc"
+  | "map.shareMark.sendInDmDesc"
+  | "map.shareMark.sent"
+  | "map.shareMark.createdBy"
+  | "map.shareMark.error.sendFailed"
   | "error.connection"
   | "error.loadUsers"
   | "error.loadFollowers"
@@ -282,6 +345,7 @@ export type CoreTranslationKey =
   | "error.follow"
   | "error.cannotFollowSelf"
   | "error.unfollow"
+  | "error.removeFollower"
   | "error.updateFollowStatus"
   | "error.loadProfileContent";
 
@@ -320,8 +384,11 @@ const CORE_EN: CoreMessageTable = {
   "profile.spots": "Spots",
   "profile.collections": "Collections",
   "profile.saved": "Saved",
+  "profile.mySpots": "My Spots",
   "profile.noSavedSpotsYet": "No saved spots yet",
   "profile.noSavedSpotsYetSubtitle": "Save spots to view them here.",
+  "profile.noMySpotsYet": "No Spots here yet",
+  "profile.noMySpotsYetSubtitle": "Spots you publish to My Spots appear here.",
   "profile.channels": "Channels",
   "profile.viewProfile": "View profile",
   "profile.openMyProfile": "Open my profile",
@@ -330,17 +397,37 @@ const CORE_EN: CoreMessageTable = {
   "profile.galleryTitle": "Profile Gallery",
   "profile.gallerySubtitle": "Your photos, videos, and text cards",
   "profile.galleryMediaSubtitle": "Your personal photos and videos",
-  "profile.galleryEmpty": "No personal photos or videos yet.",
-  "profile.galleryEmptyHint": "Tap + to add photos or videos from your library.",
+  "profile.galleryEmpty": "No photos yet.",
+  "profile.galleryEmptyHint": "Tap + to add a photo from your library.",
   "profile.galleryStatPhotoOne": "1 photo",
   "profile.galleryStatPhotoMany": "{count} photos",
   "profile.galleryStatVideoOne": "1 video",
   "profile.galleryStatVideoMany": "{count} videos",
   "profile.galleryAdd": "Add to gallery",
   "profile.galleryAddPhoto": "Add photo",
-  "profile.galleryAddVideo": "Add video",
+  "profile.galleryPhotosOnlyHint": "Photos only — crop, edit, and add a caption before uploading.",
   "profile.galleryUploading": "Uploading…",
-  "profile.galleryUploadFailed": "Unable to save gallery media.",
+  "profile.galleryUploadFailed": "Unable to save gallery photo.",
+  "profile.galleryEditor.crop": "Crop",
+  "profile.galleryEditor.effects": "Effects",
+  "profile.galleryEditor.caption": "Caption",
+  "profile.galleryEditor.captionLabel": "Write a caption",
+  "profile.galleryEditor.next": "Next",
+  "profile.galleryEditor.upload": "Upload",
+  "profile.galleryEditor.reset": "Reset",
+  "profile.galleryEditor.rotate": "Rotate",
+  "profile.galleryEditor.zoomIn": "Zoom in",
+  "profile.galleryEditor.zoomOut": "Zoom out",
+  "profile.galleryEditor.ratioSquare": "1:1",
+  "profile.galleryEditor.ratioPortrait": "4:5",
+  "profile.galleryEditor.ratioOriginal": "Original",
+  "profile.galleryEditor.effect.original": "Original",
+  "profile.galleryEditor.effect.brightness": "Brightness",
+  "profile.galleryEditor.effect.contrast": "Contrast",
+  "profile.galleryEditor.effect.saturation": "Saturation",
+  "profile.galleryEditor.effect.warmth": "Warmth",
+  "profile.galleryEditor.effect.fade": "Fade",
+  "profile.galleryEditor.effect.blackWhite": "B&W",
   "profile.galleryOpenPhoto": "Open photo",
   "profile.galleryOpenVideo": "Open video",
   "profile.galleryPhotoLabel": "Photo",
@@ -352,7 +439,7 @@ const CORE_EN: CoreMessageTable = {
   "profile.galleryLabel": "Gallery",
   "profile.galleryTitleUser": "{user}'s Gallery",
   "profile.galleryFriendsOnly": "This Profile Gallery is available to friends only.",
-  "profile.galleryPrivate": "This Profile Gallery is private.",
+  "profile.galleryPrivate": "This gallery is private.",
   "profile.galleryItemActions": "Gallery item",
   "profile.gallerySetProfilePhoto": "Set as profile photo",
   "profile.galleryAddDescription": "Add description",
@@ -365,8 +452,9 @@ const CORE_EN: CoreMessageTable = {
   "profile.galleryDeleted": "Removed from your gallery.",
   "profile.galleryVisibility.sectionTitle": "Profile Gallery Visibility",
   "profile.galleryVisibility.everyone": "Everyone",
-  "profile.galleryVisibility.friends": "Friends only",
-  "profile.galleryVisibility.onlyMe": "Only me",
+  "profile.galleryVisibility.followers": "Followers",
+  "profile.galleryVisibility.friends": "Friends",
+  "profile.galleryVisibility.selected": "Selected people",
   "profile.openGallery": "Open profile gallery",
   "channels.new": "New Channel",
   "channels.create": "Create channel",
@@ -403,6 +491,9 @@ const CORE_EN: CoreMessageTable = {
   "profile.noFollowersYet": "No followers yet.",
   "profile.noFriendsYet": "No friends yet.",
   "profile.followsYou": "Follows you",
+  "profile.removeFollower": "Remove follower",
+  "profile.removeFollowerConfirmTitle": "Remove follower?",
+  "profile.removeFollowerConfirmBody": "Remove {user} from your followers? They will not be blocked and you will not unfollow them.",
   "profile.mutualFollow": "Mutual follow",
   "profile.notSignedIn": "You are not signed in.",
   "profile.signInPrompt": "Sign in to access your profile and join city chat rooms.",
@@ -561,6 +652,42 @@ const CORE_EN: CoreMessageTable = {
   "map.overlapCombinedLabel": "Live user and Spot",
   "map.closeOverlap": "Close",
   "map.markClusterTitle": "{count} Marks here",
+  "map.sharePlace.action": "Share this place",
+  "map.sharePlace.title": "Share this place",
+  "map.sharePlace.subtitle": "Send a clickable place card",
+  "map.sharePlace.sendToCityRoom": "Send to City Room",
+  "map.sharePlace.sendToCityRoomDesc": "Share into any city room as a clickable place card",
+  "map.sharePlace.sendInDm": "Send in DM",
+  "map.sharePlace.sendInDmDesc": "Send to one or more people in Direct Messages",
+  "map.sharePlace.shareExternally": "Share externally",
+  "map.sharePlace.shareExternallyDesc": "Share via WhatsApp, Telegram, Messages, Mail, and more",
+  "map.sharePlace.externalUnavailable": "External sharing is not available on this device.",
+  "map.sharePlace.sent": "Place shared",
+  "map.sharePlace.openInSpotDrop": "Open in SpotDrop",
+  "map.sharePlace.opening": "Opening…",
+  "map.sharePlace.unavailable": "This place is no longer available.",
+  "map.sharePlace.signIn": "Sign in to share places.",
+  "map.sharePlace.loadingRooms": "Loading city rooms…",
+  "map.sharePlace.recentRooms": "Recent rooms",
+  "map.sharePlace.browseAllRooms": "Browse all city rooms",
+  "map.sharePlace.chooseCountry": "Choose a country",
+  "map.sharePlace.chooseCity": "Choose a city",
+  "map.sharePlace.searchCountries": "Search countries…",
+  "map.sharePlace.searchCities": "Search cities…",
+  "map.sharePlace.sendToCount": "Send to {count}",
+  "map.sharePlace.sectionPeople": "People",
+  "map.sharePlace.sectionGroups": "Groups",
+  "map.sharePlace.error.sendFailed": "Unable to share this place.",
+  "map.sharePlace.error.shareFailed": "Unable to open the share sheet.",
+  "map.sharePlace.copiedFallback": "Share sheet unavailable — copied place details to clipboard",
+  "map.shareMark.action": "Share",
+  "map.shareMark.title": "Share Mark",
+  "map.shareMark.subtitle": "Send a clickable Mark card",
+  "map.shareMark.sendToCityRoomDesc": "Share into any city room as a clickable Mark card",
+  "map.shareMark.sendInDmDesc": "Send to one or more people or group chats",
+  "map.shareMark.sent": "Mark shared",
+  "map.shareMark.createdBy": "Created by @{username}",
+  "map.shareMark.error.sendFailed": "Unable to share this Mark.",
   "error.connection": "Connection problem. Please try again.",
   "error.loadUsers": "Unable to load users.",
   "error.loadFollowers": "Unable to load followers.",
@@ -569,6 +696,7 @@ const CORE_EN: CoreMessageTable = {
   "error.follow": "Unable to follow this user.",
   "error.cannotFollowSelf": "You cannot follow yourself.",
   "error.unfollow": "Unable to unfollow this user.",
+  "error.removeFollower": "Unable to remove this follower.",
   "error.updateFollowStatus": "Unable to update follow status.",
   "error.loadProfileContent": "Unable to load profile content.",
 };
@@ -605,8 +733,11 @@ const CORE_RU: CoreMessageTable = {
   "profile.spots": "Места",
   "profile.collections": "Коллекции",
   "profile.saved": "Сохранённое",
+  "profile.mySpots": "Мои места",
   "profile.noSavedSpotsYet": "Пока нет сохранённых мест",
   "profile.noSavedSpotsYetSubtitle": "Сохраняйте места, чтобы видеть их здесь.",
+  "profile.noMySpotsYet": "Здесь пока нет спотов",
+  "profile.noMySpotsYetSubtitle": "Споты, опубликованные в «Мои места», появятся здесь.",
   "profile.channels": "Каналы",
   "profile.viewProfile": "Открыть профиль",
   "profile.openMyProfile": "Мой профиль",
@@ -615,17 +746,37 @@ const CORE_RU: CoreMessageTable = {
   "profile.galleryTitle": "Галерея профиля",
   "profile.gallerySubtitle": "Ваши фото, видео и текстовые карточки",
   "profile.galleryMediaSubtitle": "Ваши личные фото и видео",
-  "profile.galleryEmpty": "Пока нет личных фото или видео.",
-  "profile.galleryEmptyHint": "Нажмите +, чтобы добавить фото или видео из библиотеки.",
+  "profile.galleryEmpty": "Пока нет фото.",
+  "profile.galleryEmptyHint": "Нажмите +, чтобы добавить фото из библиотеки.",
   "profile.galleryStatPhotoOne": "1 фото",
   "profile.galleryStatPhotoMany": "{count} фото",
   "profile.galleryStatVideoOne": "1 видео",
   "profile.galleryStatVideoMany": "{count} видео",
   "profile.galleryAdd": "Добавить в галерею",
   "profile.galleryAddPhoto": "Добавить фото",
-  "profile.galleryAddVideo": "Добавить видео",
+  "profile.galleryPhotosOnlyHint": "Только фото — обрежьте, отредактируйте и добавьте подпись перед загрузкой.",
   "profile.galleryUploading": "Загрузка…",
-  "profile.galleryUploadFailed": "Не удалось сохранить медиа.",
+  "profile.galleryUploadFailed": "Не удалось сохранить фото.",
+  "profile.galleryEditor.crop": "Обрезка",
+  "profile.galleryEditor.effects": "Эффекты",
+  "profile.galleryEditor.caption": "Подпись",
+  "profile.galleryEditor.captionLabel": "Напишите подпись",
+  "profile.galleryEditor.next": "Далее",
+  "profile.galleryEditor.upload": "Загрузить",
+  "profile.galleryEditor.reset": "Сброс",
+  "profile.galleryEditor.rotate": "Повернуть",
+  "profile.galleryEditor.zoomIn": "Увеличить",
+  "profile.galleryEditor.zoomOut": "Уменьшить",
+  "profile.galleryEditor.ratioSquare": "1:1",
+  "profile.galleryEditor.ratioPortrait": "4:5",
+  "profile.galleryEditor.ratioOriginal": "Оригинал",
+  "profile.galleryEditor.effect.original": "Оригинал",
+  "profile.galleryEditor.effect.brightness": "Яркость",
+  "profile.galleryEditor.effect.contrast": "Контраст",
+  "profile.galleryEditor.effect.saturation": "Насыщенность",
+  "profile.galleryEditor.effect.warmth": "Теплота",
+  "profile.galleryEditor.effect.fade": "Выцветание",
+  "profile.galleryEditor.effect.blackWhite": "Ч/Б",
   "profile.galleryOpenPhoto": "Открыть фото",
   "profile.galleryOpenVideo": "Открыть видео",
   "profile.galleryPhotoLabel": "Фото",
@@ -650,8 +801,9 @@ const CORE_RU: CoreMessageTable = {
   "profile.galleryDeleted": "Удалено из галереи.",
   "profile.galleryVisibility.sectionTitle": "Видимость галереи профиля",
   "profile.galleryVisibility.everyone": "Все",
-  "profile.galleryVisibility.friends": "Только друзья",
-  "profile.galleryVisibility.onlyMe": "Только я",
+  "profile.galleryVisibility.followers": "Подписчики",
+  "profile.galleryVisibility.friends": "Друзья",
+  "profile.galleryVisibility.selected": "Выбранные люди",
   "profile.openGallery": "Открыть галерею профиля",
   "channels.new": "Новый канал",
   "channels.create": "Создать канал",
@@ -688,6 +840,9 @@ const CORE_RU: CoreMessageTable = {
   "profile.noFollowersYet": "Пока нет подписчиков.",
   "profile.noFriendsYet": "Пока нет друзей.",
   "profile.followsYou": "Подписан на вас",
+  "profile.removeFollower": "Удалить подписчика",
+  "profile.removeFollowerConfirmTitle": "Удалить подписчика?",
+  "profile.removeFollowerConfirmBody": "Удалить {user} из ваших подписчиков? Пользователь не будет заблокирован, и вы не отпишетесь от него.",
   "profile.mutualFollow": "Взаимная подписка",
   "profile.notSignedIn": "Вы не вошли в аккаунт.",
   "profile.signInPrompt": "Войдите, чтобы открыть профиль и присоединиться к городским чатам.",
@@ -846,6 +1001,42 @@ const CORE_RU: CoreMessageTable = {
   "map.overlapCombinedLabel": "Онлайн-пользователь и Spot",
   "map.closeOverlap": "Закрыть",
   "map.markClusterTitle": "{count} меток здесь",
+  "map.sharePlace.action": "Поделиться местом",
+  "map.sharePlace.title": "Поделиться местом",
+  "map.sharePlace.subtitle": "Отправить карточку места",
+  "map.sharePlace.sendToCityRoom": "Отправить в City Room",
+  "map.sharePlace.sendToCityRoomDesc": "Поделиться в любом городском чате как карточкой места",
+  "map.sharePlace.sendInDm": "Отправить в личные сообщения",
+  "map.sharePlace.sendInDmDesc": "Отправить одному или нескольким людям в Direct Messages",
+  "map.sharePlace.shareExternally": "Поделиться вне приложения",
+  "map.sharePlace.shareExternallyDesc": "Поделиться через WhatsApp, Telegram, Сообщения, Почту и др.",
+  "map.sharePlace.externalUnavailable": "Внешний шаринг недоступен на этом устройстве.",
+  "map.sharePlace.sent": "Место отправлено",
+  "map.sharePlace.openInSpotDrop": "Открыть в SpotDrop",
+  "map.sharePlace.opening": "Открытие…",
+  "map.sharePlace.unavailable": "Это место больше недоступно.",
+  "map.sharePlace.signIn": "Войдите, чтобы делиться местами.",
+  "map.sharePlace.loadingRooms": "Загрузка городских комнат…",
+  "map.sharePlace.recentRooms": "Недавние комнаты",
+  "map.sharePlace.browseAllRooms": "Просмотреть все городские комнаты",
+  "map.sharePlace.chooseCountry": "Выберите страну",
+  "map.sharePlace.chooseCity": "Выберите город",
+  "map.sharePlace.searchCountries": "Поиск стран…",
+  "map.sharePlace.searchCities": "Поиск городов…",
+  "map.sharePlace.sendToCount": "Отправить ({count})",
+  "map.sharePlace.sectionPeople": "Люди",
+  "map.sharePlace.sectionGroups": "Группы",
+  "map.sharePlace.error.sendFailed": "Не удалось поделиться этим местом.",
+  "map.sharePlace.error.shareFailed": "Не удалось открыть меню шаринга.",
+  "map.sharePlace.copiedFallback": "Меню шаринга недоступно — данные места скопированы в буфер обмена",
+  "map.shareMark.action": "Поделиться",
+  "map.shareMark.title": "Поделиться меткой",
+  "map.shareMark.subtitle": "Отправить карточку метки",
+  "map.shareMark.sendToCityRoomDesc": "Поделиться в любом городском чате как карточкой метки",
+  "map.shareMark.sendInDmDesc": "Отправить одному или нескольким людям или в группы",
+  "map.shareMark.sent": "Метка отправлена",
+  "map.shareMark.createdBy": "Автор: @{username}",
+  "map.shareMark.error.sendFailed": "Не удалось поделиться этой меткой.",
   "error.connection": "Проблема с подключением. Попробуйте ещё раз.",
   "error.loadUsers": "Не удалось загрузить пользователей.",
   "error.loadFollowers": "Не удалось загрузить подписчиков.",
@@ -854,6 +1045,7 @@ const CORE_RU: CoreMessageTable = {
   "error.follow": "Не удалось подписаться на пользователя.",
   "error.cannotFollowSelf": "Нельзя подписаться на себя.",
   "error.unfollow": "Не удалось отписаться от пользователя.",
+  "error.removeFollower": "Не удалось удалить подписчика.",
   "error.updateFollowStatus": "Не удалось обновить статус подписки.",
   "error.loadProfileContent": "Не удалось загрузить контент профиля.",
 };
@@ -890,8 +1082,11 @@ const CORE_DE: CoreMessageTable = {
   "profile.spots": "Spots",
   "profile.collections": "Sammlungen",
   "profile.saved": "Gespeichert",
+  "profile.mySpots": "Meine Spots",
   "profile.noSavedSpotsYet": "Noch keine gespeicherten Spots",
   "profile.noSavedSpotsYetSubtitle": "Speichere Spots, um sie hier zu sehen.",
+  "profile.noMySpotsYet": "Noch keine Spots hier",
+  "profile.noMySpotsYetSubtitle": "Spots, die du in Meine Spots veröffentlichst, erscheinen hier.",
   "profile.channels": "Kanäle",
   "profile.viewProfile": "Profil ansehen",
   "profile.openMyProfile": "Mein Profil öffnen",
@@ -900,17 +1095,37 @@ const CORE_DE: CoreMessageTable = {
   "profile.galleryTitle": "Profilgalerie",
   "profile.gallerySubtitle": "Deine Fotos, Videos und Textkarten",
   "profile.galleryMediaSubtitle": "Deine persönlichen Fotos und Videos",
-  "profile.galleryEmpty": "Noch keine persönlichen Fotos oder Videos.",
-  "profile.galleryEmptyHint": "Tippe auf +, um Fotos oder Videos aus der Mediathek hinzuzufügen.",
+  "profile.galleryEmpty": "Noch keine Fotos.",
+  "profile.galleryEmptyHint": "Tippe auf +, um ein Foto aus der Mediathek hinzuzufügen.",
   "profile.galleryStatPhotoOne": "1 Foto",
   "profile.galleryStatPhotoMany": "{count} Fotos",
   "profile.galleryStatVideoOne": "1 Video",
   "profile.galleryStatVideoMany": "{count} Videos",
   "profile.galleryAdd": "Zur Galerie hinzufügen",
   "profile.galleryAddPhoto": "Foto hinzufügen",
-  "profile.galleryAddVideo": "Video hinzufügen",
+  "profile.galleryPhotosOnlyHint": "Nur Fotos — zuschneiden, bearbeiten und eine Bildunterschrift hinzufügen.",
   "profile.galleryUploading": "Wird hochgeladen…",
-  "profile.galleryUploadFailed": "Galerie-Medien konnten nicht gespeichert werden.",
+  "profile.galleryUploadFailed": "Galerie-Foto konnte nicht gespeichert werden.",
+  "profile.galleryEditor.crop": "Zuschneiden",
+  "profile.galleryEditor.effects": "Effekte",
+  "profile.galleryEditor.caption": "Bildunterschrift",
+  "profile.galleryEditor.captionLabel": "Bildunterschrift schreiben",
+  "profile.galleryEditor.next": "Weiter",
+  "profile.galleryEditor.upload": "Hochladen",
+  "profile.galleryEditor.reset": "Zurücksetzen",
+  "profile.galleryEditor.rotate": "Drehen",
+  "profile.galleryEditor.zoomIn": "Vergrößern",
+  "profile.galleryEditor.zoomOut": "Verkleinern",
+  "profile.galleryEditor.ratioSquare": "1:1",
+  "profile.galleryEditor.ratioPortrait": "4:5",
+  "profile.galleryEditor.ratioOriginal": "Original",
+  "profile.galleryEditor.effect.original": "Original",
+  "profile.galleryEditor.effect.brightness": "Helligkeit",
+  "profile.galleryEditor.effect.contrast": "Kontrast",
+  "profile.galleryEditor.effect.saturation": "Sättigung",
+  "profile.galleryEditor.effect.warmth": "Wärme",
+  "profile.galleryEditor.effect.fade": "Verblassen",
+  "profile.galleryEditor.effect.blackWhite": "S/W",
   "profile.galleryOpenPhoto": "Foto öffnen",
   "profile.galleryOpenVideo": "Video öffnen",
   "profile.galleryPhotoLabel": "Foto",
@@ -935,8 +1150,9 @@ const CORE_DE: CoreMessageTable = {
   "profile.galleryDeleted": "Aus der Galerie entfernt.",
   "profile.galleryVisibility.sectionTitle": "Sichtbarkeit der Profilgalerie",
   "profile.galleryVisibility.everyone": "Alle",
-  "profile.galleryVisibility.friends": "Nur Freunde",
-  "profile.galleryVisibility.onlyMe": "Nur ich",
+  "profile.galleryVisibility.followers": "Follower",
+  "profile.galleryVisibility.friends": "Freunde",
+  "profile.galleryVisibility.selected": "Ausgewählte Personen",
   "profile.openGallery": "Profilgalerie öffnen",
   "channels.new": "Neuer Kanal",
   "channels.create": "Kanal erstellen",
@@ -973,6 +1189,9 @@ const CORE_DE: CoreMessageTable = {
   "profile.noFollowersYet": "Noch keine Follower.",
   "profile.noFriendsYet": "Noch keine Freunde.",
   "profile.followsYou": "Folgt dir",
+  "profile.removeFollower": "Follower entfernen",
+  "profile.removeFollowerConfirmTitle": "Follower entfernen?",
+  "profile.removeFollowerConfirmBody": "{user} aus deinen Followern entfernen? Die Person wird nicht blockiert und du entfolgst sie nicht.",
   "profile.mutualFollow": "Gegenseitig",
   "profile.notSignedIn": "Du bist nicht angemeldet.",
   "profile.signInPrompt": "Melde dich an, um dein Profil zu öffnen und Stadt-Chats beizutreten.",
@@ -1131,6 +1350,42 @@ const CORE_DE: CoreMessageTable = {
   "map.overlapCombinedLabel": "Live-Benutzer und Spot",
   "map.closeOverlap": "Schließen",
   "map.markClusterTitle": "{count} Markierungen hier",
+  "map.sharePlace.action": "Diesen Ort teilen",
+  "map.sharePlace.title": "Diesen Ort teilen",
+  "map.sharePlace.subtitle": "Eine klickbare Ortskarte senden",
+  "map.sharePlace.sendToCityRoom": "An City Room senden",
+  "map.sharePlace.sendToCityRoomDesc": "In einem beliebigen Stadtraum als klickbare Ortskarte teilen",
+  "map.sharePlace.sendInDm": "Per DM senden",
+  "map.sharePlace.sendInDmDesc": "An eine oder mehrere Personen in Direct Messages senden",
+  "map.sharePlace.shareExternally": "Extern teilen",
+  "map.sharePlace.shareExternallyDesc": "Über WhatsApp, Telegram, Nachrichten, Mail und mehr teilen",
+  "map.sharePlace.externalUnavailable": "Externes Teilen ist auf diesem Gerät nicht verfügbar.",
+  "map.sharePlace.sent": "Ort geteilt",
+  "map.sharePlace.openInSpotDrop": "In SpotDrop öffnen",
+  "map.sharePlace.opening": "Wird geöffnet…",
+  "map.sharePlace.unavailable": "Dieser Ort ist nicht mehr verfügbar.",
+  "map.sharePlace.signIn": "Melde dich an, um Orte zu teilen.",
+  "map.sharePlace.loadingRooms": "Stadträume werden geladen…",
+  "map.sharePlace.recentRooms": "Zuletzt geöffnete Räume",
+  "map.sharePlace.browseAllRooms": "Alle Stadträume durchsuchen",
+  "map.sharePlace.chooseCountry": "Land auswählen",
+  "map.sharePlace.chooseCity": "Stadt auswählen",
+  "map.sharePlace.searchCountries": "Länder suchen…",
+  "map.sharePlace.searchCities": "Städte suchen…",
+  "map.sharePlace.sendToCount": "An {count} senden",
+  "map.sharePlace.sectionPeople": "Personen",
+  "map.sharePlace.sectionGroups": "Gruppen",
+  "map.sharePlace.error.sendFailed": "Dieser Ort konnte nicht geteilt werden.",
+  "map.sharePlace.error.shareFailed": "Teilen-Dialog konnte nicht geöffnet werden.",
+  "map.sharePlace.copiedFallback": "Teilen nicht verfügbar — Ortsdetails wurden in die Zwischenablage kopiert",
+  "map.shareMark.action": "Teilen",
+  "map.shareMark.title": "Mark teilen",
+  "map.shareMark.subtitle": "Eine klickbare Mark-Karte senden",
+  "map.shareMark.sendToCityRoomDesc": "In einem beliebigen Stadtraum als klickbare Mark-Karte teilen",
+  "map.shareMark.sendInDmDesc": "An eine oder mehrere Personen oder Gruppen senden",
+  "map.shareMark.sent": "Mark geteilt",
+  "map.shareMark.createdBy": "Erstellt von @{username}",
+  "map.shareMark.error.sendFailed": "Diese Mark konnte nicht geteilt werden.",
   "error.connection": "Verbindungsproblem. Bitte erneut versuchen.",
   "error.loadUsers": "Benutzer konnten nicht geladen werden.",
   "error.loadFollowers": "Follower konnten nicht geladen werden.",
@@ -1139,6 +1394,7 @@ const CORE_DE: CoreMessageTable = {
   "error.follow": "Diesem Nutzer konnte nicht gefolgt werden.",
   "error.cannotFollowSelf": "Du kannst dir nicht selbst folgen.",
   "error.unfollow": "Entfolgen nicht möglich.",
+  "error.removeFollower": "Follower konnte nicht entfernt werden.",
   "error.updateFollowStatus": "Follow-Status konnte nicht aktualisiert werden.",
   "error.loadProfileContent": "Profilinhalt konnte nicht geladen werden.",
 };

@@ -1,0 +1,33 @@
+{
+  "": {
+    "swift-dependencies": "/Users/idris/Desktop/spotdrop/packages/spotdrop-camera/.build/arm64-apple-macosx/debug/SpotDropCameraPlugin.build/primary.swiftdeps"
+  },
+  "/Users/idris/Desktop/spotdrop/packages/spotdrop-camera/ios/Sources/SpotDropCameraPlugin/CameraDeviceRig.swift": {
+    "dependencies": "/Users/idris/Desktop/spotdrop/packages/spotdrop-camera/.build/arm64-apple-macosx/debug/SpotDropCameraPlugin.build/CameraDeviceRig.d",
+    "object": "/Users/idris/Desktop/spotdrop/packages/spotdrop-camera/.build/arm64-apple-macosx/debug/SpotDropCameraPlugin.build/CameraDeviceRig.swift.o",
+    "swiftmodule": "/Users/idris/Desktop/spotdrop/packages/spotdrop-camera/.build/arm64-apple-macosx/debug/SpotDropCameraPlugin.build/CameraDeviceRig~partial.swiftmodule",
+    "swift-dependencies": "/Users/idris/Desktop/spotdrop/packages/spotdrop-camera/.build/arm64-apple-macosx/debug/SpotDropCameraPlugin.build/CameraDeviceRig.swiftdeps",
+    "diagnostics": "/Users/idris/Desktop/spotdrop/packages/spotdrop-camera/.build/arm64-apple-macosx/debug/SpotDropCameraPlugin.build/CameraDeviceRig.dia"
+  },
+  "/Users/idris/Desktop/spotdrop/packages/spotdrop-camera/ios/Sources/SpotDropCameraPlugin/PhotoCaptureViewController.swift": {
+    "dependencies": "/Users/idris/Desktop/spotdrop/packages/spotdrop-camera/.build/arm64-apple-macosx/debug/SpotDropCameraPlugin.build/PhotoCaptureViewController.d",
+    "object": "/Users/idris/Desktop/spotdrop/packages/spotdrop-camera/.build/arm64-apple-macosx/debug/SpotDropCameraPlugin.build/PhotoCaptureViewController.swift.o",
+    "swiftmodule": "/Users/idris/Desktop/spotdrop/packages/spotdrop-camera/.build/arm64-apple-macosx/debug/SpotDropCameraPlugin.build/PhotoCaptureViewController~partial.swiftmodule",
+    "swift-dependencies": "/Users/idris/Desktop/spotdrop/packages/spotdrop-camera/.build/arm64-apple-macosx/debug/SpotDropCameraPlugin.build/PhotoCaptureViewController.swiftdeps",
+    "diagnostics": "/Users/idris/Desktop/spotdrop/packages/spotdrop-camera/.build/arm64-apple-macosx/debug/SpotDropCameraPlugin.build/PhotoCaptureViewController.dia"
+  },
+  "/Users/idris/Desktop/spotdrop/packages/spotdrop-camera/ios/Sources/SpotDropCameraPlugin/SpotDropCameraPlugin.swift": {
+    "dependencies": "/Users/idris/Desktop/spotdrop/packages/spotdrop-camera/.build/arm64-apple-macosx/debug/SpotDropCameraPlugin.build/SpotDropCameraPlugin.d",
+    "object": "/Users/idris/Desktop/spotdrop/packages/spotdrop-camera/.build/arm64-apple-macosx/debug/SpotDropCameraPlugin.build/SpotDropCameraPlugin.swift.o",
+    "swiftmodule": "/Users/idris/Desktop/spotdrop/packages/spotdrop-camera/.build/arm64-apple-macosx/debug/SpotDropCameraPlugin.build/SpotDropCameraPlugin~partial.swiftmodule",
+    "swift-dependencies": "/Users/idris/Desktop/spotdrop/packages/spotdrop-camera/.build/arm64-apple-macosx/debug/SpotDropCameraPlugin.build/SpotDropCameraPlugin.swiftdeps",
+    "diagnostics": "/Users/idris/Desktop/spotdrop/packages/spotdrop-camera/.build/arm64-apple-macosx/debug/SpotDropCameraPlugin.build/SpotDropCameraPlugin.dia"
+  },
+  "/Users/idris/Desktop/spotdrop/packages/spotdrop-camera/ios/Sources/SpotDropCameraPlugin/VideoCaptureViewController.swift": {
+    "dependencies": "/Users/idris/Desktop/spotdrop/packages/spotdrop-camera/.build/arm64-apple-macosx/debug/SpotDropCameraPlugin.build/VideoCaptureViewController.d",
+    "object": "/Users/idris/Desktop/spotdrop/packages/spotdrop-camera/.build/arm64-apple-macosx/debug/SpotDropCameraPlugin.build/VideoCaptureViewController.swift.o",
+    "swiftmodule": "/Users/idris/Desktop/spotdrop/packages/spotdrop-camera/.build/arm64-apple-macosx/debug/SpotDropCameraPlugin.build/VideoCaptureViewController~partial.swiftmodule",
+    "swift-dependencies": "/Users/idris/Desktop/spotdrop/packages/spotdrop-camera/.build/arm64-apple-macosx/debug/SpotDropCameraPlugin.build/VideoCaptureViewController.swiftdeps",
+    "diagnostics": "/Users/idris/Desktop/spotdrop/packages/spotdrop-camera/.build/arm64-apple-macosx/debug/SpotDropCameraPlugin.build/VideoCaptureViewController.dia"
+  }
+}

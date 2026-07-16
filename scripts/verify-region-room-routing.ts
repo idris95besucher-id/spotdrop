@@ -98,6 +98,9 @@ check("exactly one logical room card payload per mark id", () => {
     placeName: "Interlaken",
     latitude: 46.6863,
     longitude: 7.8632,
+    creatorUserId: "user-1",
+    creatorUsername: "alex",
+    creatorAvatarUrl: null,
   };
   const encoded = encodeCityRoomMapMarkMessage(payload);
   const parsed = parseCityRoomMapMarkMessage(encoded);

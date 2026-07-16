@@ -9,6 +9,17 @@ import { deleteOwnedPost } from "@/lib/deleteContent";
 import { normalizePostId } from "@/lib/postIds";
 import { supabase } from "@/lib/supabaseClient";
 
+/** Full Postgres/PostgREST error shape for logging — never masked to generic. */
+function describeDbError(error: unknown) {
+  const e = error as { code?: string; message?: string; details?: string; hint?: string } | null;
+  return {
+    code: e?.code ?? null,
+    message: e?.message ?? (error instanceof Error ? error.message : String(error)),
+    details: e?.details ?? null,
+    hint: e?.hint ?? null,
+  };
+}
+
 export const GALLERY_DESCRIPTION_MAX_LENGTH = 500;
 
 export type ProfileGalleryStats = {
@@ -54,11 +65,12 @@ function buildGalleryInsertRow(
   userId: string,
   mediaUrl: string,
   mediaType: "image" | "video",
-  videoCoverUrl: string | null
+  videoCoverUrl: string | null,
+  content = ""
 ): GalleryInsertRow {
   return {
     user_id: userId,
-    content: "",
+    content,
     visibility: "private",
     content_kind: "post",
     published_to_spots: false,
@@ -72,85 +84,104 @@ function buildGalleryInsertRow(
 }
 
 /**
- * Upload a personal photo/video into Profile Gallery only.
+ * Upload a personal photo into Profile Gallery only.
  * Never published as a Spot and never shown on Map/Search/Explore.
  */
-export async function createProfileGalleryMedia(userId: string, file: File): Promise<{
+export async function createProfileGalleryMedia(
+  userId: string,
+  file: File,
+  options: { caption?: string } = {}
+): Promise<{
   post: ProfileContentPost | null;
   error: string | null;
 }> {
   const mediaType = getPostMediaType(file);
 
-  if (!mediaType || mediaType === "video") {
-    return {
-      post: null,
-      error: mediaType === "video" ? "Video is no longer supported." : "Only photos are allowed.",
-    };
+  if (mediaType !== "image") {
+    return { post: null, error: "Only photos are allowed in Profile Gallery." };
   }
+
+  const caption = options.caption?.trim().slice(0, GALLERY_DESCRIPTION_MAX_LENGTH) ?? "";
+
+  let mediaUrl: string;
 
   try {
     const upload = await uploadPostMedia(userId, file);
-    const videoCoverUrl: string | null = null;
+    mediaUrl = upload.mediaUrl;
+  } catch (caught) {
+    console.error("[Gallery upload] storage upload failed", describeDbError(caught));
+    return {
+      post: null,
+      error: caught instanceof Error ? caught.message : "Unable to upload media.",
+    };
+  }
 
-    const insertRow = buildGalleryInsertRow(userId, upload.mediaUrl, mediaType, videoCoverUrl);
+  const insertRow = buildGalleryInsertRow(userId, mediaUrl, "image", null, caption);
 
-    let { data, error } = await supabase
-      .from("posts")
-      .insert(insertRow)
-      .select(
-        "id, user_id, content, visibility, published_to_spots, image_url, video_url, video_cover_url, thumbnail_url, media_url, media_type, created_at, content_kind"
-      )
-      .single();
+  let { data, error } = await supabase
+    .from("posts")
+    .insert(insertRow)
+    .select(GALLERY_ITEM_SELECT)
+    .single();
 
-    if (error && (error.code === "42703" || error.message?.toLowerCase().includes("column"))) {
+  if (error) {
+    console.error("[Gallery upload] insert failed", describeDbError(error));
+
+    // Older databases may be missing optional columns — retry with the minimal
+    // required set so the item still saves.
+    if (error.code === "42703" || error.message?.toLowerCase().includes("column")) {
       const retry = await supabase
         .from("posts")
         .insert({
           user_id: userId,
-          content: "",
+          content: caption,
           visibility: "private",
           content_kind: "post",
-          media_url: upload.mediaUrl,
-          media_type: mediaType,
-          image_url: upload.mediaUrl,
+          media_url: mediaUrl,
+          media_type: "image",
+          image_url: mediaUrl,
           video_url: null,
         })
-        .select(
-          "id, user_id, content, visibility, image_url, video_url, media_url, media_type, created_at, content_kind"
-        )
+        .select(GALLERY_ITEM_SELECT)
         .single();
 
       data = retry.data as typeof data;
       error = retry.error;
+
+      if (error) {
+        console.error("[Gallery upload] minimal retry insert failed", describeDbError(error));
+      }
     }
-
-    if (error || !data) {
-      return { post: null, error: error?.message ?? "Unable to save gallery media." };
-    }
-
-    const post: ProfileContentPost = {
-      id: String(data.id),
-      user_id: String(data.user_id),
-      content: String(data.content ?? ""),
-      visibility: "private",
-      published_to_spots: false,
-      image_url: (data.image_url as string | null) ?? null,
-      video_url: (data.video_url as string | null) ?? null,
-      video_cover_url: (data.video_cover_url as string | null) ?? videoCoverUrl,
-      thumbnail_url: (data.thumbnail_url as string | null) ?? videoCoverUrl,
-      media_url: (data.media_url as string | null) ?? upload.mediaUrl,
-      media_type: (data.media_type as string | null) ?? mediaType,
-      created_at: String(data.created_at),
-      content_kind: "post",
-    };
-
-    return { post, error: null };
-  } catch (caught) {
-    return {
-      post: null,
-      error: caught instanceof Error ? caught.message : "Unable to save gallery media.",
-    };
   }
+
+  // The row can be inserted successfully yet come back empty when the
+  // RLS-filtered `RETURNING` yields no row (PostgREST "no rows" → PGRST116).
+  // Recover by re-fetching the just-created item so a real success is never
+  // reported as a failure and the photo/video appears immediately.
+  if ((error?.code === "PGRST116" || !data) && mediaUrl) {
+    const { data: recovered, error: recoverError } = await supabase
+      .from("posts")
+      .select(GALLERY_ITEM_SELECT)
+      .eq("user_id", userId)
+      .eq("media_url", mediaUrl)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (recovered) {
+      console.warn("[Gallery upload] recovered inserted row after filtered RETURNING");
+      data = recovered as typeof data;
+      error = null;
+    } else if (recoverError) {
+      console.error("[Gallery upload] recovery fetch failed", describeDbError(recoverError));
+    }
+  }
+
+  if (error || !data) {
+    return { post: null, error: error?.message ?? "Unable to save gallery media." };
+  }
+
+  return { post: mapGalleryPostRow(data as Record<string, unknown>), error: null };
 }
 
 function mapGalleryPostRow(data: Record<string, unknown>): ProfileContentPost {

@@ -19,6 +19,9 @@ import {
 } from "@/lib/locationCardShareMessage";
 import { localizeUserMessage } from "@/lib/i18n/localizeUserMessage";
 import { publicProfileUsername } from "@/lib/publicProfile";
+import VoiceMessagePlayer from "@/components/voice/VoiceMessagePlayer";
+import ChatImageBubble from "@/components/chat/ChatImageBubble";
+import ChatLocationBubble from "@/components/chat/ChatLocationBubble";
 
 export type CityRoomMessageProfile = {
   username: string;
@@ -32,6 +35,14 @@ export type CityRoomMessageBubbleMessage = {
   user_id: string;
   edited_at?: string | null;
   profile: CityRoomMessageProfile | null;
+  audio_url?: string | null;
+  audio_duration_seconds?: number | null;
+  audio_waveform?: number[] | null;
+  image_url?: string | null;
+  live_location_lat?: number | null;
+  live_location_lng?: number | null;
+  live_location_updated_at?: string | null;
+  live_location_expires_at?: string | null;
 };
 
 type CityRoomMessageBubbleProps = {
@@ -99,6 +110,9 @@ export default function CityRoomMessageBubble({
   const sender = message.profile;
   const parsedContent = parseCityRoomMessageContent(message.content);
   const isStructuredMessage =
+    Boolean(message.audio_url) ||
+    Boolean(message.image_url) ||
+    Boolean(message.live_location_lat != null && message.live_location_lng != null) ||
     parsedContent.kind === "place" ||
     parsedContent.kind === "image" ||
     parsedContent.kind === "location_card" ||
@@ -150,6 +164,50 @@ export default function CityRoomMessageBubble({
               {t("common.cancel")}
             </button>
           </div>
+        </div>
+      );
+    }
+
+    if (message.audio_url) {
+      return (
+        <div className="inline-flex flex-col items-end">
+          <VoiceMessagePlayer
+            audioUrl={message.audio_url}
+            durationSeconds={message.audio_duration_seconds ?? null}
+            waveform={message.audio_waveform ?? null}
+            isOwnMessage={isOwnMessage}
+          />
+          <span className="mt-1 text-[9.5px] leading-none text-slate-500">
+            {formatChatMessageTime(message.created_at)}
+          </span>
+        </div>
+      );
+    }
+
+    if (message.image_url) {
+      return (
+        <div className="inline-flex flex-col items-end">
+          <ChatImageBubble imageUrl={message.image_url} isOwnMessage={isOwnMessage} />
+          <span className="mt-1 text-[9.5px] leading-none text-slate-500">
+            {formatChatMessageTime(message.created_at)}
+          </span>
+        </div>
+      );
+    }
+
+    if (message.live_location_lat != null && message.live_location_lng != null) {
+      return (
+        <div className="inline-flex flex-col items-end">
+          <ChatLocationBubble
+            latitude={message.live_location_lat}
+            longitude={message.live_location_lng}
+            updatedAt={message.live_location_updated_at ?? message.created_at}
+            expiresAt={message.live_location_expires_at ?? null}
+            isOwnMessage={isOwnMessage}
+          />
+          <span className="mt-1 text-[9.5px] leading-none text-slate-500">
+            {formatChatMessageTime(message.created_at)}
+          </span>
         </div>
       );
     }

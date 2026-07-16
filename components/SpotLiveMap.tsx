@@ -10,8 +10,10 @@ import MapMarkDetailSheet from "@/components/MapMarkDetailSheet";
 import MapOverlapActionSheet from "@/components/MapOverlapActionSheet";
 import MapPlacesSearch from "@/components/MapPlacesSearch";
 import MapTapActionSheet, { type MapTapAction } from "@/components/MapTapActionSheet";
+import ShareMapPlaceSheet from "@/components/ShareMapPlaceSheet";
 import SpotMapPinSheet from "@/components/SpotMapPinSheet";
 import { openExternalMapsDirections } from "@/lib/externalMaps";
+import { geoLocationToMapPlaceSharePayload } from "@/lib/mapPlaceShare";
 import { DEFAULT_MAP_CENTER, DEFAULT_MAP_ZOOM, getMapLibreStyleUrl } from "@/lib/mapLibre";
 import {
   buildMixedMapOverlapClusters,
@@ -36,12 +38,12 @@ import {
   mapPlaceZoomForKind,
   type MapPlaceSearchResult,
 } from "@/lib/mapPlacesSearch";
-import { loadMapMarkById, loadMapMarks, type MapMark } from "@/lib/mapMarks";
+import { isMapMarkExpired, loadMapMarkById, loadMapMarks, type MapMark } from "@/lib/mapMarks";
 import { MAP_SPOT_PUBLISHED_EVENT } from "@/lib/mapSpotEvents";
 import { getMapSpotPinPreviewUrl, getMapSpotPinTitle, resolveSpotMapLngLat } from "@/lib/mapSpotPin";
 import { resolveMapLngLat } from "@/lib/mapMarkerCoords";
 import { spotLocationFromCoordinates, type SpotGeoLocation } from "@/lib/spotLocation";
-import { loadNearbyMapSpotPins, loadSavedMapSpotPinIds, type MapSpotPin } from "@/lib/spots";
+import { loadMapSpotPins, loadSavedMapSpotPinIds, type MapSpotPin } from "@/lib/spots";
 import { supabase } from "@/lib/supabaseClient";
 import { publicProfileUsername } from "@/lib/publicProfile";
 import {
@@ -64,6 +66,12 @@ type SpotLiveMapProps = {
   embedded?: boolean;
   /** Deep-link focus: /visit?tab=map&mark=<id> */
   focusMarkId?: string | null;
+  /** Deep-link focus: /visit?tab=map&lat=<lat>&lng=<lng>&place=<name> */
+  focusPlaceCoords?: {
+    latitude: number;
+    longitude: number;
+    name?: string | null;
+  } | null;
 };
 
 type UserCoords = {
@@ -501,8 +509,13 @@ function formatLiveLocationError(t: (key: TranslationKey) => string, error: stri
   return t("map.error.loadFailed");
 }
 
-export default function SpotLiveMap({ userId, embedded = false, focusMarkId = null }: SpotLiveMapProps) {
-  const { t } = useI18n();
+export default function SpotLiveMap({
+  userId,
+  embedded = false,
+  focusMarkId = null,
+  focusPlaceCoords = null,
+}: SpotLiveMapProps) {
+  const { t, locale } = useI18n();
   const { presenceOnlineIds, freshnessTick } = usePresenceOnlineIds();
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<import("maplibre-gl").Map | null>(null);
@@ -574,6 +587,7 @@ export default function SpotLiveMap({ userId, embedded = false, focusMarkId = nu
     resolving: boolean;
   } | null>(null);
   const [tapActionBusy, setTapActionBusy] = useState<MapTapAction | null>(null);
+  const [sharePlaceOpen, setSharePlaceOpen] = useState(false);
   const [mapMarks, setMapMarks] = useState<MapMark[]>([]);
   const [selectedMapMark, setSelectedMapMark] = useState<MapMark | null>(null);
   const [markClusterSheet, setMarkClusterSheet] = useState<MapMarkCluster | null>(null);
@@ -744,7 +758,9 @@ export default function SpotLiveMap({ userId, embedded = false, focusMarkId = nu
       }
 
       if (tapSave.resolving || tapActionBusy) {
-        return;
+        if (action !== "share") {
+          return;
+        }
       }
 
       const location = tapSave.location;
@@ -756,6 +772,11 @@ export default function SpotLiveMap({ userId, embedded = false, focusMarkId = nu
       if (action === "directions") {
         clearTapSave();
         openExternalMapsDirections(location.latitude, location.longitude, placeLabel);
+        return;
+      }
+
+      if (action === "share") {
+        setSharePlaceOpen(true);
         return;
       }
 
@@ -858,34 +879,91 @@ export default function SpotLiveMap({ userId, embedded = false, focusMarkId = nu
     };
   }, [userId]);
 
-  const loadMapData = useCallback(
-    async (coords: UserCoords | null) => {
-      setLoading(true);
-      setError(null);
+  const loadMapData = useCallback(async () => {
+    setLoading(true);
+    setError(null);
 
-      const center = coords ?? { latitude: DEFAULT_MAP_CENTER[1], longitude: DEFAULT_MAP_CENTER[0] };
+    const [savedResult, liveUsersResult] = await Promise.all([
+      userId ? loadSavedMapSpotPinIds(userId) : Promise.resolve({ ids: [] as string[], error: null }),
+      fetchLiveMapUsers(),
+    ]);
 
-      const [spotsResult, savedResult, liveUsersResult] = await Promise.all([
-        loadNearbyMapSpotPins(center.latitude, center.longitude),
-        userId ? loadSavedMapSpotPinIds(userId) : Promise.resolve({ ids: [] as string[], error: null }),
-        fetchLiveMapUsers(),
-      ]);
-
-      setPins(spotsResult.pins);
-      setSavedIds(new Set(savedResult.ids));
-      setLiveUsers(liveUsersResult.users);
-      if (liveUsersResult.error) {
-        setLiveError(formatLiveLocationError(t, liveUsersResult.error));
-      }
-      setError(spotsResult.error ?? savedResult.error ?? null);
-      setLoading(false);
-    },
-    [t, userId]
-  );
+    setSavedIds(new Set(savedResult.ids));
+    setLiveUsers(liveUsersResult.users);
+    if (liveUsersResult.error) {
+      setLiveError(formatLiveLocationError(t, liveUsersResult.error));
+    }
+    setError(savedResult.error ?? null);
+    setLoading(false);
+  }, [t, userId]);
 
   useEffect(() => {
-    void loadMapData(isLive ? latestCoordsRef.current : null);
-  }, [isLive, loadMapData]);
+    void loadMapData();
+  }, [loadMapData]);
+
+  // Pins are loaded for whatever area of the map is actually on screen
+  // (current viewport bounds), not a fixed radius from the device's last
+  // known location — otherwise any public Spot outside that radius (e.g. a
+  // Gstaad Spot when the map defaulted to a Bern-centered search) silently
+  // never appears, no matter how correctly it was saved. Re-runs on every
+  // pan/zoom (`moveend`) so panning to any area loads its real Spots.
+  const refreshPinsForViewport = useCallback(async () => {
+    const map = mapRef.current;
+
+    if (!map) {
+      return;
+    }
+
+    const bounds = map.getBounds();
+    const spotsResult = await loadMapSpotPins(
+      {
+        north: bounds.getNorth(),
+        south: bounds.getSouth(),
+        east: bounds.getEast(),
+        west: bounds.getWest(),
+      },
+      200
+    );
+
+    if (!spotsResult.error) {
+      setPins(spotsResult.pins);
+    } else {
+      setError(spotsResult.error);
+    }
+  }, []);
+
+  const refreshPinsForViewportRef = useRef<() => void>(() => {});
+
+  useEffect(() => {
+    refreshPinsForViewportRef.current = () => void refreshPinsForViewport();
+  }, [refreshPinsForViewport]);
+
+  // One-time, low-accuracy location fix used only to recenter the map on
+  // where the device actually is. Independent of "Go Live" (which shares the
+  // user's live location with others) — without this, the camera stayed on
+  // DEFAULT_MAP_CENTER (Bern) unless "Go Live" was explicitly toggled on.
+  useEffect(() => {
+    if (!("geolocation" in navigator)) {
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setUserCoords((current) =>
+          current ?? {
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude,
+          }
+        );
+      },
+      () => {
+        // Permission denied or unavailable — the map simply stays on
+        // DEFAULT_MAP_CENTER and the viewport-based pin loading still works
+        // for wherever the user manually pans to.
+      },
+      { enableHighAccuracy: false, timeout: 15000, maximumAge: 60_000 }
+    );
+  }, []);
 
   useEffect(() => {
     void refreshLiveUsers();
@@ -929,6 +1007,10 @@ export default function SpotLiveMap({ userId, embedded = false, focusMarkId = nu
         map.on("load", () => {
           map.resize();
           setMapReady(true);
+          refreshPinsForViewportRef.current();
+        });
+        map.on("moveend", () => {
+          refreshPinsForViewportRef.current();
         });
         map.on("error", () => setMapLoadError(true));
 
@@ -1240,6 +1322,35 @@ export default function SpotLiveMap({ userId, embedded = false, focusMarkId = nu
     );
   }, [goingLive, isLive, pushLiveLocation, refreshLiveUsers, t]);
 
+  // Recenter the camera on the device's real location once, as soon as it's
+  // known — independent of "Go Live" (sharing your location with others).
+  // Without this the camera stayed on DEFAULT_MAP_CENTER (Bern) forever
+  // unless "Go Live" was explicitly toggled on, so a Spot could be loaded
+  // correctly and still never be visible because the view never scrolled
+  // there.
+  useEffect(() => {
+    const map = mapRef.current;
+
+    if (!map || !mapReady || !userCoords || centeredOnUserRef.current) {
+      return;
+    }
+
+    const selfLngLat = resolveMapLngLat(userCoords.latitude, userCoords.longitude, {
+      kind: "self-live-user",
+    });
+
+    if (!selfLngLat) {
+      return;
+    }
+
+    centeredOnUserRef.current = true;
+    map.flyTo({
+      center: selfLngLat,
+      zoom: 14,
+      essential: true,
+    });
+  }, [mapReady, userCoords]);
+
   useEffect(() => {
     const map = mapRef.current;
     const maplibregl = maplibreRef.current;
@@ -1262,15 +1373,6 @@ export default function SpotLiveMap({ userId, embedded = false, focusMarkId = nu
         userMarkerRef.current = null;
       }
       return;
-    }
-
-    if (!centeredOnUserRef.current) {
-      centeredOnUserRef.current = true;
-      map.flyTo({
-        center: selfLngLat,
-        zoom: 14,
-        essential: true,
-      });
     }
 
     if (userMarkerRef.current) {
@@ -1645,6 +1747,25 @@ export default function SpotLiveMap({ userId, embedded = false, focusMarkId = nu
     };
   }, []);
 
+  // Marks auto-expire 24h after creation. The server (RLS + a scheduled
+  // cleanup job) already stops returning/keeping expired rows, but a map
+  // left open in the background should also drop them from view the moment
+  // they cross the 24h mark, without waiting for the next full reload.
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setMapMarks((current) => {
+        const next = current.filter((mark) => !isMapMarkExpired(mark));
+        return next.length === current.length ? current : next;
+      });
+
+      setSelectedMapMark((current) => (current && isMapMarkExpired(current) ? null : current));
+    }, 60_000);
+
+    return () => {
+      clearInterval(interval);
+    };
+  }, []);
+
   const focusMarkHandledRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -1708,21 +1829,87 @@ export default function SpotLiveMap({ userId, embedded = false, focusMarkId = nu
     };
   }, [focusMarkId, mapReady, t]);
 
+  const focusPlaceHandledRef = useRef<string | null>(null);
+
   useEffect(() => {
-    const refreshPinsAround = async () => {
-      const center = userCoords ?? {
-        latitude: DEFAULT_MAP_CENTER[1],
-        longitude: DEFAULT_MAP_CENTER[0],
-      };
-      const spotsResult = await loadNearbyMapSpotPins(center.latitude, center.longitude);
+    if (!focusPlaceCoords || !mapReady) {
+      return;
+    }
 
-      if (!spotsResult.error) {
-        setPins(spotsResult.pins);
-      }
-    };
+    const { latitude, longitude, name } = focusPlaceCoords;
+    const focusKey = `${latitude.toFixed(5)},${longitude.toFixed(5)}`;
 
+    if (focusPlaceHandledRef.current === focusKey) {
+      return;
+    }
+
+    focusPlaceHandledRef.current = focusKey;
+
+    const map = mapRef.current;
+    const maplibregl = maplibreRef.current;
+
+    clearPlaceSearchHighlight();
+    setSelectedPin(null);
+    setSelectedLiveUser(null);
+    setOverlapSheet(null);
+    setSelectedMapMark(null);
+    setMarkClusterSheet(null);
+    clearTapSave();
+
+    const lngLat = resolveMapLngLat(latitude, longitude, {
+      kind: "shared-place",
+      id: focusKey,
+    });
+
+    if (!lngLat || !map || !maplibregl) {
+      return;
+    }
+
+    const element = createMapTapPinMarkerElement();
+    searchMarkerRef.current = new maplibregl.Marker({ element, anchor: "bottom" })
+      .setLngLat(lngLat)
+      .addTo(map);
+
+    map.flyTo({
+      center: lngLat,
+      zoom: Math.max(map.getZoom(), 15),
+      duration: 1100,
+      essential: true,
+    });
+
+    setTapSave({
+      location: {
+        latitude,
+        longitude,
+        address: name?.trim() || null,
+        city: null,
+        country: null,
+      },
+      resolving: false,
+    });
+
+    void spotLocationFromCoordinates(latitude, longitude).then((resolved) => {
+      setTapSave((current) => {
+        if (!current) {
+          return current;
+        }
+
+        return {
+          location: {
+            ...resolved,
+            latitude,
+            longitude,
+            address: resolved.address?.trim() || name?.trim() || current.location.address,
+          },
+          resolving: false,
+        };
+      });
+    });
+  }, [clearPlaceSearchHighlight, clearTapSave, focusPlaceCoords, mapReady]);
+
+  useEffect(() => {
     const onPublished = () => {
-      void refreshPinsAround();
+      refreshPinsForViewportRef.current();
     };
 
     window.addEventListener(MAP_SPOT_PUBLISHED_EVENT, onPublished);
@@ -1730,7 +1917,7 @@ export default function SpotLiveMap({ userId, embedded = false, focusMarkId = nu
     return () => {
       window.removeEventListener(MAP_SPOT_PUBLISHED_EVENT, onPublished);
     };
-  }, [userCoords]);
+  }, []);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -2167,6 +2354,20 @@ export default function SpotLiveMap({ userId, embedded = false, focusMarkId = nu
           onAction={(action) => {
             void handleTapAction(action);
           }}
+        />
+      ) : null}
+      {tapSave ? (
+        <ShareMapPlaceSheet
+          place={geoLocationToMapPlaceSharePayload(tapSave.location, {
+            locale,
+            name:
+              tapSave.location.address?.trim() ||
+              [tapSave.location.city, tapSave.location.country].filter(Boolean).join(", ") ||
+              null,
+          })}
+          userId={userId}
+          isOpen={sharePlaceOpen}
+          onClose={() => setSharePlaceOpen(false)}
         />
       ) : null}
     </div>

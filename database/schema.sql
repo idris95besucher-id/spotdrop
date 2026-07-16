@@ -1102,6 +1102,12 @@ alter table if exists follows enable row level security;
 create policy if not exists "Allow follow read" on follows for select using (true);
 create policy if not exists "Allow authenticated follow insert" on follows for insert with check (auth.uid() = follower_id);
 create policy if not exists "Allow follow owner delete" on follows for delete using (auth.uid() = follower_id);
+drop policy if exists "Allow followed user remove follower" on follows;
+create policy "Allow followed user remove follower"
+on follows
+for delete
+to authenticated
+using (auth.uid() = following_id);
 
 alter table if exists city_messages enable row level security;
 drop policy if exists "Allow city message read" on city_messages;

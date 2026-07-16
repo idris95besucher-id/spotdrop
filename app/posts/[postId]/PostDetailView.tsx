@@ -9,6 +9,7 @@ import { useSpotLocationModal } from "@/components/SpotLocationModalProvider";
 import GuidePlaceCard from "@/components/GuidePlaceCard";
 import LocationCardViewerFrame from "@/components/LocationCardViewerFrame";
 import PublicationAuthorHeader from "@/components/PublicationAuthorHeader";
+import OwnContentMenu from "@/components/OwnContentMenu";
 import EditPublicationScreen from "@/components/EditPublicationScreen";
 import PostCommentsSection from "@/components/PostCommentsSection";
 import PostDetailActionRail from "@/components/PostDetailActionRail";
@@ -706,6 +707,35 @@ export default function PostDetailPage({ postIdOverride }: PostDetailPageProps =
         <ArrowLeft className="h-5 w-5" aria-hidden />
       </button>
 
+      {isOwnPost && post ? (
+        <div
+          className="pointer-events-auto absolute right-3 z-50"
+          data-spot-viewer-chrome-top
+          onClick={(event) => event.stopPropagation()}
+        >
+          <OwnContentMenu
+            triggerClassName="bg-black/50 ring-1 ring-white/15 backdrop-blur-md hover:bg-black/70"
+            deleteMenuLabel={t("content.deletePublication")}
+            editMenuLabel={t("content.editPublication")}
+            confirmTitle={t("content.deletePublicationTitle")}
+            confirmBody={t("content.deletePublicationBody")}
+            deletedToast={t("content.spotDeleted")}
+            onEdit={() => setEditPublicationOpen(true)}
+            onDelete={async () => {
+              if (!userId || !post) {
+                return { ok: false, error: "Sign in required." };
+              }
+
+              setSendSpotSheetOpen(false);
+              return deleteOwnedPublication(String(post.id), post, userId);
+            }}
+            onDeleted={() => {
+              navigateBack(router, "/profile");
+            }}
+          />
+        </div>
+      ) : null}
+
       {showSkeleton ? (
         <PostDetailSkeleton />
       ) : !showViewerContent ? (
@@ -790,19 +820,6 @@ export default function PostDetailPage({ postIdOverride }: PostDetailPageProps =
                       authorUsername={authorUsername}
                       avatarUrl={postAuthor.avatar_url}
                       viewerUserId={userId}
-                      menuTriggerClassName="bg-black/45 ring-1 ring-white/15 backdrop-blur-md"
-                      onEdit={isOwnPost ? () => setEditPublicationOpen(true) : undefined}
-                      onDelete={async () => {
-                        if (!userId || !post) {
-                          return { ok: false, error: "Sign in required." };
-                        }
-
-                        setSendSpotSheetOpen(false);
-                        return deleteOwnedPublication(String(post.id), post, userId);
-                      }}
-                      onDeleted={() => {
-                        navigateBack(router, "/profile");
-                      }}
                     />
                   ) : null}
 

@@ -13,6 +13,7 @@ import { hasSpotPublishLocation, resolveSpotName, SPOT_LOCATION_REQUIRED_MESSAGE
 import { POST_AUTHOR_PROFILES_INNER } from "@/lib/posts";
 import { insertPostMediaCarouselItems } from "@/lib/postMediaItems";
 import { uploadPostMedia } from "@/lib/postMedia";
+import type { RetryAttemptInfo } from "@/lib/uploadRetry";
 import { postIdForQuery } from "@/lib/postIds";
 import {
   logSpotPublishPostMediaItemsInsertResult,
@@ -92,6 +93,14 @@ export type CreateSpotInput = {
     audioMuted?: boolean;
   }>;
   accessToken?: string;
+  /** "My Spots" destination — private to the owner, independent of the collections system. */
+  publishToMySpots?: boolean;
+  /** Ties every upload log line for this publish back to one attempt — see lib/uploadLifecycleTrace.ts. */
+  requestId?: string;
+  /** Cancels in-flight uploads (and any pending retry backoff) — a real publish timeout or the user leaving the screen. */
+  signal?: AbortSignal;
+  /** Fired before each automatic upload retry so the UI can show retry status without losing progress. */
+  onUploadRetry?: (info: RetryAttemptInfo) => void;
   onMediaUploadProgress?: (percent: number) => void;
   onCoverUploadProgress?: (percent: number) => void;
   onPublishStage?: (stage: SpotPublishStage, percent: number) => void;
@@ -108,6 +117,8 @@ export type CreateGeoSpotResult = {
   error: string | null;
   carouselWarning?: string | null;
   failedPhotoIndex?: number | null;
+  /** Classifies `error` for UI messaging (no internet / timeout / auth expired / etc.) — see lib/storageUpload.ts. */
+  errorKind?: string | null;
 };
 
 const NEAREST_PLACE_KM = 8;
@@ -257,6 +268,9 @@ async function uploadCarouselMediaItem(
   uploadOptions: {
     accessToken?: string;
     skipVerification?: boolean;
+    signal?: AbortSignal;
+    onRetry?: (info: RetryAttemptInfo) => void;
+    requestId?: string;
     onProgress?: (percent: number) => void;
   }
 ) {
@@ -316,6 +330,9 @@ export async function createGeoSpot(input: CreateSpotInput): Promise<CreateGeoSp
   const uploadOptions = {
     accessToken: input.accessToken,
     skipVerification: true,
+    signal: input.signal,
+    onRetry: input.onUploadRetry,
+    requestId: input.requestId,
   };
 
   const placesPromise =
@@ -535,14 +552,19 @@ export async function createGeoSpot(input: CreateSpotInput): Promise<CreateGeoSp
       typeof (uploadError as { failedPhotoIndex?: number }).failedPhotoIndex === "number"
         ? (uploadError as { failedPhotoIndex?: number }).failedPhotoIndex!
         : carouselPayload.length;
+    const errorKind =
+      uploadError instanceof DOMException && uploadError.name === "AbortError"
+        ? "aborted"
+        : ((uploadError as { errorKind?: string }).errorKind ?? null);
 
     await rollbackUploadedMedia();
-    console.log("UPLOAD FILE RESULT", { step: "createGeoSpot", failed: true, error: message });
+    console.log("UPLOAD FILE RESULT", { step: "createGeoSpot", failed: true, error: message, errorKind });
     return {
       postId: null,
       matchedPlace: null,
       error: message,
       failedPhotoIndex,
+      errorKind,
     };
   }
 
@@ -570,7 +592,13 @@ export async function createGeoSpot(input: CreateSpotInput): Promise<CreateGeoSp
   let spotVisibility: "public" | "private" = "public";
   let publishedToSpots = true;
 
-  if (inCollection) {
+  if (input.publishToMySpots) {
+    // "My Spots" destination — private to the owner. No collections row is required or
+    // created; this is just a visibility/published_to_spots flag on the post itself, which
+    // is exactly the signal the My Spots profile tab (lib/mySpots.ts) queries for.
+    publishedToSpots = false;
+    spotVisibility = "private";
+  } else if (inCollection) {
     publishedToSpots = false;
     const { collection } = await loadCollectionById(input.collectionId!);
 
@@ -974,15 +1002,31 @@ function mapRowToMapSpotPin(row: Record<string, unknown>): MapSpotPin | null {
   };
 }
 
-async function queryMapSpotPins(select: string, limit: number) {
+async function queryMapSpotPins(select: string, limit: number, bounds: MapBounds) {
   return supabase
     .from("posts")
     .select(select)
-    .eq("content_kind", "spot")
+    .in("content_kind", ["spot", "post"])
     .eq("visibility", "public")
-    .eq("published_to_spots", true)
     .not("spot_latitude", "is", null)
     .not("spot_longitude", "is", null)
+    // Bounds are applied in SQL, not just client-side after the fact — with
+    // only `.order(created_at).limit(n)` and no lat/lng filter, a `limit`
+    // count of the platform's most-recent public posts could all be
+    // elsewhere, silently pushing an older-but-perfectly-valid Spot (e.g. in
+    // Gstaad) out of the result set before the bounds check ever saw it.
+    .gte("spot_latitude", bounds.south)
+    .lte("spot_latitude", bounds.north)
+    .gte("spot_longitude", bounds.west)
+    .lte("spot_longitude", bounds.east)
+    // Dedicated Spots (content_kind = "spot") still respect published_to_spots
+    // (e.g. Spots saved into a non-public collection stay off the map).
+    // Regular posts with a tagged public location (content_kind = "post",
+    // e.g. from the gallery "New Post" flow) always carry published_to_spots
+    // = false since that flag doesn't apply to them, so they're included here
+    // as long as they have real coordinates — matching the coordinate-based
+    // `isSpotContent` check profile/search already use.
+    .or("content_kind.neq.spot,published_to_spots.eq.true")
     .order("created_at", { ascending: false })
     .limit(limit);
 }
@@ -1022,14 +1066,14 @@ export async function loadNearbyMapSpotPins(
 }
 
 export async function loadMapSpotPins(bounds: MapBounds = BERN_MAP_BOUNDS, limit = 120) {
-  let result = await queryMapSpotPins(MAP_SPOT_SELECT, limit);
+  let result = await queryMapSpotPins(MAP_SPOT_SELECT, limit, bounds);
 
   if (result.error && result.error.code === "42703") {
-    result = await queryMapSpotPins(MAP_SPOT_SELECT_LEGACY, limit);
+    result = await queryMapSpotPins(MAP_SPOT_SELECT_LEGACY, limit, bounds);
   }
 
   if (isMissingSpotColumns(result.error)) {
-    result = await queryMapSpotPins(MAP_SPOT_SELECT_LEGACY, limit);
+    result = await queryMapSpotPins(MAP_SPOT_SELECT_LEGACY, limit, bounds);
   }
 
   if (result.error) {

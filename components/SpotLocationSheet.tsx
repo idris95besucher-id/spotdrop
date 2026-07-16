@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Copy, ExternalLink, X } from "lucide-react";
+import { useAuthSession } from "@/components/AuthSessionProvider";
 import { useI18n } from "@/components/I18nProvider";
 import { bottomSheetLayout, useBottomSheetScrollLock } from "@/lib/bottomSheetScrollLock";
 import {
@@ -17,6 +18,8 @@ import {
   type SpotLocationDisplayFields,
 } from "@/lib/spotLocationDisplay";
 import { getDisplayStreetName } from "@/lib/spotStreetName";
+import { recordSpotSeeVisit } from "@/lib/spotRanking";
+import type { SpotLocationViewerContext } from "@/lib/spotVisitContext";
 
 function getCopyableAddress(spot: SpotLocationDisplayFields, locale: import("@/lib/i18n/locales").I18nLocale) {
   return formatSpotLocationDisplay(spot, locale);
@@ -43,12 +46,15 @@ function buildMapsUrl(location: SpotLocationDisplayFields) {
 
 export default function SpotLocationSheet({
   spot,
+  viewerContext,
   onClose,
 }: {
   spot: SpotLocationDisplayFields | null;
+  viewerContext?: SpotLocationViewerContext;
   onClose: () => void;
 }) {
   const { t, locale } = useI18n();
+  const { session, loading: authLoading } = useAuthSession();
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [mounted, setMounted] = useState(false);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -85,6 +91,26 @@ export default function SpotLocationSheet({
   }
 
   const copyableAddress = getCopyableAddress(spot, locale);
+
+  // The visit only counts here — when the user actually opens the map and
+  // the Spot's marker is shown at its real coordinates — never just for
+  // tapping "See Spot" to open this sheet.
+  const handleOpenMaps = () => {
+    if (!spot.id) {
+      return;
+    }
+
+    // Read auth live at click time rather than trusting whatever was
+    // captured when "See Spot" first opened this sheet — auth can finish
+    // resolving while the sheet is still open.
+    void recordSpotSeeVisit({
+      postId: spot.id,
+      viewerId: session?.user?.id ?? viewerContext?.viewerId ?? null,
+      ownerId: viewerContext?.ownerId ?? null,
+      authResolved: !authLoading,
+      currentVisitedCount: viewerContext?.currentVisitedCount,
+    });
+  };
 
   const handleCopyAddress = async () => {
     if (!copyableAddress) {
@@ -213,6 +239,7 @@ export default function SpotLocationSheet({
               href={mapsUrl}
               target="_blank"
               rel="noopener noreferrer"
+              onClick={handleOpenMaps}
               className="flex w-full items-center justify-center gap-2 rounded-2xl bg-primary py-3 text-sm font-semibold text-background transition hover:brightness-110 active:opacity-90"
             >
               <ExternalLink className="h-4 w-4" aria-hidden />

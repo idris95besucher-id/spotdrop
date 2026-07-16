@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import { Plus } from "lucide-react";
 import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import ChatDateSeparator from "@/components/ChatDateSeparator";
@@ -11,13 +12,27 @@ import DmWallpaper from "@/components/DmWallpaper";
 import DirectMessageSpotShareCard from "@/components/DirectMessageSpotShareCard";
 import DirectMessageSpotCard from "@/components/DirectMessageSpotCard";
 import DirectMessageLocationCard from "@/components/DirectMessageLocationCard";
+import DirectMessagePlaceCard from "@/components/DirectMessagePlaceCard";
+import DirectMessageMapMarkCard from "@/components/DirectMessageMapMarkCard";
 import DmMessageStatus from "@/components/DmMessageStatus";
+import VoiceMessagePlayer from "@/components/voice/VoiceMessagePlayer";
+import ChatImageBubble from "@/components/chat/ChatImageBubble";
+import ChatLocationBubble from "@/components/chat/ChatLocationBubble";
+import VoiceMessageRecorder from "@/components/voice/VoiceMessageRecorder";
+import { sendDmVoiceMessage } from "@/lib/sendVoiceMessage";
+import { uploadVoiceMessage } from "@/lib/voiceMessages/uploadVoiceMessage";
+import type { VoiceRecordingResult } from "@/lib/voiceMessages/useVoiceRecorder";
 import { useAuthSession } from "@/components/AuthSessionProvider";
 import { useChatNotifications } from "@/components/ChatNotificationsProvider";
 import ShareSpotToUserButton from "@/components/ShareSpotToUserButton";
+import ChatAttachmentMenu from "@/components/chat/ChatAttachmentMenu";
 import Shell from "@/components/Shell";
 import { useI18n } from "@/components/I18nProvider";
 import { localizeCaughtError, localizeUserMessage } from "@/lib/i18n/localizeUserMessage";
+import { sendDmPhoto } from "@/lib/sendChatPhoto";
+import { sendDmLocation, updateDmLocation } from "@/lib/sendChatLocation";
+import { useLiveLocationSharing } from "@/lib/useLiveLocationSharing";
+import { requestCheckSpotGpsReading } from "@/lib/checkSpotGps";
 import { markDirectMessagesReadInThread } from "@/lib/chatNotifications";
 import { markDmThreadOpened } from "@/lib/chatUnreadSync";
 import { shouldShowChatDateSeparator } from "@/lib/chatDates";
@@ -54,6 +69,8 @@ import { useDmComposerKeyboardInset, dmComposerBottomPadding } from "@/lib/useDm
 import { CHAT_MESSAGES_FLEX_PADDING } from "@/lib/keyboardSystem";
 import { isGuideAccountUsername, publicProfileUsername } from "@/lib/publicProfile";
 import { supabase } from "@/lib/supabaseClient";
+import { isCityRoomPlaceMessage } from "@/lib/cityRoomPlaceMessage";
+import { isCityRoomMapMarkMessage } from "@/lib/cityRoomMapMarkMessage";
 import { isLocationCardShareMessage } from "@/lib/locationCardShareMessage";
 
 type PartnerProfile = {
@@ -77,6 +94,14 @@ type DirectMessage = {
   created_at: string;
   delivered_at: string | null;
   read_at: string | null;
+  audio_url: string | null;
+  audio_duration_seconds: number | null;
+  audio_waveform: number[] | null;
+  image_url: string | null;
+  live_location_lat: number | null;
+  live_location_lng: number | null;
+  live_location_updated_at: string | null;
+  live_location_expires_at: string | null;
 };
 
 type DmThreadViewProps = {
@@ -798,6 +823,50 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
     scrollOnSend();
   };
 
+  const handleVoiceSend = async (result: Extract<VoiceRecordingResult, { ok: true }>) => {
+    if (sending || !currentUserId || !partnerId || currentUserId === partnerId) {
+      return;
+    }
+
+    setSending(true);
+    setSendError(null);
+
+    const uploaded = await uploadVoiceMessage(currentUserId, result.blob, result.mimeType);
+
+    if (!uploaded.audioUrl) {
+      setSending(false);
+      setSendError(localizeCaughtError(t, uploaded.error ?? "voiceMessage.uploadFailed", "voiceMessage.uploadFailed"));
+      return;
+    }
+
+    const { message: sent, error: sendErrorResult } = await sendDmVoiceMessage({
+      senderId: currentUserId,
+      recipientId: partnerId,
+      audioUrl: uploaded.audioUrl,
+      durationSeconds: Math.round(result.durationMs / 1000),
+      waveform: result.waveform,
+    });
+
+    setSending(false);
+
+    if (sendErrorResult || !sent) {
+      setSendError(localizeCaughtError(t, sendErrorResult ?? "voiceMessage.uploadFailed", "voiceMessage.uploadFailed"));
+      return;
+    }
+
+    seenMessageIdsRef.current.add(sent.id);
+    setMessages((current) => {
+      if (current.some((message) => message.id === sent.id)) {
+        return current;
+      }
+
+      return [...current, sent as DirectMessage];
+    });
+
+    setPartnerTypingName(null);
+    scrollOnSend();
+  };
+
   const reloadSharesForMessages = useCallback(async (messageList: DirectMessage[]) => {
     const shareIds = [
       ...new Set(
@@ -822,6 +891,117 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
     void refreshUnreadCount();
     scrollOnSend();
   }, [currentUserId, partnerId, refreshUnreadCount, reloadSharesForMessages, scrollOnSend]);
+
+  const handlePhotoSend = async (file: File) => {
+    if (sending || !currentUserId || !partnerId || currentUserId === partnerId) {
+      return;
+    }
+
+    setSending(true);
+    setSendError(null);
+
+    const { message: sent, error: sendErrorResult } = await sendDmPhoto({
+      senderId: currentUserId,
+      recipientId: partnerId,
+      file,
+    });
+
+    setSending(false);
+
+    if (sendErrorResult || !sent) {
+      setSendError(localizeCaughtError(t, sendErrorResult ?? "chatAttach.sendFailed", "chatAttach.sendFailed"));
+      return;
+    }
+
+    seenMessageIdsRef.current.add(sent.id);
+    setMessages((current) => {
+      if (current.some((message) => message.id === sent.id)) {
+        return current;
+      }
+
+      return [...current, sent as DirectMessage];
+    });
+
+    scrollOnSend();
+  };
+
+  const handleSendCurrentLocation = async () => {
+    if (sending || !currentUserId || !partnerId || currentUserId === partnerId) {
+      return;
+    }
+
+    setSending(true);
+    setSendError(null);
+
+    const { reading, error: gpsError } = await requestCheckSpotGpsReading();
+
+    if (!reading) {
+      setSending(false);
+      setSendError(localizeCaughtError(t, gpsError ?? "chatAttach.locationPermissionDenied", "chatAttach.locationPermissionDenied"));
+      return;
+    }
+
+    const { message: sent, error: sendErrorResult } = await sendDmLocation({
+      senderId: currentUserId,
+      recipientId: partnerId,
+      latitude: reading.latitude,
+      longitude: reading.longitude,
+      expiresAt: null,
+    });
+
+    setSending(false);
+
+    if (sendErrorResult || !sent) {
+      setSendError(localizeCaughtError(t, sendErrorResult ?? "chatAttach.sendFailed", "chatAttach.sendFailed"));
+      return;
+    }
+
+    seenMessageIdsRef.current.add(sent.id);
+    setMessages((current) => {
+      if (current.some((message) => message.id === sent.id)) {
+        return current;
+      }
+
+      return [...current, sent as DirectMessage];
+    });
+
+    scrollOnSend();
+  };
+
+  const liveLocation = useLiveLocationSharing({
+    sendInitial: async (latitude, longitude, expiresAt) => {
+      if (!currentUserId || !partnerId) {
+        return { messageId: null, error: null };
+      }
+
+      const { message: sent, error } = await sendDmLocation({
+        senderId: currentUserId,
+        recipientId: partnerId,
+        latitude,
+        longitude,
+        expiresAt,
+      });
+
+      if (sent) {
+        seenMessageIdsRef.current.add(sent.id);
+        setMessages((current) => (current.some((message) => message.id === sent.id) ? current : [...current, sent as DirectMessage]));
+        scrollOnSend();
+      }
+
+      return { messageId: sent?.id ?? null, error };
+    },
+    updateExisting: async (messageId, latitude, longitude, expiresAt) => {
+      if (!currentUserId) {
+        return { error: null };
+      }
+
+      return updateDmLocation({ messageId, senderId: currentUserId, latitude, longitude, expiresAt });
+    },
+  });
+
+  const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false);
+  const [checkSpotDialogOpen, setCheckSpotDialogOpen] = useState(false);
+  const photoInputRef = useRef<HTMLInputElement>(null);
 
   const isSendDisabled =
     sending || !draft.trim() || !currentUserId || isSelfConversation || !canSendMessages;
@@ -944,12 +1124,64 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
                 const isSpotShareMessage = isSpotShareDirectMessage(message);
                 const isSpotPostMessage = isSpotDirectMessage(message);
                 const isLocationCardMessage = isLocationCardShareMessage(message.body);
+                const isPlaceMessage = isCityRoomPlaceMessage(message.body ?? "");
+                const isMapMarkMessage = isCityRoomMapMarkMessage(message.body ?? "");
 
                 return (
                   <Fragment key={message.id}>
                     {showDateSeparator ? <ChatDateSeparator createdAt={message.created_at} /> : null}
                     <div className={`flex ${isOwnMessage ? "justify-end" : "justify-start"}`}>
-                      {isSpotPostMessage && message.post_id ? (
+                      {message.audio_url ? (
+                        <div className="max-w-[85%]">
+                          <VoiceMessagePlayer
+                            audioUrl={message.audio_url}
+                            durationSeconds={message.audio_duration_seconds}
+                            waveform={message.audio_waveform}
+                            isOwnMessage={isOwnMessage}
+                          />
+                          {currentUserId ? (
+                            <div className={`flex ${isOwnMessage ? "justify-end" : "justify-start"}`}>
+                              <DmMessageStatus
+                                message={message}
+                                currentUserId={currentUserId}
+                                isOwnMessage={isOwnMessage}
+                              />
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : message.image_url ? (
+                        <div className="max-w-[85%]">
+                          <ChatImageBubble imageUrl={message.image_url} isOwnMessage={isOwnMessage} />
+                          {currentUserId ? (
+                            <div className={`flex ${isOwnMessage ? "justify-end" : "justify-start"}`}>
+                              <DmMessageStatus
+                                message={message}
+                                currentUserId={currentUserId}
+                                isOwnMessage={isOwnMessage}
+                              />
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : message.live_location_lat != null && message.live_location_lng != null ? (
+                        <div className="max-w-[85%]">
+                          <ChatLocationBubble
+                            latitude={message.live_location_lat}
+                            longitude={message.live_location_lng}
+                            updatedAt={message.live_location_updated_at ?? message.created_at}
+                            expiresAt={message.live_location_expires_at ?? null}
+                            isOwnMessage={isOwnMessage}
+                          />
+                          {currentUserId ? (
+                            <div className={`flex ${isOwnMessage ? "justify-end" : "justify-start"}`}>
+                              <DmMessageStatus
+                                message={message}
+                                currentUserId={currentUserId}
+                                isOwnMessage={isOwnMessage}
+                              />
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : isSpotPostMessage && message.post_id ? (
                         <DirectMessageSpotCard
                           postId={message.post_id}
                           isOwnMessage={isOwnMessage}
@@ -982,6 +1214,20 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
                           senderId={message.sender_id}
                           initialShare={shareById.get(message.spot_share_id) ?? null}
                           onShareUpdated={() => void handleSpotShareSent()}
+                        />
+                      ) : isMapMarkMessage && message.body ? (
+                        <DirectMessageMapMarkCard
+                          body={message.body}
+                          isOwnMessage={isOwnMessage}
+                          currentUserId={currentUserId!}
+                          message={message}
+                        />
+                      ) : isPlaceMessage && message.body ? (
+                        <DirectMessagePlaceCard
+                          body={message.body}
+                          isOwnMessage={isOwnMessage}
+                          currentUserId={currentUserId!}
+                          message={message}
                         />
                       ) : isLocationCardMessage && message.body ? (
                         <DirectMessageLocationCard
@@ -1037,16 +1283,53 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
                 onSubmit={(event) => void handleSend(event)}
                 className="border-t border-white/10 bg-[#070b14]/95 px-3 pt-2.5 backdrop-blur-xl"
               >
-            <div className="flex items-end gap-2">
-              {currentUserId && partner && !isSelfConversation ? (
-                <ShareSpotToUserButton
-                  senderId={currentUserId}
-                  recipientId={partner.id}
-                  recipientUsername={partner.username}
-                  disabled={!canSendMessages || sending}
-                  onSent={() => void handleSpotShareSent()}
-                />
-              ) : null}
+            <input
+              ref={photoInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                event.target.value = "";
+                if (file) {
+                  void handlePhotoSend(file);
+                }
+              }}
+            />
+            {currentUserId && partner && !isSelfConversation ? (
+              <ShareSpotToUserButton
+                senderId={currentUserId}
+                recipientId={partner.id}
+                recipientUsername={partner.username}
+                disabled={!canSendMessages || sending}
+                onSent={() => void handleSpotShareSent()}
+                hideTrigger
+                open={checkSpotDialogOpen}
+                onOpenChange={setCheckSpotDialogOpen}
+              />
+            ) : null}
+            <ChatAttachmentMenu
+              isOpen={attachmentMenuOpen}
+              onClose={() => setAttachmentMenuOpen(false)}
+              onSendPhoto={() => photoInputRef.current?.click()}
+              onCheckSpot={
+                currentUserId && partner && !isSelfConversation ? () => setCheckSpotDialogOpen(true) : undefined
+              }
+              onSendCurrentLocation={() => void handleSendCurrentLocation()}
+              onShareLiveLocation={() => void liveLocation.start()}
+              isSharingLiveLocation={liveLocation.isSharing}
+              onStopLiveLocation={() => void liveLocation.stop()}
+            />
+            <div className="relative flex items-end gap-2">
+              <button
+                type="button"
+                disabled={!currentUserId || isSelfConversation || !canSendMessages || sending}
+                onClick={() => setAttachmentMenuOpen(true)}
+                className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-white/15 bg-white/5 text-primary transition hover:border-primary/35 hover:bg-primary/10 disabled:cursor-not-allowed disabled:opacity-50"
+                aria-label={t("chatAttach.title")}
+              >
+                <Plus className="h-5 w-5" strokeWidth={1.75} aria-hidden />
+              </button>
               <textarea
                 ref={composerTextareaRef}
                 name="spotdrop-dm-message"
@@ -1059,16 +1342,25 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
                 rows={1}
                 className="min-h-[48px] max-h-32 w-full resize-none rounded-2xl border border-white/10 bg-[#0d1322] px-4 py-3 text-sm text-white outline-none transition focus:border-primary/45 disabled:cursor-not-allowed disabled:opacity-60"
               />
-              <button
-                type="submit"
-                disabled={isSendDisabled}
-                className="shrink-0 rounded-2xl bg-primary px-4 py-3 text-xs font-semibold text-[#050816] transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {sending ? "…" : t("common.send")}
-              </button>
+              {draft.trim() ? (
+                <button
+                  type="submit"
+                  disabled={isSendDisabled}
+                  className="shrink-0 rounded-2xl bg-primary px-4 py-3 text-xs font-semibold text-[#050816] transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {sending ? "…" : t("common.send")}
+                </button>
+              ) : (
+                <VoiceMessageRecorder
+                  disabled={!currentUserId || isSelfConversation || !canSendMessages || sending}
+                  onSend={(result) => void handleVoiceSend(result)}
+                />
+              )}
             </div>
             {sendError ? (
               <p className="mt-2 text-xs text-red-300">{localizeUserMessage(t, sendError) ?? sendError}</p>
+            ) : liveLocation.error ? (
+              <p className="mt-2 text-xs text-red-300">{localizeUserMessage(t, liveLocation.error) ?? liveLocation.error}</p>
             ) : null}
             </form>
           </div>

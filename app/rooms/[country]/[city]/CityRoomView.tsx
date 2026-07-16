@@ -5,7 +5,7 @@ import { useParams, usePathname, useRouter, useSearchParams } from "next/navigat
 import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import type { RealtimeChannel, Session } from "@supabase/supabase-js";
-import { Users } from "lucide-react";
+import { Plus, Users } from "lucide-react";
 import CityRoomMessageBubble from "@/components/CityRoomMessageBubble";
 import { getSafeAuthSession } from "@/lib/authSession";
 import { isGuideAccountUsername, publicProfileUsername } from "@/lib/publicProfile";
@@ -48,6 +48,16 @@ import { isOnlineNow } from "@/lib/userPresence";
 import { usePresenceOnlineIds } from "@/lib/usePresenceOnlineIds";
 import { CITY_ROOM_MESSAGES_FLEX_PADDING } from "@/lib/keyboardSystem";
 import { navigateBack } from "@/lib/navigateBack";
+import VoiceMessageRecorder from "@/components/voice/VoiceMessageRecorder";
+import { sendCityRoomVoiceMessage } from "@/lib/sendVoiceMessage";
+import { uploadVoiceMessage } from "@/lib/voiceMessages/uploadVoiceMessage";
+import type { VoiceRecordingResult } from "@/lib/voiceMessages/useVoiceRecorder";
+import { CITY_MESSAGE_SELECT } from "@/lib/cityMessageRow";
+import ChatAttachmentMenu from "@/components/chat/ChatAttachmentMenu";
+import { sendCityRoomPhoto } from "@/lib/sendChatPhoto";
+import { sendCityRoomLocation, updateCityRoomLocation } from "@/lib/sendChatLocation";
+import { useLiveLocationSharing } from "@/lib/useLiveLocationSharing";
+import { requestCheckSpotGpsReading } from "@/lib/checkSpotGps";
 
 type Country = {
   id: string;
@@ -75,6 +85,14 @@ type RawCityMessage = {
   created_at: string;
   user_id: string;
   edited_at?: string | null;
+  audio_url?: string | null;
+  audio_duration_seconds?: number | null;
+  audio_waveform?: number[] | null;
+  image_url?: string | null;
+  live_location_lat?: number | null;
+  live_location_lng?: number | null;
+  live_location_updated_at?: string | null;
+  live_location_expires_at?: string | null;
 };
 
 type CityMessageWithSender = {
@@ -84,6 +102,14 @@ type CityMessageWithSender = {
   user_id: string;
   edited_at?: string | null;
   profile: SenderProfile | null;
+  audio_url?: string | null;
+  audio_duration_seconds?: number | null;
+  audio_waveform?: number[] | null;
+  image_url?: string | null;
+  live_location_lat?: number | null;
+  live_location_lng?: number | null;
+  live_location_updated_at?: string | null;
+  live_location_expires_at?: string | null;
 };
 
 function buildMessage(message: RawCityMessage, profile: SenderProfile | null): CityMessageWithSender {
@@ -94,6 +120,14 @@ function buildMessage(message: RawCityMessage, profile: SenderProfile | null): C
     user_id: message.user_id,
     edited_at: message.edited_at ?? null,
     profile,
+    audio_url: message.audio_url ?? null,
+    audio_duration_seconds: message.audio_duration_seconds ?? null,
+    audio_waveform: message.audio_waveform ?? null,
+    image_url: message.image_url ?? null,
+    live_location_lat: message.live_location_lat ?? null,
+    live_location_lng: message.live_location_lng ?? null,
+    live_location_updated_at: message.live_location_updated_at ?? null,
+    live_location_expires_at: message.live_location_expires_at ?? null,
   };
 }
 
@@ -300,7 +334,7 @@ export default function RoomChatPage() {
 
     const { data, error: fetchError } = await supabase
       .from("city_messages")
-      .select("id, content, created_at, user_id, edited_at")
+      .select(CITY_MESSAGE_SELECT)
       .eq("city_id", cityId)
       .order("created_at", { ascending: true });
 
@@ -728,7 +762,7 @@ export default function RoomChatPage() {
         user_id: session.user.id,
         content: trimmed,
       })
-      .select("id, content, created_at, user_id, edited_at")
+      .select(CITY_MESSAGE_SELECT)
       .single();
 
     if (insertError) {
@@ -765,6 +799,163 @@ export default function RoomChatPage() {
       window.dispatchEvent(new Event(CHATS_INBOX_REFRESH_EVENT));
     }
   };
+
+  const handleVoiceSend = async (result: Extract<VoiceRecordingResult, { ok: true }>) => {
+    setError(null);
+    setSendError(null);
+
+    if (sending || !session?.user?.id || !cityId) {
+      return;
+    }
+
+    setSending(true);
+
+    const uploaded = await uploadVoiceMessage(session.user.id, result.blob, result.mimeType);
+
+    if (!uploaded.audioUrl) {
+      setSendError(uploaded.error ?? "Unable to send your message.");
+      setSending(false);
+      return;
+    }
+
+    const sendResult = await sendCityRoomVoiceMessage({
+      userId: session.user.id,
+      countrySlug: country?.slug ?? countrySlug,
+      citySlug: city?.slug ?? citySlug,
+      audioUrl: uploaded.audioUrl,
+      durationSeconds: Math.round(result.durationMs / 1000),
+      waveform: result.waveform,
+    });
+
+    setSending(false);
+
+    if (sendResult.error || !sendResult.message) {
+      setSendError(sendResult.error ?? "Unable to send your message.");
+      return;
+    }
+
+    const appendedMessage = buildMessage(sendResult.message as RawCityMessage, {
+      username: publicProfileUsername(currentUsername ?? ""),
+      avatar_url: currentUserAvatarUrl,
+    });
+
+    setMessages((currentMessages) => mergeMessages(currentMessages, [appendedMessage]));
+    markForceScroll();
+  };
+
+  const handlePhotoSend = async (file: File) => {
+    setError(null);
+    setSendError(null);
+
+    if (sending || !session?.user?.id || !cityId) {
+      return;
+    }
+
+    setSending(true);
+
+    const sendResult = await sendCityRoomPhoto({
+      userId: session.user.id,
+      countrySlug: country?.slug ?? countrySlug,
+      citySlug: city?.slug ?? citySlug,
+      file,
+    });
+
+    setSending(false);
+
+    if (sendResult.error || !sendResult.message) {
+      setSendError(sendResult.error ?? "Unable to send your message.");
+      return;
+    }
+
+    const appendedMessage = buildMessage(sendResult.message as RawCityMessage, {
+      username: publicProfileUsername(currentUsername ?? ""),
+      avatar_url: currentUserAvatarUrl,
+    });
+
+    setMessages((currentMessages) => mergeMessages(currentMessages, [appendedMessage]));
+    markForceScroll();
+  };
+
+  const handleSendCurrentLocation = async () => {
+    setError(null);
+    setSendError(null);
+
+    if (sending || !session?.user?.id || !cityId) {
+      return;
+    }
+
+    setSending(true);
+
+    const { reading, error: gpsError } = await requestCheckSpotGpsReading();
+
+    if (!reading) {
+      setSending(false);
+      setSendError(gpsError ?? "Unable to detect your location.");
+      return;
+    }
+
+    const sendResult = await sendCityRoomLocation({
+      userId: session.user.id,
+      countrySlug: country?.slug ?? countrySlug,
+      citySlug: city?.slug ?? citySlug,
+      latitude: reading.latitude,
+      longitude: reading.longitude,
+      expiresAt: null,
+    });
+
+    setSending(false);
+
+    if (sendResult.error || !sendResult.message) {
+      setSendError(sendResult.error ?? "Unable to send your message.");
+      return;
+    }
+
+    const appendedMessage = buildMessage(sendResult.message as RawCityMessage, {
+      username: publicProfileUsername(currentUsername ?? ""),
+      avatar_url: currentUserAvatarUrl,
+    });
+
+    setMessages((currentMessages) => mergeMessages(currentMessages, [appendedMessage]));
+    markForceScroll();
+  };
+
+  const liveLocation = useLiveLocationSharing({
+    sendInitial: async (latitude, longitude, expiresAt) => {
+      if (!session?.user?.id || !cityId) {
+        return { messageId: null, error: null };
+      }
+
+      const sendResult = await sendCityRoomLocation({
+        userId: session.user.id,
+        countrySlug: country?.slug ?? countrySlug,
+        citySlug: city?.slug ?? citySlug,
+        latitude,
+        longitude,
+        expiresAt,
+      });
+
+      if (sendResult.message) {
+        const appendedMessage = buildMessage(sendResult.message as RawCityMessage, {
+          username: publicProfileUsername(currentUsername ?? ""),
+          avatar_url: currentUserAvatarUrl,
+        });
+        setMessages((currentMessages) => mergeMessages(currentMessages, [appendedMessage]));
+        markForceScroll();
+      }
+
+      return { messageId: sendResult.message?.id ?? null, error: sendResult.error };
+    },
+    updateExisting: async (messageId, latitude, longitude, expiresAt) => {
+      if (!session?.user?.id) {
+        return { error: null };
+      }
+
+      return updateCityRoomLocation({ messageId, userId: session.user.id, latitude, longitude, expiresAt });
+    },
+  });
+
+  const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false);
+  const photoInputRef = useRef<HTMLInputElement>(null);
 
   const handleSend = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -846,7 +1037,7 @@ export default function RoomChatPage() {
       })
       .eq("id", editingMessageId)
       .eq("user_id", session.user.id)
-      .select("id, content, created_at, user_id, edited_at")
+      .select(CITY_MESSAGE_SELECT)
       .single();
 
     if (updateError) {
@@ -982,7 +1173,7 @@ export default function RoomChatPage() {
 
   return (
     <Shell chatThread>
-      <ChatThreadShell>
+      <ChatThreadShell onBack={handleRoomBack}>
         <MobileSecondaryHeader
           title={roomHeaderTitle}
           backHref={roomBackHref}
@@ -1102,16 +1293,56 @@ export default function RoomChatPage() {
               </div>
             ) : null}
 
+            <input
+              ref={photoInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                event.target.value = "";
+                if (file) {
+                  void handlePhotoSend(file);
+                }
+              }}
+            />
+            <ChatAttachmentMenu
+              isOpen={attachmentMenuOpen}
+              onClose={() => setAttachmentMenuOpen(false)}
+              onSendPhoto={() => photoInputRef.current?.click()}
+              onSendCurrentLocation={() => void handleSendCurrentLocation()}
+              onShareLiveLocation={() => void liveLocation.start()}
+              isSharingLiveLocation={liveLocation.isSharing}
+              onStopLiveLocation={() => void liveLocation.stop()}
+            />
             <CityRoomChatComposer
             value={newMessage}
             onChange={setNewMessage}
             onSubmit={handleSend}
             sending={sending}
             sendDisabled={isSendDisabled}
-            sendError={sendError}
+            sendError={sendError ?? liveLocation.error}
             inputDisabled={!session?.user?.id}
             placeholder={session?.user?.id ? t("rooms.messagePlaceholder") : t("rooms.signInToChat")}
             textareaRef={composerTextareaRef}
+            leadingAction={
+              session?.user?.id ? (
+                <button
+                  type="button"
+                  disabled={sending}
+                  onClick={() => setAttachmentMenuOpen(true)}
+                  className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-white/15 bg-white/5 text-primary transition hover:border-primary/35 hover:bg-primary/10 disabled:cursor-not-allowed disabled:opacity-50"
+                  aria-label={t("chatAttach.title")}
+                >
+                  <Plus className="h-5 w-5" strokeWidth={1.75} aria-hidden />
+                </button>
+              ) : undefined
+            }
+            emptyInputAction={
+              session?.user?.id ? (
+                <VoiceMessageRecorder disabled={!session?.user?.id || sending} onSend={(result) => void handleVoiceSend(result)} />
+              ) : undefined
+            }
             footer={
               !session?.user?.id ? (
                 <p className="mt-2 text-center text-xs text-slate-400">

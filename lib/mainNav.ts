@@ -92,6 +92,8 @@ export function isMessagesNavRoute(pathname: string | null) {
     normalized.startsWith("/chat/") ||
     normalized === "/dm" ||
     normalized.startsWith("/dm/") ||
+    normalized === "/group" ||
+    normalized.startsWith("/group/") ||
     normalized === "/messages" ||
     normalized.startsWith("/messages/")
   );

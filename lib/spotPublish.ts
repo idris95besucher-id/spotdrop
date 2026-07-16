@@ -2,6 +2,14 @@ import type { SpotGeoLocation } from "@/lib/spotLocation";
 
 export const DEFAULT_SPOT_NAME = "Untitled spot";
 
+/**
+ * Publish destination for a Spot: "public" goes to the public Explore/Map feed and the
+ * owner's Posts/Spots grid; "my-spots" is visible only to the owner, in their My Spots
+ * profile tab. Independent of the (deprecated, UI-unreachable) named-collections system —
+ * no collections row is required or created for "my-spots".
+ */
+export type SpotPublishDestination = "public" | "my-spots";
+
 export const SPOT_LOCATION_REQUIRED_MESSAGE =
   "This Spot has no address. You can't publish it as a Spot.";
 

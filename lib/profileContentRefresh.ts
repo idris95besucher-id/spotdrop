@@ -1,9 +1,10 @@
 export const PROFILE_CONTENT_REFRESH_EVENT = "spotdrop:profile-content-refresh";
 export const PROFILE_META_REFRESH_EVENT = "spotdrop:profile-meta-refresh";
+export const PROFILE_FOLLOWERS_REFRESH_EVENT = "spotdrop:profile-followers-refresh";
 
 export type ProfileContentRefreshDetail = {
   /** When set, profile should switch to this content tab. */
-  tab?: "spots" | "saved";
+  tab?: "spots" | "my-spots" | "saved";
 };
 
 export function dispatchProfileContentRefresh(detail?: ProfileContentRefreshDetail) {
@@ -24,4 +25,12 @@ export function dispatchProfileMetaRefresh() {
   }
 
   window.dispatchEvent(new CustomEvent(PROFILE_META_REFRESH_EVENT));
+}
+
+export function dispatchProfileFollowersRefresh() {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.dispatchEvent(new CustomEvent(PROFILE_FOLLOWERS_REFRESH_EVENT));
 }

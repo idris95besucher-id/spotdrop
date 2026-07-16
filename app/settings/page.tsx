@@ -19,7 +19,6 @@ import { useNotifications } from "@/components/NotificationsProvider";
 import { useI18n } from "@/components/I18nProvider";
 import { saveProfileLanguage } from "@/lib/i18n/profileLanguage";
 import { resolveI18nLocale } from "@/lib/i18n/locales";
-import { localizeUserMessage } from "@/lib/i18n/localizeUserMessage";
 import type { TranslationKey } from "@/lib/i18n/messages";
 import {
   SettingsPageHeader,
@@ -44,6 +43,18 @@ import {
   saveProfileMessagePrivacy,
 } from "@/lib/messagePrivacy";
 import {
+  normalizeProfileGalleryVisibility,
+  PROFILE_GALLERY_VISIBILITY_VALUES,
+  saveProfileGalleryVisibility,
+  type ProfileGalleryVisibility,
+} from "@/lib/profileGalleryVisibility";
+import {
+  loadProfileGalleryAllowedViewers,
+  saveProfileGalleryAllowedViewers,
+  type GalleryAllowedViewer,
+} from "@/lib/profileGalleryAllowedViewers";
+import { loadProfilePrivacySettings } from "@/lib/profilePrivacySettings";
+import {
   normalizeOnlineVisibility,
   ONLINE_VISIBILITY_VALUES,
   saveProfileOnlineVisibility,
@@ -58,6 +69,7 @@ import {
   type AccentColorCode,
 } from "@/lib/themeAccent";
 import { supabase } from "@/lib/supabaseClient";
+import GalleryAllowedUsersPicker from "@/components/settings/GalleryAllowedUsersPicker";
 
 const MESSAGE_PRIVACY_LABEL_KEYS: Record<MessagePrivacy, TranslationKey> = {
   everyone: "settings.messagePrivacy.everyone",
@@ -79,6 +91,13 @@ const THEME_LABEL_KEYS: Record<AccentColorCode, TranslationKey> = {
   blue: "settings.theme.blue",
 };
 
+const GALLERY_VISIBILITY_LABEL_KEYS: Record<ProfileGalleryVisibility, TranslationKey> = {
+  everyone: "profile.galleryVisibility.everyone",
+  followers: "profile.galleryVisibility.followers",
+  friends: "profile.galleryVisibility.friends",
+  selected: "profile.galleryVisibility.selected",
+};
+
 export default function SettingsPage() {
   const router = useRouter();
   const { t, setLocale } = useI18n();
@@ -89,6 +108,9 @@ export default function SettingsPage() {
   const [privacyError, setPrivacyError] = useState<string | null>(null);
   const [messagePrivacy, setMessagePrivacy] = useState<MessagePrivacy>("everyone");
   const [onlineVisibility, setOnlineVisibility] = useState<OnlineVisibility>("everyone");
+  const [galleryVisibility, setGalleryVisibility] = useState<ProfileGalleryVisibility>("everyone");
+  const [galleryAllowedViewers, setGalleryAllowedViewers] = useState<GalleryAllowedViewer[]>([]);
+  const [savingGalleryPrivacy, setSavingGalleryPrivacy] = useState(false);
   const [notifyLikes, setNotifyLikes] = useState(true);
   const [notifyComments, setNotifyComments] = useState(true);
   const [notifyFollowers, setNotifyFollowers] = useState(true);
@@ -129,6 +151,15 @@ export default function SettingsPage() {
         value: option.code,
         label: t(THEME_LABEL_KEYS[option.code]),
         color: option.primary,
+      })),
+    [t]
+  );
+
+  const galleryVisibilityOptions = useMemo(
+    () =>
+      PROFILE_GALLERY_VISIBILITY_VALUES.map((value) => ({
+        value,
+        label: t(GALLERY_VISIBILITY_LABEL_KEYS[value]),
       })),
     [t]
   );
@@ -190,31 +221,36 @@ export default function SettingsPage() {
       setNotifyFollowers(prefs.notifications.newFollowers);
       setNotifyMessages(prefs.notifications.messages);
 
-      const { data, error } = await supabase
-        .from("profiles")
-        .select("is_private, message_privacy, online_visibility")
-        .eq("id", nextSession.user.id)
-        .maybeSingle();
+      const privacyResult = await loadProfilePrivacySettings(nextSession.user.id);
 
       if (!active) {
         return;
       }
 
-      if (error) {
-        setPrivacyError("Unable to load privacy settings.");
-      } else {
-        setIsPrivate(Boolean(data?.is_private));
-        const resolvedPrivacy = data?.message_privacy
-          ? normalizeMessagePrivacy(data.message_privacy)
-          : prefs.messagePrivacy;
+      if (privacyResult.error) {
+        setPrivacyError(t("settings.error.loadPrivacy"));
+      } else if (privacyResult.data) {
+        setIsPrivate(privacyResult.data.isPrivate);
 
+        const resolvedPrivacy = privacyResult.data.messagePrivacy;
         setMessagePrivacy(resolvedPrivacy);
 
         if (resolvedPrivacy !== prefs.messagePrivacy) {
           updateUserSettingsPreferences({ messagePrivacy: resolvedPrivacy });
         }
 
-        setOnlineVisibility(normalizeOnlineVisibility(data?.online_visibility));
+        setOnlineVisibility(privacyResult.data.onlineVisibility);
+        setGalleryVisibility(privacyResult.data.galleryVisibility);
+
+        const allowedResult = await loadProfileGalleryAllowedViewers(nextSession.user.id);
+
+        if (!active) {
+          return;
+        }
+
+        if (!allowedResult.error) {
+          setGalleryAllowedViewers(allowedResult.viewers);
+        }
       }
 
       setLoading(false);
@@ -282,6 +318,70 @@ export default function SettingsPage() {
     }
   };
 
+  const handleGalleryVisibilityChange = (value: string) => {
+    const next = normalizeProfileGalleryVisibility(value);
+    const previousVisibility = galleryVisibility;
+    const previousAllowedViewers = galleryAllowedViewers;
+
+    setGalleryVisibility(next);
+    setPrivacyError(null);
+
+    if (!session?.user) {
+      return;
+    }
+
+    setSavingGalleryPrivacy(true);
+
+    void (async () => {
+      const visibilityResult = await saveProfileGalleryVisibility(session.user.id, next);
+
+      if (visibilityResult.error) {
+        console.error("[Gallery privacy] settings save failed at visibility", visibilityResult.error);
+        setGalleryVisibility(previousVisibility);
+        setPrivacyError(visibilityResult.error);
+        setSavingGalleryPrivacy(false);
+        return;
+      }
+
+      if (next !== "selected") {
+        const allowlistResult = await saveProfileGalleryAllowedViewers(session.user.id, []);
+
+        if (allowlistResult.error) {
+          // Visibility already saved — do not revert the dropdown.
+          console.error("[Gallery privacy] settings allowlist clear failed", allowlistResult.error);
+          setPrivacyError(allowlistResult.error);
+        } else {
+          setGalleryAllowedViewers([]);
+        }
+      }
+
+      setSavingGalleryPrivacy(false);
+    })();
+  };
+
+  const handleGalleryAllowedViewersChange = (next: GalleryAllowedViewer[]) => {
+    setGalleryAllowedViewers(next);
+
+    if (!session?.user || galleryVisibility !== "selected") {
+      return;
+    }
+
+    setSavingGalleryPrivacy(true);
+    setPrivacyError(null);
+
+    void saveProfileGalleryAllowedViewers(
+      session.user.id,
+      next.map((viewer) => viewer.id)
+    ).then((result) => {
+      if (result.error) {
+        console.error("[Gallery privacy] settings allowlist save failed", result.error);
+        setPrivacyError(result.error);
+      }
+
+      setSavingGalleryPrivacy(false);
+    });
+  };
+
   const handleSaveLanguage = async () => {
     if (draftLanguage === language) {
       return;
@@ -333,7 +433,6 @@ export default function SettingsPage() {
     setThemeSaved(true);
   };
 
-  const localizedPrivacyError = localizeUserMessage(t, privacyError);
   const signedInIdentity = session?.user?.user_metadata?.username
     ? `@${session.user.user_metadata.username}`
     : t("settings.yourAccount");
@@ -376,11 +475,29 @@ export default function SettingsPage() {
             options={onlineVisibilityOptions}
             onChange={handleOnlineVisibilityChange}
           />
+          <SettingsSelectRow
+            label={t("settings.galleryPrivacy.title")}
+            value={galleryVisibility}
+            options={galleryVisibilityOptions}
+            disabled={savingGalleryPrivacy}
+            onChange={handleGalleryVisibilityChange}
+          />
+          {galleryVisibility === "selected" ? (
+            <div className="space-y-2 border-t border-white/10 px-4 py-3.5">
+              <p className="text-sm font-medium text-white">{t("settings.galleryPrivacy.selectedTitle")}</p>
+              <GalleryAllowedUsersPicker
+                ownerUserId={session?.user?.id ?? ""}
+                selected={galleryAllowedViewers}
+                disabled={savingGalleryPrivacy || !session?.user}
+                onChange={handleGalleryAllowedViewersChange}
+              />
+            </div>
+          ) : null}
           <SettingsRow href="/settings/blocked" label={t("settings.blockedUsers")} icon={Users} />
         </SettingsSection>
 
-        {localizedPrivacyError ? (
-          <p className="rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-200">{localizedPrivacyError}</p>
+        {privacyError ? (
+          <p className="rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-200">{privacyError}</p>
         ) : null}
 
         <SettingsSection title={t("settings.notifications")}>

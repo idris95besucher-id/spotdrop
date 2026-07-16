@@ -19,6 +19,7 @@ import {
   type ResolvedProfileLocation,
 } from "@/lib/profileLocation";
 import ProfileSavedTab from "@/components/ProfileSavedTab";
+import ProfileMySpotsTab from "@/components/ProfileMySpotsTab";
 import ProfileMenuSheet from "@/components/ProfileMenuSheet";
 import ShareProfileSheet from "@/components/ShareProfileSheet";
 import ProfileContentTabs, {
@@ -34,7 +35,7 @@ import {
   loadProfileGalleryVisibility,
   type ProfileGalleryVisibility,
 } from "@/lib/profileGalleryVisibility";
-import { PROFILE_CONTENT_REFRESH_EVENT, PROFILE_META_REFRESH_EVENT } from "@/lib/profileContentRefresh";
+import { PROFILE_CONTENT_REFRESH_EVENT, PROFILE_FOLLOWERS_REFRESH_EVENT, PROFILE_META_REFRESH_EVENT } from "@/lib/profileContentRefresh";
 import { postIdsEqual } from "@/lib/postIds";
 import { buildProfileMenuItems } from "@/lib/profileMenuItems";
 
@@ -93,7 +94,7 @@ export default function ProfilePage() {
   useEffect(() => {
     const tab = window.sessionStorage.getItem("spotdrop:profile-tab");
 
-    if (tab === "spots" || tab === "saved" || tab === "collections") {
+    if (tab === "spots" || tab === "my-spots" || tab === "saved" || tab === "collections") {
       window.sessionStorage.removeItem("spotdrop:profile-tab");
       setActiveProfileSection("posts");
       setActiveContentTab(normalizeProfileMainTab(tab === "collections" ? "saved" : tab));
@@ -313,11 +314,33 @@ export default function ProfilePage() {
     setLoadingPosts(false);
   }, [session?.user?.id]);
 
+  const refreshFollowers = useCallback(async () => {
+    if (!session?.user?.id) {
+      return;
+    }
+
+    setLoadingConnections(true);
+    setConnectionsError(null);
+
+    const followConnectionsResult = await loadFollowConnections(session.user.id);
+
+    if (followConnectionsResult.error) {
+      setConnectionsError(followConnectionsResult.error);
+      setFollowers([]);
+      setFriends([]);
+    } else {
+      setFollowers(followConnectionsResult.data?.followers ?? []);
+      setFriends(followConnectionsResult.data?.friends ?? []);
+    }
+
+    setLoadingConnections(false);
+  }, [session?.user?.id]);
+
   useEffect(() => {
     const handleRefresh = (event: Event) => {
-      const detail = (event as CustomEvent<{ tab?: "spots" | "saved" }>).detail;
+      const detail = (event as CustomEvent<{ tab?: "spots" | "my-spots" | "saved" }>).detail;
 
-      if (detail?.tab === "spots" || detail?.tab === "saved") {
+      if (detail?.tab === "spots" || detail?.tab === "my-spots" || detail?.tab === "saved") {
         setActiveProfileSection("posts");
         setActiveContentTab(detail.tab);
       }
@@ -331,6 +354,18 @@ export default function ProfilePage() {
       window.removeEventListener(PROFILE_CONTENT_REFRESH_EVENT, handleRefresh);
     };
   }, [refreshProfileContent]);
+
+  useEffect(() => {
+    const handleFollowersRefresh = () => {
+      void refreshFollowers();
+    };
+
+    window.addEventListener(PROFILE_FOLLOWERS_REFRESH_EVENT, handleFollowersRefresh);
+
+    return () => {
+      window.removeEventListener(PROFILE_FOLLOWERS_REFRESH_EVENT, handleFollowersRefresh);
+    };
+  }, [refreshFollowers]);
 
   useEffect(() => {
     const handleMetaRefresh = () => {
@@ -614,7 +649,7 @@ export default function ProfilePage() {
             <ProfileContentTabs
               stickyTabBar
               compact
-              showSavedTab
+              showPrivateTabs
               activeTab={activeContentTab}
               onTabChange={setActiveContentTab}
               personalPosts={personalPosts}
@@ -630,6 +665,19 @@ export default function ProfilePage() {
                       avatar_url: profile.avatar_url,
                     }
                   : null
+              }
+              mySpotsPanel={
+                <ProfileMySpotsTab
+                  userId={session.user.id}
+                  viewerAuthor={
+                    profile?.username
+                      ? {
+                          username: publicProfileUsername(profile.username),
+                          avatar_url: profile.avatar_url,
+                        }
+                      : null
+                  }
+                />
               }
               savedPanel={
                 <ProfileSavedTab

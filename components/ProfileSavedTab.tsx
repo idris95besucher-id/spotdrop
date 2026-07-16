@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Bookmark, Play } from "lucide-react";
+import { Bookmark } from "lucide-react";
 import { useI18n } from "@/components/I18nProvider";
 import PostCardMedia from "@/components/PostCardMedia";
 import PostMediaLink from "@/components/PostMediaLink";
@@ -108,10 +108,9 @@ export default function ProfileSavedTab({ userId, viewerAuthor = null }: Profile
   return (
     <div className={PROFILE_GRID_CLASS}>
       {activeItems.map((post, gridIndex) => {
-        const { mediaUrl, mediaType } = getProfilePostMedia(post);
+        const { mediaUrl } = getProfilePostMedia(post);
         const spotTitle = getSpotDisplayLabel(post);
         const clickedSpot = viewerItems[gridIndex];
-        const isVideo = mediaType === "video" || Boolean(post.video_url?.trim());
 
         return (
           <article
@@ -150,12 +149,6 @@ export default function ProfileSavedTab({ userId, viewerAuthor = null }: Profile
                 </span>
               </PostMediaLink>
             )}
-
-            {isVideo ? (
-              <span className="pointer-events-none absolute right-1.5 top-1.5 z-10 drop-shadow-[0_1px_2px_rgba(0,0,0,0.85)]">
-                <Play className="h-3.5 w-3.5 fill-white text-white" strokeWidth={0} aria-hidden />
-              </span>
-            ) : null}
           </article>
         );
       })}

@@ -1,3 +1,5 @@
+import { isGroupChatThreadRoute } from "@/lib/groupChatRoutes";
+
 const DM_ROUTE_PLACEHOLDER = "_";
 
 /** Partner id from DM route — query param, path segment, or static-export placeholder fallback. */
@@ -72,11 +74,20 @@ export function isCityChannelChatThread(pathname: string | null) {
   return segments[0] === "rooms" && segments.length === 5 && segments[3] === "channels";
 }
 
+/** New message / create-group wizard — fullscreen picker, same treatment as a DM thread. */
+export function isNewMessageRoute(pathname: string | null) {
+  if (!pathname) return false;
+  const normalized = pathname.replace(/\/+$/, "") || "/";
+  return normalized === "/chats/new" || normalized.startsWith("/chats/new/");
+}
+
 export function isChatThreadRoute(pathname: string | null) {
   return (
     isPrivateChatThreadRoute(pathname) ||
     isCityRoomChatThread(pathname) ||
-    isCityChannelChatThread(pathname)
+    isCityChannelChatThread(pathname) ||
+    isGroupChatThreadRoute(pathname) ||
+    isNewMessageRoute(pathname)
   );
 }
 

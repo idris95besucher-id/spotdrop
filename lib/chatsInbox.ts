@@ -19,6 +19,7 @@ export type ChatPreviewMessage = Pick<
 import { loadDmInboxPreferences } from "@/lib/chatInboxPreferences";
 import { formatUnreadBadge, markAllPendingDirectMessagesDelivered } from "@/lib/chatNotifications";
 import { getOptimisticReadExcludes, roomUnreadKey } from "@/lib/chatUnreadSync";
+import { loadGroupInbox, type GroupChatSummary } from "@/lib/groupChats";
 import type { MessageRequestItemData } from "@/components/MessageRequestItem";
 import { isGuideAccountUsername, publicProfileUsername } from "@/lib/publicProfile";
 import { loadRoomInbox, type RoomInboxRow } from "@/lib/roomMemberships";
@@ -32,6 +33,7 @@ const INBOX_CACHE_TTL_MS = 30 * 1000;
 type InboxLoadResult = {
   chats: InboxChatRow[];
   rooms: RoomInboxRow[];
+  groups: GroupChatSummary[];
   items: InboxItem[];
   requests: MessageRequestItemData[];
   error: string | null;
@@ -81,7 +83,38 @@ export type InboxChatRow = {
 
 export type InboxItem =
   | { kind: "dm"; chat: InboxChatRow }
-  | { kind: "room"; room: RoomInboxRow };
+  | { kind: "room"; room: RoomInboxRow }
+  | { kind: "group"; group: GroupChatSummary };
+
+/** Lowercased searchable text for an inbox row — client-side filter, no extra network calls. */
+export function inboxItemSearchText(item: InboxItem, locale?: {
+  localizeCityName?: (row: RoomInboxRow) => string;
+}): string {
+  if (item.kind === "dm") {
+    return item.chat.username.toLowerCase();
+  }
+
+  if (item.kind === "group") {
+    return item.group.name.toLowerCase();
+  }
+
+  const cityLabel = locale?.localizeCityName?.(item.room) ?? item.room.cityName;
+  return `${cityLabel} ${item.room.countryName}`.toLowerCase();
+}
+
+export function filterInboxItems(
+  items: InboxItem[],
+  query: string,
+  locale?: { localizeCityName?: (row: RoomInboxRow) => string }
+): InboxItem[] {
+  const trimmed = query.trim().toLowerCase();
+
+  if (!trimmed) {
+    return items;
+  }
+
+  return items.filter((item) => inboxItemSearchText(item, locale).includes(trimmed));
+}
 
 type PartnerProfile = {
   id: string;
@@ -183,6 +216,7 @@ export async function loadChatsInbox(userId: string) {
     return {
       chats: [] as InboxChatRow[],
       rooms: [] as RoomInboxRow[],
+      groups: [] as GroupChatSummary[],
       items: [] as InboxItem[],
       requests: [] as MessageRequestItemData[],
       error: conversationsError,
@@ -224,6 +258,7 @@ export async function loadChatsInbox(userId: string) {
     { preferences: dmPreferences, error: preferencesError },
     { profiles, error: profilesError },
     { rooms, error: roomsError },
+    { groups, error: groupsError },
   ] = await Promise.all([
     loadMessagesForPartners(userId, allPartnerIds),
     markAllPendingDirectMessagesDelivered(userId),
@@ -231,10 +266,11 @@ export async function loadChatsInbox(userId: string) {
     loadDmInboxPreferences(userId),
     loadProfilesByIds(allPartnerIds),
     loadRoomInbox(userId),
+    loadGroupInbox(userId),
   ]);
 
   if (messagesError) {
-    return { chats: [], rooms: [], items: [], requests: [], error: messagesError };
+    return { chats: [], rooms: [], groups: [], items: [], requests: [], error: messagesError };
   }
 
   if (preferencesError) {
@@ -242,7 +278,11 @@ export async function loadChatsInbox(userId: string) {
   }
 
   if (profilesError) {
-    return { chats: [], rooms: [], items: [], requests: [], error: profilesError };
+    return { chats: [], rooms: [], groups: [], items: [], requests: [], error: profilesError };
+  }
+
+  if (groupsError) {
+    console.error("[chats-inbox] group inbox unavailable:", groupsError);
   }
 
   const latestByPartner = buildLatestMessageByPartner(messages, userId);
@@ -381,18 +421,23 @@ export async function loadChatsInbox(userId: string) {
   const items: InboxItem[] = [
     ...chats.map((chat) => ({ kind: "dm" as const, chat })),
     ...patchedRooms.map((room) => ({ kind: "room" as const, room })),
+    ...groups.map((group) => ({ kind: "group" as const, group })),
   ];
 
   items.sort((left, right) => {
-    const leftAt =
-      left.kind === "dm" ? left.chat.lastAt : left.room.lastAt;
-    const rightAt =
-      right.kind === "dm" ? right.chat.lastAt : right.room.lastAt;
+    const leftAt = inboxItemLastAt(left);
+    const rightAt = inboxItemLastAt(right);
 
     return new Date(rightAt).getTime() - new Date(leftAt).getTime();
   });
 
-  const result = { chats, rooms, items, requests, error: null as string | null };
+  const result = { chats, rooms, groups, items, requests, error: null as string | null };
   setCachedChatsInbox(userId, result);
   return result;
+}
+
+function inboxItemLastAt(item: InboxItem) {
+  if (item.kind === "dm") return item.chat.lastAt;
+  if (item.kind === "group") return item.group.lastAt;
+  return item.room.lastAt;
 }

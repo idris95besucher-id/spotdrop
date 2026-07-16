@@ -1,0 +1,3 @@
+module SpotDropCameraPlugin {
+    header "/Users/idris/Desktop/spotdrop/packages/spotdrop-camera/.build/arm64-apple-macosx/debug/SpotDropCameraPlugin.build/include/SpotDropCameraPlugin-Swift.h"
+}

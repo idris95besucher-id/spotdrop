@@ -158,16 +158,10 @@ function MobileNavLink({
       href={href}
       className={`group flex min-w-0 flex-1 flex-col items-center justify-center gap-1 px-1 py-2 ${MOBILE_BOTTOM_NAV_TOUCH_CLASS}`}
       aria-current={active ? "page" : undefined}
+      aria-label={label}
       draggable={false}
     >
       {icon}
-      <span
-        className={`pointer-events-none max-w-full truncate text-[10px] font-medium leading-none select-none ${
-          active ? "text-primary" : "text-muted group-hover:text-slate-300"
-        }`}
-      >
-        {label}
-      </span>
     </Link>
   );
 }

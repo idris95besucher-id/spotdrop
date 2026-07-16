@@ -28,7 +28,7 @@ const VIDEO_SOURCE_TIMEOUT_MS = 3500;
  * on screen (not just logged) so a stuck source is visibly a "Loading…" or
  * "couldn't be loaded" message rather than a plain black rectangle.
  */
-function CarouselVideoSlide({ slide }: { slide: SpotCarouselSlide }) {
+function CarouselVideoSlide({ slide, isActive }: { slide: SpotCarouselSlide; isActive: boolean }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [activeSrc, setActiveSrc] = useState(slide.mediaUrl);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
@@ -134,6 +134,17 @@ function CarouselVideoSlide({ slide }: { slide: SpotCarouselSlide }) {
     setStatus("ready");
   }, [activeSrc]);
 
+  // Publishing (isActive=false, e.g. from SpotPublishScreen while an upload is in flight)
+  // must not let this preview keep playing with sound in the background — pause it outright
+  // rather than relying on `muted` alone, which wouldn't stop background playback/battery use.
+  useEffect(() => {
+    if (isActive) {
+      return;
+    }
+
+    videoRef.current?.pause();
+  }, [isActive]);
+
   return (
     <div className="relative h-full w-full bg-black">
       <video
@@ -141,9 +152,9 @@ function CarouselVideoSlide({ slide }: { slide: SpotCarouselSlide }) {
         ref={videoRef}
         src={activeSrc}
         poster={slide.posterUrl ?? undefined}
-        muted={Boolean(slide.audioMuted)}
+        muted={Boolean(slide.audioMuted) || !isActive}
         playsInline
-        controls
+        controls={isActive}
         preload="auto"
         disablePictureInPicture
         onError={handleError}
@@ -380,7 +391,7 @@ export default function SpotMediaCarousel({
               style={{ ...slideGpuStyle, scrollSnapStop: "always" }}
             >
               {slide.mediaType === "video" ? (
-                <CarouselVideoSlide slide={slide} />
+                <CarouselVideoSlide slide={slide} isActive={isActive} />
               ) : (
                 <SpotPanoramaImage
                   src={slide.mediaUrl}

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ChevronLeft, ChevronRight, Loader2, MessageCircle, MoreVertical, ThumbsUp, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Heart, Loader2, MessageCircle, MoreVertical, X } from "lucide-react";
 import SpotCommentsSheet from "@/components/SpotCommentsSheet";
 import { useI18n } from "@/components/I18nProvider";
 import { getProfilePostMedia, type ProfileContentPost } from "@/lib/profileContent";
@@ -18,6 +18,7 @@ type ProfileGalleryViewerProps = {
   items: ProfileContentPost[];
   activeIndex: number;
   userId: string;
+  ownerUsername?: string | null;
   isOwner?: boolean;
   onClose: () => void;
   onActiveIndexChange: (index: number) => void;
@@ -30,6 +31,11 @@ type ItemEngagement = {
   loaded: boolean;
 };
 
+type SlideLayout = {
+  aspectRatio: number;
+  loaded: boolean;
+};
+
 const EMPTY_REACTIONS: PostReactionState = {
   likeCount: 0,
   usefulCount: 0,
@@ -39,11 +45,28 @@ const EMPTY_REACTIONS: PostReactionState = {
 
 const LIKE_POP_MS = 150;
 const CHROME_FADE_MS = 420;
+const MAX_VIEWER_HEIGHT_RATIO = 0.72;
+
+function measureImageAspectRatio(url: string): Promise<number> {
+  return new Promise((resolve) => {
+    const image = new Image();
+    image.onload = () => {
+      if (image.naturalWidth > 0 && image.naturalHeight > 0) {
+        resolve(image.naturalWidth / image.naturalHeight);
+      } else {
+        resolve(4 / 5);
+      }
+    };
+    image.onerror = () => resolve(4 / 5);
+    image.src = url;
+  });
+}
 
 export default function ProfileGalleryViewer({
   items,
   activeIndex,
   userId,
+  ownerUsername = null,
   isOwner = false,
   onClose,
   onActiveIndexChange,
@@ -62,6 +85,7 @@ export default function ProfileGalleryViewer({
   const [likePending, setLikePending] = useState(false);
   const [likePopping, setLikePopping] = useState(false);
   const [engagementByPostId, setEngagementByPostId] = useState<Record<string, ItemEngagement>>({});
+  const [slideLayouts, setSlideLayouts] = useState<Record<string, SlideLayout>>({});
 
   const item = items[activeIndex] ?? null;
   const itemDescription = item ? getProfileGalleryDescription(item) : "";
@@ -112,6 +136,47 @@ export default function ProfileGalleryViewer({
       }
     });
   }, [activeIndex]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void (async () => {
+      const updates: Record<string, SlideLayout> = {};
+
+      await Promise.all(
+        items.map(async (galleryItem) => {
+          const { mediaUrl } = getProfilePostMedia(galleryItem);
+          const isVideo = isProfileGalleryVideo(galleryItem);
+
+          if (!mediaUrl || isVideo) {
+            updates[galleryItem.id] = { aspectRatio: 4 / 5, loaded: true };
+            return;
+          }
+
+          const aspectRatio = await measureImageAspectRatio(mediaUrl);
+          updates[galleryItem.id] = { aspectRatio, loaded: true };
+        })
+      );
+
+      if (!cancelled && Object.keys(updates).length > 0) {
+        setSlideLayouts((current) => {
+          const next = { ...current };
+
+          for (const [id, layout] of Object.entries(updates)) {
+            if (!next[id]?.loaded) {
+              next[id] = layout;
+            }
+          }
+
+          return next;
+        });
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [items]);
 
   useEffect(() => {
     if (!item?.id) {
@@ -366,45 +431,67 @@ export default function ProfileGalleryViewer({
           </div>
         </div>
 
-        <div className="relative min-h-0 flex-1 pb-[max(4.5rem,calc(env(safe-area-inset-bottom)+3.5rem))]">
+        <div className="relative flex min-h-0 flex-1 flex-col">
           <div
             ref={scrollRef}
-            className="flex h-full snap-x snap-mandatory overflow-x-auto overflow-y-hidden [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+            className="flex min-h-0 flex-1 snap-x snap-mandatory overflow-x-auto overflow-y-hidden [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
           >
             {items.map((galleryItem, index) => {
               const { mediaUrl, mediaType } = getProfilePostMedia(galleryItem);
               const isVideo = isProfileGalleryVideo(galleryItem) || mediaType === "video";
               const isActiveSlide = index === activeIndex;
+              const layout = slideLayouts[galleryItem.id];
+              const aspectRatio = layout?.aspectRatio ?? 4 / 5;
 
               return (
                 <div
                   key={galleryItem.id}
-                  className="relative flex h-full w-full shrink-0 snap-center snap-always items-center justify-center px-1"
+                  className="flex h-full w-full shrink-0 snap-center snap-always flex-col"
                 >
-                  {mediaUrl && isVideo ? (
-                    <video
-                      src={mediaUrl}
-                      poster={
-                        galleryItem.video_cover_url ??
-                        galleryItem.thumbnail_url ??
-                        galleryItem.image_url ??
-                        undefined
-                      }
-                      controls
-                      playsInline
-                      autoPlay={isActiveSlide}
-                      className="max-h-full max-w-full object-contain"
-                    />
-                  ) : mediaUrl ? (
-                    <img
-                      src={mediaUrl}
-                      alt=""
-                      className="max-h-full max-w-full object-contain"
-                      draggable={false}
-                    />
-                  ) : (
-                    <p className="text-sm text-slate-400">{t("profile.galleryUnavailable")}</p>
-                  )}
+                  <div className="flex min-h-0 flex-1 items-center justify-center px-3">
+                    <div
+                      className="relative mx-auto flex items-center justify-center"
+                      style={{
+                        width: "100%",
+                        maxWidth: "100%",
+                        height: Math.min(
+                          Math.round(
+                            (typeof window !== "undefined" ? window.innerHeight : 844) *
+                              MAX_VIEWER_HEIGHT_RATIO
+                          ),
+                          Math.round(
+                            (typeof window !== "undefined" ? window.innerWidth : 390) / aspectRatio
+                          )
+                        ),
+                        maxHeight: `min(${MAX_VIEWER_HEIGHT_RATIO * 100}vh, calc(100vw / ${aspectRatio}))`,
+                      }}
+                    >
+                      {mediaUrl && isVideo ? (
+                        <video
+                          src={mediaUrl}
+                          poster={
+                            galleryItem.video_cover_url ??
+                            galleryItem.thumbnail_url ??
+                            galleryItem.image_url ??
+                            undefined
+                          }
+                          controls
+                          playsInline
+                          autoPlay={isActiveSlide}
+                          className="h-full w-full object-contain"
+                        />
+                      ) : mediaUrl ? (
+                        <img
+                          src={mediaUrl}
+                          alt=""
+                          className="h-full w-full object-contain"
+                          draggable={false}
+                        />
+                      ) : (
+                        <p className="text-sm text-slate-400">{t("profile.galleryUnavailable")}</p>
+                      )}
+                    </div>
+                  </div>
                 </div>
               );
             })}
@@ -414,7 +501,7 @@ export default function ProfileGalleryViewer({
             <button
               type="button"
               onClick={() => onActiveIndexChange(activeIndex - 1)}
-              className={`absolute left-2 top-1/2 z-10 hidden -translate-y-1/2 items-center justify-center rounded-full bg-black/40 text-white ring-1 ring-white/10 transition-opacity sm:inline-flex sm:h-10 sm:w-10 ${
+              className={`absolute left-2 top-[38%] z-10 hidden -translate-y-1/2 items-center justify-center rounded-full bg-black/40 text-white ring-1 ring-white/10 transition-opacity sm:inline-flex sm:h-10 sm:w-10 ${
                 chromeVisible ? "opacity-100" : "opacity-0"
               }`}
               aria-label={t("profile.galleryPrevious")}
@@ -427,7 +514,7 @@ export default function ProfileGalleryViewer({
             <button
               type="button"
               onClick={() => onActiveIndexChange(activeIndex + 1)}
-              className={`absolute right-2 top-1/2 z-10 hidden -translate-y-1/2 items-center justify-center rounded-full bg-black/40 text-white ring-1 ring-white/10 transition-opacity sm:inline-flex sm:h-10 sm:w-10 ${
+              className={`absolute right-2 top-[38%] z-10 hidden -translate-y-1/2 items-center justify-center rounded-full bg-black/40 text-white ring-1 ring-white/10 transition-opacity sm:inline-flex sm:h-10 sm:w-10 ${
                 chromeVisible ? "opacity-100" : "opacity-0"
               }`}
               aria-label={t("profile.galleryNext")}
@@ -437,56 +524,56 @@ export default function ProfileGalleryViewer({
           ) : null}
 
           <div
-            className={`pointer-events-none absolute inset-x-0 bottom-0 z-20 flex flex-col items-center gap-2 px-4 pb-[max(0.65rem,env(safe-area-inset-bottom))] transition-all duration-500 ${
+            className={`shrink-0 px-4 pb-[max(0.85rem,env(safe-area-inset-bottom))] pt-3 transition-all duration-500 ${
               chromeVisible ? "translate-y-0 opacity-100" : "translate-y-2 opacity-0"
             }`}
             style={{ transitionDuration: `${CHROME_FADE_MS}ms` }}
           >
-            {itemDescription ? (
-              <p className="pointer-events-none max-w-md whitespace-pre-wrap px-2 text-center text-[15px] leading-relaxed text-white/95 drop-shadow-[0_1px_8px_rgba(0,0,0,0.85)]">
-                {itemDescription}
-              </p>
+            {ownerUsername ? (
+              <p className="mb-1 text-sm font-semibold text-white">{ownerUsername}</p>
             ) : null}
 
-            <div
-              className="pointer-events-auto inline-flex items-center gap-8 rounded-[18px] border border-white/14 bg-black/42 px-5 py-2.5 shadow-[0_10px_40px_rgba(0,0,0,0.55)] backdrop-blur-2xl backdrop-saturate-150"
-              role="toolbar"
-              aria-label={t("profile.galleryActions")}
-            >
+            {itemDescription ? (
+              <p className="mb-3 whitespace-pre-wrap text-sm leading-relaxed text-white/90">
+                {itemDescription}
+              </p>
+            ) : (
+              <div className="mb-3 h-0" aria-hidden />
+            )}
+
+            <div className="flex items-center gap-8" role="toolbar" aria-label={t("profile.galleryActions")}>
               <button
                 type="button"
                 disabled={likePending}
                 onClick={() => void handleToggleLike()}
-                className="inline-flex items-center gap-2.5 rounded-full px-1 py-0.5 text-white transition active:opacity-80 disabled:opacity-60"
+                className="inline-flex min-h-11 min-w-11 items-center gap-2.5 text-white transition active:opacity-75 disabled:opacity-60"
                 aria-label={`${t("postDetail.like")}, ${reactions.likeCount}`}
                 aria-pressed={reactions.userLiked}
               >
                 {likePending ? (
-                  <Loader2 className="h-8 w-8 animate-spin" aria-hidden />
+                  <Loader2 className="h-7 w-7 animate-spin" aria-hidden />
                 ) : (
-                  <ThumbsUp
-                    className={`h-8 w-8 transition-[transform,fill,color] duration-150 ${
-                      likePopping ? "scale-[1.15]" : "scale-100"
-                    } ${reactions.userLiked ? "fill-cyan-400 text-cyan-400" : "text-white"}`}
-                    strokeWidth={1.75}
+                  <Heart
+                    className={`h-7 w-7 transition-[transform,fill,color] duration-150 ${
+                      likePopping ? "scale-110" : "scale-100"
+                    } ${reactions.userLiked ? "fill-rose-400 text-rose-400" : "text-white"}`}
+                    strokeWidth={1.6}
                     aria-hidden
                   />
                 )}
-                <span className="min-w-[1ch] text-[15px] font-semibold tabular-nums leading-none">
+                <span className="min-w-[1ch] text-sm font-semibold tabular-nums text-white/95">
                   {reactions.likeCount}
                 </span>
               </button>
 
-              <span className="h-5 w-px bg-white/12" aria-hidden />
-
               <button
                 type="button"
                 onClick={() => setCommentsOpen(true)}
-                className="inline-flex items-center gap-2.5 rounded-full px-1 py-0.5 text-white transition active:opacity-80"
+                className="inline-flex min-h-11 min-w-11 items-center gap-2.5 text-white transition active:opacity-75"
                 aria-label={`${t("postDetail.comments")}, ${commentCount}`}
               >
-                <MessageCircle className="h-8 w-8 text-white" strokeWidth={1.75} aria-hidden />
-                <span className="min-w-[1ch] text-[15px] font-semibold tabular-nums leading-none">
+                <MessageCircle className="h-7 w-7 text-white" strokeWidth={1.6} aria-hidden />
+                <span className="min-w-[1ch] text-sm font-semibold tabular-nums text-white/95">
                   {commentCount}
                 </span>
               </button>

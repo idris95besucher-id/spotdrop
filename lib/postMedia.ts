@@ -1,11 +1,15 @@
 import {
   assertPostMediaBucket,
+  getFreshAccessToken,
   logUploadError,
   NOT_SIGNED_IN_UPLOAD_MESSAGE,
   POST_MEDIA_BUCKET,
   requireAuthenticatedUser,
   uploadFileToStorageWithProgress,
+  type StorageUploadError,
 } from "@/lib/storageUpload";
+import { retryUpload, type RetryAttemptInfo } from "@/lib/uploadRetry";
+import { assertVideoUploadSizeAllowed } from "@/lib/videoUploadGuard";
 import { supabase } from "@/lib/supabaseClient";
 
 export type UploadProgressCallback = (percent: number) => void;
@@ -16,6 +20,12 @@ type UploadPostMediaOptions = {
   accessToken?: string;
   /** Skip slow post-upload HEAD/list verification (default: true). */
   skipVerification?: boolean;
+  /** Cancels the upload (including any pending retry backoff) — e.g. an explicit user cancel or leaving the upload flow. */
+  signal?: AbortSignal;
+  /** Fired before each automatic retry so the UI can show "Retrying (2/4)…" without losing progress state. */
+  onRetry?: (info: RetryAttemptInfo) => void;
+  /** Ties every log line for this upload back to one attempt — see lib/uploadLifecycleTrace.ts. */
+  requestId?: string;
 };
 
 export { POST_MEDIA_BUCKET };
@@ -129,14 +139,25 @@ export async function uploadPostMedia(
 ): Promise<UploadPostMediaResult> {
   assertPostMediaBucket(POST_MEDIA_BUCKET);
 
-  if (!options.accessToken) {
-    await requireAuthenticatedUser(userId);
+  await requireAuthenticatedUser(userId);
+
+  // Always resolve a fresh token here rather than trusting `options.accessToken` verbatim —
+  // that token was captured when the publish flow *started*, and a large video upload over
+  // a slow connection can easily run long enough to cross the token's expiry.
+  const accessToken = await getFreshAccessToken();
+
+  if (!accessToken) {
+    throw new Error(NOT_SIGNED_IN_UPLOAD_MESSAGE);
   }
 
   const mediaType = getPostMediaType(file);
 
   if (!mediaType) {
     throw new Error("Only images and videos are allowed.");
+  }
+
+  if (mediaType === "video") {
+    assertVideoUploadSizeAllowed(file);
   }
 
   const storagePath = formatPostMediaPath(userId, file);
@@ -155,21 +176,33 @@ export async function uploadPostMedia(
   options.onProgress?.(0);
 
   const uploadStartedAt = performance.now();
-  let uploadError: (Error & { statusCode?: string | number }) | null = null;
+  let uploadError: StorageUploadError | null = null;
 
   try {
     // Real XHR upload (not supabase-js's fetch-based `.upload()`) so
     // `onProgress` reports actual bytes sent, not a simulated 0-then-100 —
     // and so the original File is streamed directly, never re-buffered or
     // re-encoded for the upload itself.
-    await uploadFileToStorageWithProgress(POST_MEDIA_BUCKET, storagePath, file, {
-      accessToken: options.accessToken,
-      cacheControl: "3600",
-      upsert: false,
-      onProgress: options.onProgress,
-    });
+    //
+    // Wrapped in retryUpload: transient failures (network drop, stall, 5xx) retry with
+    // exponential backoff against this *same* storagePath — the video never has to be
+    // re-selected, and re-attempts reuse the same File reference so nothing is re-read
+    // into memory. Auth/RLS/4xx failures are never retried (see isRetryableUploadError).
+    await retryUpload(
+      (attemptNumber) =>
+        uploadFileToStorageWithProgress(POST_MEDIA_BUCKET, storagePath, file, {
+          accessToken,
+          cacheControl: "3600",
+          upsert: false,
+          onProgress: options.onProgress,
+          signal: options.signal,
+          isRetryAttempt: attemptNumber > 1,
+          requestId: options.requestId,
+        }),
+      { signal: options.signal, onRetry: options.onRetry }
+    );
   } catch (caught) {
-    uploadError = caught as Error & { statusCode?: string | number };
+    uploadError = caught as StorageUploadError;
   }
 
   const uploadElapsedMs = Math.round(performance.now() - uploadStartedAt);
@@ -182,29 +215,35 @@ export async function uploadPostMedia(
     fileSizeMb: Math.round((file.size / (1024 * 1024)) * 100) / 100,
     fileType: file.type,
     uploadElapsedMs,
+    errorKind: uploadError?.errorKind ?? null,
     error: uploadError?.message ?? null,
+    diagnostics: uploadError?.diagnostics ?? null,
   });
 
   if (uploadError) {
     logUploadError(uploadError);
-    console.error("[SPOT PUBLISH] step=upload_storage", {
+    console.error("[post-media upload] storage failed", {
       bucket: POST_MEDIA_BUCKET,
       storage_path: storagePath,
+      errorKind: uploadError.errorKind,
       message: uploadError.message,
       statusCode: uploadError.statusCode,
+      diagnostics: uploadError.diagnostics,
     });
 
     if (uploadError.message.toLowerCase().includes("row-level security")) {
       throw new Error(
-        `[SPOT PUBLISH] step=upload_storage | ${uploadError.message} | Upload was blocked by storage RLS. Make sure you are signed in and storage policies allow uploads to ${POST_MEDIA_BUCKET}.`
+        `[post-media upload] ${uploadError.message} | Upload was blocked by storage RLS. Make sure you are signed in and storage policies allow uploads to ${POST_MEDIA_BUCKET}.`
       );
     }
 
-    throw new Error(
-      `[SPOT PUBLISH] step=upload_storage | ${uploadError.message}${
+    const wrapped = new Error(
+      `[post-media upload] ${uploadError.message}${
         uploadError.statusCode != null ? ` | status=${uploadError.statusCode}` : ""
       }`
-    );
+    ) as Error & { errorKind?: string };
+    wrapped.errorKind = uploadError.errorKind;
+    throw wrapped;
   }
 
   options.onProgress?.(100);

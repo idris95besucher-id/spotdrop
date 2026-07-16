@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
+import { Play, Volume2, VolumeX } from "lucide-react";
 import SpotPanoramaImage from "@/components/SpotPanoramaImage";
 import { pauseAllGridVideoPreviews } from "@/lib/gridVideoPreviewControl";
 import { logSpotLoadUiFailure } from "@/lib/spotLoadDiagnostics";
@@ -46,7 +47,7 @@ type PostReelMediaProps = {
   shouldLoad?: boolean;
   mediaPreload?: ReelMediaPreload;
   alt?: string;
-  /** Published video without audio — always play muted in viewer. */
+  /** Published video without a sound track — stays muted, mute control hidden. */
   audioMuted?: boolean;
   onLoadingChange?: (loading: boolean) => void;
   onPhaseChange?: (phase: SpotLoadPhase) => void;
@@ -89,10 +90,10 @@ function PostReelMediaImage({
   onPhaseChange,
 }: PostReelMediaProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const audioMutedRef = useRef(audioMuted);
   const isActiveRef = useRef(isActive);
   const playRetryUsedRef = useRef(false);
   const resumeAfterPauseRef = useRef(false);
+  const userPausedRef = useRef(false);
   const retryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const retryCountRef = useRef(0);
   const debugLastEventRef = useRef("—");
@@ -102,8 +103,14 @@ function PostReelMediaImage({
   const [phase, setPhase] = useState<SpotLoadPhase>("loading");
   const [imageReady, setImageReady] = useState(false);
   const [videoFlags, setVideoFlags] = useState<VideoPlaybackFlags>(INITIAL_VIDEO_FLAGS);
+  // User-controlled play/pause (Instagram-style tap) and sound. `userMuted`
+  // seeds from `audioMuted` so a video published without sound stays muted.
+  const [userPaused, setUserPaused] = useState(false);
+  const [userMuted, setUserMuted] = useState(audioMuted);
 
-  audioMutedRef.current = audioMuted;
+  const effectiveMuted = audioMuted || userMuted;
+  const effectiveMutedRef = useRef(effectiveMuted);
+  effectiveMutedRef.current = effectiveMuted;
 
   const resolvedPoster = posterUrl?.trim() || (mediaType === "image" ? mediaUrl : null);
   const playbackUrl = retryPlaybackUrl(mediaUrl, retryKey);
@@ -167,11 +174,11 @@ function PostReelMediaImage({
         networkState: video.networkState,
         currentTime: video.currentTime,
         src: video.currentSrc || video.src,
-        preferMuted: audioMutedRef.current,
+        preferMuted: effectiveMutedRef.current,
       });
 
       const result = await playSpotFullscreenVideo(video, {
-        forceMuted: audioMutedRef.current,
+        forceMuted: effectiveMutedRef.current,
       });
 
       if (result.started) {
@@ -201,7 +208,7 @@ function PostReelMediaImage({
             }
 
             markDebugEvent("play attempt", { reason: `${reason}-mount-retry` });
-            void playSpotFullscreenVideo(video, { forceMuted: audioMutedRef.current }).then((retryResult) => {
+            void playSpotFullscreenVideo(video, { forceMuted: effectiveMutedRef.current }).then((retryResult) => {
               if (retryResult.started) {
                 markPlayResult(`resolved (${reason}-mount-retry)`, { currentTime: video.currentTime });
               } else {
@@ -222,6 +229,12 @@ function PostReelMediaImage({
     (video: HTMLVideoElement, reason: string) => {
       if (!isActiveRef.current) {
         markDebugEvent("play attempt skipped", { reason, cause: "isActive=false" });
+        return;
+      }
+
+      // Respect a deliberate user pause — never auto-resume behind their back.
+      if (userPausedRef.current) {
+        markDebugEvent("play attempt skipped", { reason, cause: "userPaused" });
         return;
       }
 
@@ -260,13 +273,16 @@ function PostReelMediaImage({
     retryCountRef.current = 0;
     playRetryUsedRef.current = false;
     resumeAfterPauseRef.current = false;
+    userPausedRef.current = false;
+    setUserPaused(false);
+    setUserMuted(audioMuted);
     setRetryKey(0);
     setImageReady(false);
     setVideoFlags(INITIAL_VIDEO_FLAGS);
     setPhase("loading");
     debugLastEventRef.current = "—";
     debugLastPlayResultRef.current = "—";
-  }, [mediaUrl, mediaType, posterUrl]);
+  }, [mediaUrl, mediaType, posterUrl, audioMuted]);
 
   useEffect(() => {
     if (phase === "loading" && loadHeavyMedia) {
@@ -315,7 +331,7 @@ function PostReelMediaImage({
     });
 
     applySpotViewerVideoAttributes(video);
-    video.muted = audioMutedRef.current;
+    video.muted = effectiveMutedRef.current;
     video.preload = "auto";
 
     if (isActiveRef.current) {
@@ -375,6 +391,13 @@ function PostReelMediaImage({
       });
 
       if (!isActiveRef.current) {
+        patchVideoFlags({ playing: false });
+        refreshDebugSnapshot();
+        return;
+      }
+
+      // User tapped to pause — hold it, do not auto-resume.
+      if (userPausedRef.current) {
         patchVideoFlags({ playing: false });
         refreshDebugSnapshot();
         return;
@@ -526,7 +549,9 @@ function PostReelMediaImage({
     releaseCompetingDecoders("activated");
     playRetryUsedRef.current = false;
     resumeAfterPauseRef.current = false;
-    video.muted = audioMuted;
+    userPausedRef.current = false;
+    setUserPaused(false);
+    video.muted = effectiveMutedRef.current;
     video.preload = "auto";
 
     requestActivePlay(video, "activated");
@@ -545,7 +570,6 @@ function PostReelMediaImage({
     releaseCompetingDecoders,
     requestActivePlay,
     shouldMountVideo,
-    audioMuted,
   ]);
 
   useEffect(() => {
@@ -554,6 +578,38 @@ function PostReelMediaImage({
         clearTimeout(retryTimeoutRef.current);
       }
     };
+  }, []);
+
+  // Instagram-style single tap: toggle play/pause in place. Never opens another
+  // screen, never zooms, never closes the post. Video only; images untouched.
+  const handleVideoTap = useCallback(() => {
+    const video = videoRef.current;
+
+    if (mediaType !== "video" || !video) {
+      return;
+    }
+
+    if (video.paused) {
+      userPausedRef.current = false;
+      setUserPaused(false);
+      requestActivePlay(video, "user-tap-play");
+    } else {
+      userPausedRef.current = true;
+      setUserPaused(true);
+      video.pause();
+    }
+  }, [mediaType, requestActivePlay]);
+
+  // Speaker toggle — independent of the play/pause tap. Stops propagation so
+  // tapping it never doubles as a play/pause tap.
+  const handleToggleMute = useCallback((event: ReactMouseEvent) => {
+    event.stopPropagation();
+    const next = !effectiveMutedRef.current;
+    setUserMuted(next);
+    const video = videoRef.current;
+    if (video) {
+      video.muted = next;
+    }
   }, []);
 
   const showPosterWhileVideo =
@@ -574,8 +630,21 @@ function PostReelMediaImage({
     onLoadingChange?.(isLoading);
   }, [isLoading, onLoadingChange]);
 
+  const isVideo = mediaType === "video";
+  // Instagram-style: the speaker only appears while the video is paused, tucked
+  // directly below the top-right three-dot menu. Hidden for videos with no
+  // sound track, and hidden again as soon as playback resumes.
+  const showMuteControl = isVideo && !audioMuted && userPaused && !videoFlags.error;
+  const showPlayOverlay = isVideo && userPaused && !videoFlags.error;
+
   return (
-    <div className="absolute inset-0 z-0 h-full w-full bg-slate-950">
+    <div
+      className="absolute inset-0 z-0 h-full w-full bg-slate-950"
+      onClick={isVideo ? handleVideoTap : undefined}
+      role={isVideo ? "button" : undefined}
+      tabIndex={isVideo ? -1 : undefined}
+      aria-label={isVideo ? alt || "Video" : undefined}
+    >
       {showBlurredPlaceholder ? (
         <div
           className="absolute inset-0 z-0 bg-gradient-to-b from-slate-800 via-slate-900 to-slate-950"
@@ -623,7 +692,7 @@ function PostReelMediaImage({
           src={playbackUrl}
           playsInline
           autoPlay={isActive}
-          muted={audioMuted}
+          muted={effectiveMuted}
           loop
           preload="auto"
           controls={false}
@@ -633,6 +702,37 @@ function PostReelMediaImage({
           className="absolute inset-0 z-[2] h-full w-full object-cover object-center"
           aria-label={alt || "Video"}
         />
+      ) : null}
+
+      {showPlayOverlay ? (
+        <div className="pointer-events-none absolute inset-0 z-[3] flex items-center justify-center">
+          <span className="flex h-16 w-16 items-center justify-center rounded-full bg-black/45 backdrop-blur-sm">
+            <Play className="h-8 w-8 translate-x-0.5 fill-white text-white" strokeWidth={0} aria-hidden />
+          </span>
+        </div>
+      ) : null}
+
+      {showMuteControl ? (
+        <button
+          type="button"
+          onClick={handleToggleMute}
+          // Centered under the top-right three-dot menu with a clear gap. This
+          // media layer is pulled up by `margin-top: -env(safe-area-inset-top)`
+          // (see `[data-spot-viewer-media]` in globals.css), so we add that
+          // inset back before matching the menu's own top offset + height.
+          className="absolute right-4 z-[4] flex h-9 w-9 items-center justify-center rounded-full bg-black/45 text-white ring-1 ring-white/15 backdrop-blur-md transition active:scale-95"
+          style={{
+            top: "calc(env(safe-area-inset-top, 0px) + max(0.75rem, env(safe-area-inset-top, 0px)) + 3.5rem)",
+          }}
+          aria-label={effectiveMuted ? "Unmute" : "Mute"}
+          aria-pressed={effectiveMuted}
+        >
+          {effectiveMuted ? (
+            <VolumeX className="h-4 w-4" aria-hidden />
+          ) : (
+            <Volume2 className="h-4 w-4" aria-hidden />
+          )}
+        </button>
       ) : null}
 
       {phase === "error" ? (

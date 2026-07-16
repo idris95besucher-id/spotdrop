@@ -6,7 +6,33 @@ const MAX_CONCURRENT_GRID_PREVIEWS = 2;
 
 const gridPreviewVideos = new Set<HTMLVideoElement>();
 const activeGridPreviewVideos: HTMLVideoElement[] = [];
+const fullscreenCloseListeners = new Set<() => void>();
+const slotAvailableListeners = new Set<() => void>();
 let fullscreenViewerOpenCount = 0;
+
+function notifyGridPreviewSlotAvailable() {
+  for (const listener of slotAvailableListeners) {
+    listener();
+  }
+}
+
+/** Fires when a concurrent-play slot opens (tile left view or viewer closed). */
+export function subscribeGridPreviewSlotAvailable(listener: () => void) {
+  slotAvailableListeners.add(listener);
+
+  return () => {
+    slotAvailableListeners.delete(listener);
+  };
+}
+
+/** Search grid previews resume when the fullscreen Spot viewer closes. */
+export function subscribeGridPreviewFullscreenClosed(listener: () => void) {
+  fullscreenCloseListeners.add(listener);
+
+  return () => {
+    fullscreenCloseListeners.delete(listener);
+  };
+}
 
 function removeActiveGridPreview(video: HTMLVideoElement) {
   const index = activeGridPreviewVideos.indexOf(video);
@@ -53,6 +79,8 @@ export function tryPlayGridVideoPreview(video: HTMLVideoElement) {
       } catch {
         /* ignore */
       }
+
+      notifyGridPreviewSlotAvailable();
     }
 
     activeGridPreviewVideos.push(video);
@@ -64,6 +92,7 @@ export function tryPlayGridVideoPreview(video: HTMLVideoElement) {
 export function releaseGridVideoPreview(video: HTMLVideoElement) {
   video.pause();
   removeActiveGridPreview(video);
+  notifyGridPreviewSlotAvailable();
 }
 
 export function pauseAllGridVideoPreviews() {
@@ -93,4 +122,12 @@ export function notifySpotFullscreenViewerOpened() {
 
 export function notifySpotFullscreenViewerClosed() {
   fullscreenViewerOpenCount = Math.max(0, fullscreenViewerOpenCount - 1);
+
+  if (fullscreenViewerOpenCount === 0) {
+    for (const listener of fullscreenCloseListeners) {
+      listener();
+    }
+
+    notifyGridPreviewSlotAvailable();
+  }
 }

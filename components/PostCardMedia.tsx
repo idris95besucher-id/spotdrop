@@ -11,6 +11,8 @@ type PostCardMediaProps = {
   postId?: string;
   /** Enable photo→video page-flip preview for multi-media grid tiles. */
   gridPreview?: boolean;
+  /** Search Explore only — muted autoplay for video grid tiles. */
+  gridVideoAutoplay?: boolean;
   className?: string;
   imageClassName?: string;
   /** Shown when media fails to load or is missing — keeps grid tiles stable. */
@@ -37,6 +39,7 @@ export default function PostCardMedia({
   post,
   postId,
   gridPreview = false,
+  gridVideoAutoplay = false,
   className = "",
   imageClassName = "h-full w-full object-cover",
   fallbackLabel = null,
@@ -66,6 +69,7 @@ export default function PostCardMedia({
           poster={poster}
           className={className}
           imageClassName={imageClassName}
+          autoplay={gridVideoAutoplay}
         />
       );
     }

@@ -224,6 +224,7 @@ export default function SearchExploreGrid({ onPostsChange }: SearchExploreGridPr
               post={post}
               postId={post.id}
               gridPreview
+              gridVideoAutoplay
               className="aspect-square h-full w-full"
               imageClassName="aspect-square h-full w-full object-cover"
               fallbackLabel={fallbackLabel}

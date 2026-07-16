@@ -1,6 +1,6 @@
 "use client";
 
-import { Lock, LockOpen, Users } from "lucide-react";
+import { Lock, LockOpen, UserCheck, Users, UserSquare2 } from "lucide-react";
 import type { ProfileGalleryVisibility } from "@/lib/profileGalleryVisibility";
 import { useI18n } from "@/components/I18nProvider";
 
@@ -18,11 +18,20 @@ export default function ProfileGalleryVisibilityBadge({
   const label =
     visibility === "everyone"
       ? t("profile.galleryVisibility.everyone")
-      : visibility === "friends"
-        ? t("profile.galleryVisibility.friends")
-        : t("profile.galleryVisibility.onlyMe");
+      : visibility === "followers"
+        ? t("profile.galleryVisibility.followers")
+        : visibility === "friends"
+          ? t("profile.galleryVisibility.friends")
+          : t("profile.galleryVisibility.selected");
 
-  const Icon = visibility === "everyone" ? LockOpen : visibility === "friends" ? Users : Lock;
+  const Icon =
+    visibility === "everyone"
+      ? LockOpen
+      : visibility === "followers"
+        ? UserCheck
+        : visibility === "friends"
+          ? Users
+          : UserSquare2;
 
   return (
     <span

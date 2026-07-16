@@ -39,6 +39,14 @@ export type DirectMessageRow = {
   created_at: string;
   delivered_at: string | null;
   read_at: string | null;
+  audio_url: string | null;
+  audio_duration_seconds: number | null;
+  audio_waveform: number[] | null;
+  image_url: string | null;
+  live_location_lat: number | null;
+  live_location_lng: number | null;
+  live_location_updated_at: string | null;
+  live_location_expires_at: string | null;
 };
 
 type DirectMessageRowInput = {
@@ -52,10 +60,19 @@ type DirectMessageRowInput = {
   created_at: string;
   delivered_at?: string | null;
   read_at?: string | null;
+  audio_url?: string | null;
+  audio_duration_seconds?: number | null;
+  audio_waveform?: number[] | null;
+  image_url?: string | null;
+  live_location_lat?: number | null;
+  live_location_lng?: number | null;
+  live_location_updated_at?: string | null;
+  live_location_expires_at?: string | null;
 };
 
-const DIRECT_MESSAGE_SELECT =
-  "id, sender_id, recipient_id, body, message_type, spot_share_id, post_id, created_at, delivered_at, read_at";
+/** Exported so every DM sender (voice/photo/location/text) selects the exact same column set — no drift. */
+export const DIRECT_MESSAGE_SELECT =
+  "id, sender_id, recipient_id, body, message_type, spot_share_id, post_id, created_at, delivered_at, read_at, audio_url, audio_duration_seconds, audio_waveform, image_url, live_location_lat, live_location_lng, live_location_updated_at, live_location_expires_at";
 
 /** Normalize DB rows (handles missing message_type when spot_share_id is set). */
 export function normalizeDirectMessageRow(row: DirectMessageRowInput): DirectMessageRow {
@@ -86,6 +103,14 @@ export function normalizeDirectMessageRow(row: DirectMessageRowInput): DirectMes
     created_at: String(row.created_at),
     delivered_at: row.delivered_at ? String(row.delivered_at) : null,
     read_at: row.read_at ? String(row.read_at) : null,
+    audio_url: row.audio_url ?? null,
+    audio_duration_seconds: row.audio_duration_seconds ?? null,
+    audio_waveform: row.audio_waveform ?? null,
+    image_url: row.image_url ?? null,
+    live_location_lat: row.live_location_lat ?? null,
+    live_location_lng: row.live_location_lng ?? null,
+    live_location_updated_at: row.live_location_updated_at ? String(row.live_location_updated_at) : null,
+    live_location_expires_at: row.live_location_expires_at ? String(row.live_location_expires_at) : null,
   };
 }
 

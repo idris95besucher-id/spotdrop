@@ -3,10 +3,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { useRouter } from "next/navigation";
-import { Loader2, Lock, Plus, Users, X } from "lucide-react";
+import { Loader2, Lock, Plus, X } from "lucide-react";
 import MobileSecondaryHeader from "@/components/MobileSecondaryHeader";
 import NavigationStackScreen from "@/components/NavigationStackScreen";
 import ProfileGalleryAddSheet from "@/components/profile/ProfileGalleryAddSheet";
+import ProfileGalleryPhotoEditorScreen from "@/components/profile/ProfileGalleryPhotoEditorScreen";
 import ProfileGalleryDeleteConfirmSheet from "@/components/profile/ProfileGalleryDeleteConfirmSheet";
 import ProfileGalleryDescriptionSheet from "@/components/profile/ProfileGalleryDescriptionSheet";
 import ProfileGalleryGrid from "@/components/ProfileGalleryGrid";
@@ -15,7 +16,7 @@ import ProfileGalleryViewer from "@/components/ProfileGalleryViewer";
 import Shell from "@/components/Shell";
 import { useI18n } from "@/components/I18nProvider";
 import { getSafeAuthSession } from "@/lib/authSession";
-import { localizeError } from "@/lib/i18n/localizeError";
+import { localizeCaughtError, localizeError } from "@/lib/i18n/localizeUserMessage";
 import { MOBILE_WIDTH_SAFE_CLASS } from "@/lib/mobileLayout";
 import { pickSpotGalleryPhoto } from "@/lib/pickMediaFromGallery";
 import { loadOwnProfileContent, type ProfileContentPost } from "@/lib/profileContent";
@@ -67,6 +68,7 @@ export default function ProfileGalleryScreen({
   const [descriptionItem, setDescriptionItem] = useState<ProfileContentPost | null>(null);
   const [deleteItem, setDeleteItem] = useState<ProfileContentPost | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [editorFile, setEditorFile] = useState<File | null>(null);
   const [savingDescription, setSavingDescription] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [viewerIndex, setViewerIndex] = useState<number | null>(null);
@@ -183,17 +185,12 @@ export default function ProfileGalleryScreen({
   const stats = useMemo(() => getProfileGalleryStats(personalPosts), [personalPosts]);
 
   const statsLabel = useMemo(() => {
-    const photoPart =
-      stats.photos === 1
-        ? t("profile.galleryStatPhotoOne")
-        : t("profile.galleryStatPhotoMany", { count: stats.photos });
-    const videoPart =
-      stats.videos === 1
-        ? t("profile.galleryStatVideoOne")
-        : t("profile.galleryStatVideoMany", { count: stats.videos });
+    if (stats.photos === 1) {
+      return t("profile.galleryStatPhotoOne");
+    }
 
-    return `${photoPart} · ${videoPart}`;
-  }, [stats.photos, stats.videos, t]);
+    return t("profile.galleryStatPhotoMany", { count: stats.photos });
+  }, [stats.photos, t]);
 
   const openItemMenu = useCallback(
     (index: number) => {
@@ -206,33 +203,51 @@ export default function ProfileGalleryScreen({
     [personalPosts]
   );
 
-  const uploadPhoto = async () => {
-    if (!isOwner || uploading) {
+  const startPhotoUpload = async () => {
+    if (!isOwner || uploading || editorFile) {
       return;
     }
 
     setAddSheetOpen(false);
     setError(null);
 
-    const file = await pickSpotGalleryPhoto();
+    try {
+      const file = await pickSpotGalleryPhoto();
 
-    if (!file) {
-      return;
+      if (!file) {
+        return;
+      }
+
+      setEditorFile(file);
+    } catch (caught) {
+      console.error("[Gallery upload] picker failed", caught);
+      setError(localizeCaughtError(t, caught, "profile.galleryUploadFailed"));
     }
+  };
 
+  const handleConfirmEditedPhoto = async (editedFile: File, caption: string) => {
     setUploading(true);
+    setError(null);
 
-    const result = await createProfileGalleryMedia(ownerUserId, file);
+    try {
+      const result = await createProfileGalleryMedia(ownerUserId, editedFile, { caption });
 
-    if (result.error || !result.post) {
-      setError(result.error ?? t("profile.galleryUploadFailed"));
+      if (result.error || !result.post) {
+        console.error("[Gallery upload] failed", { error: result.error });
+        setError(result.error ?? t("profile.galleryUploadFailed"));
+        setUploading(false);
+        return;
+      }
+
+      setPersonalPosts((current) => [result.post!, ...current]);
+      dispatchProfileContentRefresh();
+      setEditorFile(null);
       setUploading(false);
-      return;
+    } catch (caught) {
+      console.error("[Gallery upload] unexpected error", caught);
+      setError(localizeCaughtError(t, caught, "profile.galleryUploadFailed"));
+      setUploading(false);
     }
-
-    setPersonalPosts((current) => [result.post!, ...current]);
-    dispatchProfileContentRefresh();
-    setUploading(false);
   };
 
   const handleSetProfilePhoto = async (post: ProfileContentPost) => {
@@ -324,10 +339,9 @@ export default function ProfileGalleryScreen({
       ? t("profile.galleryTitleUser", { user: ownerProfile.username })
       : t("profile.galleryTitle");
 
-  const lockedMessage =
-    access === "friends_only" ? t("profile.galleryFriendsOnly") : t("profile.galleryPrivate");
+  const lockedMessage = t("profile.galleryPrivate");
 
-  const LockedIcon = access === "friends_only" ? Users : Lock;
+  const LockedIcon = Lock;
 
   const viewerActiveItem = viewerIndex != null ? personalPosts[viewerIndex] ?? null : null;
 
@@ -421,9 +435,9 @@ export default function ProfileGalleryScreen({
 
       <ProfileGalleryAddSheet
         isOpen={addSheetOpen}
-        uploading={uploading}
+        uploading={uploading || Boolean(editorFile)}
         onClose={() => setAddSheetOpen(false)}
-        onAddPhoto={() => void uploadPhoto()}
+        onAddPhoto={() => void startPhotoUpload()}
       />
 
       <ProfileGalleryItemActionSheet
@@ -461,11 +475,21 @@ export default function ProfileGalleryScreen({
         onConfirm={() => void handleConfirmDelete()}
       />
 
+      {editorFile ? (
+        <ProfileGalleryPhotoEditorScreen
+          file={editorFile}
+          uploading={uploading}
+          onCancel={() => setEditorFile(null)}
+          onConfirm={(editedFile, caption) => void handleConfirmEditedPhoto(editedFile, caption)}
+        />
+      ) : null}
+
       {canViewGallery && viewerIndex != null && viewerUserId && viewerActiveItem ? (
         <ProfileGalleryViewer
           items={personalPosts}
           activeIndex={viewerIndex}
           userId={viewerUserId}
+          ownerUsername={ownerProfile?.username ?? null}
           isOwner={isOwner}
           onClose={() => setViewerIndex(null)}
           onActiveIndexChange={setViewerIndex}

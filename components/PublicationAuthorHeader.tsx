@@ -11,7 +11,8 @@ type PublicationAuthorHeaderProps = {
   avatarUrl?: string | null;
   viewerUserId: string | null;
   onEdit?: () => void;
-  onDelete: () => Promise<{ ok: boolean; error: string | null }>;
+  /** Omit to keep this row avatar/username only — e.g. when the three-dot menu is rendered elsewhere. */
+  onDelete?: () => Promise<{ ok: boolean; error: string | null }>;
   onDeleted?: () => void;
   className?: string;
   menuTriggerClassName?: string;
@@ -32,7 +33,7 @@ export default function PublicationAuthorHeader({
   menuTriggerClassName = "",
 }: PublicationAuthorHeaderProps) {
   const { t } = useI18n();
-  const isOwner = Boolean(viewerUserId && authorUserId === viewerUserId);
+  const isOwner = Boolean(viewerUserId && authorUserId === viewerUserId && onDelete);
 
   return (
     <div className={`flex min-w-0 items-center gap-2 ${className}`}>
@@ -50,7 +51,7 @@ export default function PublicationAuthorHeader({
         <span className="truncate text-sm font-semibold text-white">{authorUsername}</span>
       </Link>
 
-      {isOwner ? (
+      {isOwner && onDelete ? (
         <div className="relative z-40 shrink-0" onClick={(event) => event.stopPropagation()}>
           <OwnContentMenu
             triggerClassName={menuTriggerClassName}

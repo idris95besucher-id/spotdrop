@@ -15,6 +15,11 @@ export type ChatInboxActionSheetTarget =
       kind: "room";
       title: string;
       isMuted: boolean;
+    }
+  | {
+      kind: "group";
+      title: string;
+      isOwner: boolean;
     };
 
 type ChatInboxActionSheetProps = {
@@ -49,9 +54,35 @@ export default function ChatInboxActionSheet({
     return null;
   }
 
-  const muteLabel = target.isMuted ? t("chats.unmuteNotifications") : t("chats.muteNotifications");
+  const muteLabel = target.kind !== "group" && target.isMuted ? t("chats.unmuteNotifications") : t("chats.muteNotifications");
   const removeLabel =
-    target.kind === "dm" ? t("chats.deleteChat") : t("chats.removeFromMessages");
+    target.kind === "dm"
+      ? t("chats.deleteChat")
+      : target.kind === "group"
+        ? target.isOwner
+          ? t("group.deleteGroup")
+          : t("group.leaveGroup")
+        : t("chats.removeFromMessages");
+
+  const needsConfirm = target.kind === "room" || target.kind === "group";
+  const confirmTitle =
+    target.kind === "group"
+      ? target.isOwner
+        ? t("group.deleteConfirmTitle")
+        : t("group.leaveConfirmTitle")
+      : t("chats.removeRoomConfirmTitle");
+  const confirmBody =
+    target.kind === "group"
+      ? target.isOwner
+        ? t("group.deleteConfirmBody")
+        : t("group.leaveConfirmBody")
+      : t("chats.removeRoomConfirmBody");
+  const confirmAction =
+    target.kind === "group"
+      ? target.isOwner
+        ? t("group.deleteConfirmAction")
+        : t("group.leaveConfirmAction")
+      : t("chats.removeRoomConfirmAction");
 
   const sheet = (
     <div className={bottomSheetLayout.overlay} role="presentation">
@@ -71,15 +102,13 @@ export default function ChatInboxActionSheet({
         style={{ WebkitUserSelect: "none", WebkitTouchCallout: "none" }}
         onClick={(event) => event.stopPropagation()}
       >
-        {confirmRemove && target.kind === "room" ? (
+        {confirmRemove && needsConfirm ? (
           <>
             <div className="border-b border-white/10 px-5 py-4">
               <h2 id="chat-inbox-actions-title" className="text-base font-semibold text-white">
-                {t("chats.removeRoomConfirmTitle")}
+                {confirmTitle}
               </h2>
-              <p className="mt-2 text-sm leading-relaxed text-slate-400">
-                {t("chats.removeRoomConfirmBody")}
-              </p>
+              <p className="mt-2 text-sm leading-relaxed text-slate-400">{confirmBody}</p>
             </div>
 
             <div className="space-y-1 p-2 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
@@ -92,7 +121,7 @@ export default function ChatInboxActionSheet({
                 }}
                 className="block w-full rounded-2xl px-4 py-3.5 text-left text-sm font-medium text-red-300 transition hover:bg-red-500/10 active:bg-red-500/15"
               >
-                {t("chats.removeRoomConfirmAction")}
+                {confirmAction}
               </button>
               <button
                 type="button"
@@ -112,20 +141,22 @@ export default function ChatInboxActionSheet({
             </div>
 
             <div className="space-y-1 p-2 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+              {target.kind !== "group" ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onToggleMute();
+                    onClose();
+                  }}
+                  className="block w-full rounded-2xl px-4 py-3.5 text-left text-sm font-medium text-white transition hover:bg-white/5 active:bg-white/10"
+                >
+                  {muteLabel}
+                </button>
+              ) : null}
               <button
                 type="button"
                 onClick={() => {
-                  onToggleMute();
-                  onClose();
-                }}
-                className="block w-full rounded-2xl px-4 py-3.5 text-left text-sm font-medium text-white transition hover:bg-white/5 active:bg-white/10"
-              >
-                {muteLabel}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  if (target.kind === "room") {
+                  if (needsConfirm) {
                     setConfirmRemove(true);
                     return;
                   }

@@ -161,18 +161,47 @@ export function buildIncomingRoomMessageToast(
   });
 }
 
+/** Sum of unread_count across every group the user belongs to (see get_user_group_inbox RPC). */
+export async function countUnreadGroupMessages(userId: string) {
+  const { data, error } = await supabase.rpc("get_user_group_inbox", { p_user_id: userId });
+
+  if (error) {
+    const message = error.message?.toLowerCase() ?? "";
+    const isMissingSchema =
+      error.code === "42P01" ||
+      error.code === "PGRST202" ||
+      error.code === "PGRST205" ||
+      message.includes("group_chat") ||
+      (message.includes("function") && message.includes("schema cache"));
+
+    if (isMissingSchema) {
+      return { count: 0, error: null as string | null };
+    }
+
+    return { count: 0, error: error.message };
+  }
+
+  const count = ((data ?? []) as { unread_count?: number }[]).reduce(
+    (sum, row) => sum + (row.unread_count ?? 0),
+    0
+  );
+
+  return { count, error: null as string | null };
+}
+
 export async function countUnreadInboxMessages(
   userId: string,
   excludes?: OptimisticReadExcludes
 ) {
-  const [directResult, roomResult] = await Promise.all([
+  const [directResult, roomResult, groupResult] = await Promise.all([
     countUnreadDirectMessages(userId, excludes),
     countUnreadRoomMessages(userId, excludes),
+    countUnreadGroupMessages(userId),
   ]);
 
   return {
-    count: directResult.count + roomResult.count,
-    error: directResult.error ?? roomResult.error,
+    count: directResult.count + roomResult.count + groupResult.count,
+    error: directResult.error ?? roomResult.error ?? groupResult.error,
   };
 }
 

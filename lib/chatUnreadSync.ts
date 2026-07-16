@@ -165,12 +165,15 @@ export function patchInboxItemsOptimistically(
   });
 }
 
+function inboxItemLastAt(item: InboxItem) {
+  if (item.kind === "dm") return item.chat.lastAt;
+  if (item.kind === "group") return item.group.lastAt;
+  return item.room.lastAt;
+}
+
 function sortInboxItemsByLastAt(items: InboxItem[]): InboxItem[] {
   return [...items].sort((left, right) => {
-    const leftAt = left.kind === "dm" ? left.chat.lastAt : left.room.lastAt;
-    const rightAt = right.kind === "dm" ? right.chat.lastAt : right.room.lastAt;
-
-    return new Date(rightAt).getTime() - new Date(leftAt).getTime();
+    return new Date(inboxItemLastAt(right)).getTime() - new Date(inboxItemLastAt(left)).getTime();
   });
 }
 

@@ -52,8 +52,14 @@ export default function CityRoomMapMarkCard({
   const category = normalizeMapMarkCategory(mark.category);
   const CategoryIcon = mapMarkCategoryIcon(category);
   const accent = mapMarkCategoryAccent(category);
-  const displayName = profile ? publicProfileUsername(profile.username) : t("common.user");
-  const profileHref = `/user?id=${encodeURIComponent(userId)}`;
+  // Prefer the Mark's denormalized creator (correct even when someone else forwarded this
+  // card into the room) — fall back to the message sender's profile for older messages
+  // encoded before creatorUsername/creatorAvatarUrl/creatorUserId existed.
+  const creatorUserId = mark.creatorUserId ?? userId;
+  const creatorUsername = mark.creatorUsername ?? (profile ? publicProfileUsername(profile.username) : null);
+  const creatorAvatarUrl = mark.creatorAvatarUrl ?? profile?.avatar_url ?? null;
+  const displayName = creatorUsername ?? t("common.user");
+  const profileHref = `/user?id=${encodeURIComponent(creatorUserId)}`;
   const mapHref = buildMapMarkDeepLink(mark.mapMarkId);
 
   const placeLine = useMemo(() => {
@@ -95,8 +101,8 @@ export default function CityRoomMapMarkCard({
           href={profileHref}
           className="flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-full bg-slate-800/90 text-[10px] font-semibold text-white ring-1 ring-white/10"
         >
-          {profile?.avatar_url ? (
-            <img src={profile.avatar_url} alt="" className="h-full w-full object-cover" />
+          {creatorAvatarUrl ? (
+            <img src={creatorAvatarUrl} alt="" className="h-full w-full object-cover" />
           ) : (
             displayName.charAt(0).toUpperCase()
           )}

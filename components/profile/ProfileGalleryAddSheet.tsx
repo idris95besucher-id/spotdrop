@@ -53,9 +53,10 @@ export default function ProfileGalleryAddSheet({
           <h2 id="profile-gallery-add-title" className="text-base font-semibold text-white">
             {t("profile.galleryAdd")}
           </h2>
+          <p className="mt-1 text-xs text-slate-400">{t("profile.galleryPhotosOnlyHint")}</p>
         </div>
 
-        <div className="space-y-1 p-2 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+        <div className="p-2 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
           <button
             type="button"
             disabled={uploading}

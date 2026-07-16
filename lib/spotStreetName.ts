@@ -6,8 +6,21 @@
  * (e.g. "Bernstrasse") while the pin is on a minor path.
  */
 
-/** Nominatim zoom that includes buildings, streets, and minor paths. */
-export const NOMINATIM_STREET_ZOOM = 18;
+/**
+ * Nominatim zoom level for reverse geocoding. Per Nominatim's own zoom scale,
+ * 18 resolves to "building" level — when the exact coordinate has no tagged
+ * building, Nominatim snaps to the nearest indexed POI/amenity instead (a
+ * bench, an information board, a bin), whose own `address.road` is the major
+ * road used to *address* that unrelated POI, not the path the pin is
+ * actually on. That address.road is exactly how "Bernstrasse" got shown for
+ * a Spot really on "Brauchbühlhölzli".
+ *
+ * 17 is "major and minor streets" — it resolves directly to the nearest
+ * street-level way (of any type: road, track, path, footway, ...), so a
+ * minor path is returned as itself instead of being bypassed by a nearby
+ * POI's postal address.
+ */
+export const NOMINATIM_STREET_ZOOM = 17;
 
 const STREET_ADDRESS_TYPES = new Set([
   "road",

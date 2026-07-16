@@ -6,7 +6,6 @@ import { useI18n } from "@/components/I18nProvider";
 import SpotCompactCaptionField from "@/components/SpotCompactCaptionField";
 import SpotMediaCarousel, { type SpotCarouselSlide } from "@/components/SpotMediaCarousel";
 import SpotUploadProgressOverlay from "@/components/SpotUploadProgressOverlay";
-import type { CollectionWithMeta } from "@/lib/collections";
 import { localizeUserMessage } from "@/lib/i18n/localizeUserMessage";
 import {
   composerPaddingBottom,
@@ -14,22 +13,22 @@ import {
 } from "@/lib/keyboardSystem";
 import type { MediaEditorItem } from "@/lib/mediaEditor";
 import { logSpotMediaSharePreviewItems } from "@/lib/spotMediaLog";
+import type { SpotPublishDestination } from "@/lib/spotPublish";
 import type { SpotUploadProgress } from "@/lib/spotUploadPipeline";
 
 type SpotPublishScreenProps = {
   mediaItems: MediaEditorItem[];
-  collections: CollectionWithMeta[];
-  collectionId: string;
-  collectionsLoading?: boolean;
+  destination: SpotPublishDestination;
   caption: string;
   locationLabel: string;
   publishing: boolean;
   uploadProgress?: SpotUploadProgress | null;
   uploadFailed?: boolean;
+  retryLabel?: string | null;
   offlineMode?: boolean;
   error: string | null;
   onCaptionChange: (value: string) => void;
-  onCollectionChange: (collectionId: string) => void;
+  onDestinationChange: (destination: SpotPublishDestination) => void;
   onBack: () => void;
   onPublish: () => void;
 };
@@ -63,18 +62,17 @@ function toCarouselSlides(items: MediaEditorItem[]): SpotCarouselSlide[] {
 
 export default function SpotPublishScreen({
   mediaItems,
-  collections,
-  collectionId,
-  collectionsLoading = false,
+  destination,
   caption,
   locationLabel,
   publishing,
   uploadProgress = null,
   uploadFailed = false,
+  retryLabel = null,
   offlineMode = false,
   error,
   onCaptionChange,
-  onCollectionChange,
+  onDestinationChange,
   onBack,
   onPublish,
 }: SpotPublishScreenProps) {
@@ -123,10 +121,7 @@ export default function SpotPublishScreen({
     };
   }, [destinationOpen]);
 
-  const mySpotsCollection =
-    collections.find((c) => c.visibility === "private") ?? collections[0] ?? null;
-
-  const isPublicDestination = collectionId === "";
+  const isPublicDestination = destination === "public";
   const destinationLabel = isPublicDestination
     ? t("spotEditor.publicSpot")
     : t("spotEditor.mySpots");
@@ -143,6 +138,7 @@ export default function SpotPublishScreen({
         visible={publishing}
         progress={uploadProgress}
         showDetailed
+        retryLabel={retryLabel}
       />
 
       <header
@@ -232,7 +228,7 @@ export default function SpotPublishScreen({
                   role="option"
                   aria-selected={isPublicDestination}
                   onClick={() => {
-                    onCollectionChange("");
+                    onDestinationChange("public");
                     setDestinationOpen(false);
                   }}
                   className="flex w-full items-center justify-between px-4 py-3 text-left text-sm transition hover:bg-white/6"
@@ -247,16 +243,11 @@ export default function SpotPublishScreen({
                   type="button"
                   role="option"
                   aria-selected={!isPublicDestination}
-                  disabled={collectionsLoading || !mySpotsCollection}
                   onClick={() => {
-                    if (!mySpotsCollection) {
-                      return;
-                    }
-
-                    onCollectionChange(mySpotsCollection.id);
+                    onDestinationChange("my-spots");
                     setDestinationOpen(false);
                   }}
-                  className="flex w-full items-center justify-between px-4 py-3 text-left text-sm transition hover:bg-white/6 disabled:opacity-50"
+                  className="flex w-full items-center justify-between px-4 py-3 text-left text-sm transition hover:bg-white/6"
                 >
                   <span className="font-medium text-white">{t("spotEditor.mySpots")}</span>
                   {!isPublicDestination ? (

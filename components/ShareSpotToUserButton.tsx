@@ -19,6 +19,11 @@ type ShareSpotToUserButtonProps = {
   onSent?: () => void;
   /** Navigate to DM after a successful share (profile page). */
   redirectToDmOnSuccess?: boolean;
+  /** Hides the built-in trigger button — use when opening the confirm dialog from an external control (e.g. the "+" attachment menu). */
+  hideTrigger?: boolean;
+  /** Controlled confirm-dialog visibility, for use with hideTrigger. */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 };
 
 export default function ShareSpotToUserButton({
@@ -29,12 +34,21 @@ export default function ShareSpotToUserButton({
   className = "",
   onSent,
   redirectToDmOnSuccess = false,
+  hideTrigger = false,
+  open,
+  onOpenChange,
 }: ShareSpotToUserButtonProps) {
   const router = useRouter();
   const { t } = useI18n();
-  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [internalConfirmOpen, setInternalConfirmOpen] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const confirmOpen = open ?? internalConfirmOpen;
+  const setConfirmOpen = (value: boolean) => {
+    setInternalConfirmOpen(value);
+    onOpenChange?.(value);
+  };
 
   const handleSend = async () => {
     setSending(true);
@@ -71,21 +85,23 @@ export default function ShareSpotToUserButton({
 
   return (
     <>
-      <button
-        type="button"
-        disabled={disabled || sending}
-        onClick={() => {
-          setError(null);
-          setConfirmOpen(true);
-        }}
-        className={
-          className ||
-          "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-white/15 bg-white/5 text-primary transition hover:border-primary/35 hover:bg-primary/10 disabled:cursor-not-allowed disabled:opacity-50"
-        }
-        aria-label={t("checkspot.sendAria", { username: recipientUsername })}
-      >
-        <MapPin className="h-5 w-5" strokeWidth={1.75} aria-hidden />
-      </button>
+      {hideTrigger ? null : (
+        <button
+          type="button"
+          disabled={disabled || sending}
+          onClick={() => {
+            setError(null);
+            setConfirmOpen(true);
+          }}
+          className={
+            className ||
+            "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-white/15 bg-white/5 text-primary transition hover:border-primary/35 hover:bg-primary/10 disabled:cursor-not-allowed disabled:opacity-50"
+          }
+          aria-label={t("checkspot.sendAria", { username: recipientUsername })}
+        >
+          <MapPin className="h-5 w-5" strokeWidth={1.75} aria-hidden />
+        </button>
+      )}
 
       {confirmOpen ? (
         <div

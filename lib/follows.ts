@@ -232,3 +232,27 @@ export async function unfollowUser(followerId: string, followingId: string) {
 
   return null;
 }
+
+/** Remove a user from the current user's followers without unfollowing them. */
+export async function removeFollower(followedUserId: string, followerUserId: string) {
+  if (!followedUserId || !followerUserId) {
+    return "Unable to remove this follower.";
+  }
+
+  if (followedUserId === followerUserId) {
+    return "Unable to remove this follower.";
+  }
+
+  const { error } = await supabase
+    .from("follows")
+    .delete()
+    .eq("follower_id", followerUserId)
+    .eq("following_id", followedUserId);
+
+  if (error) {
+    console.error("Failed to remove follower:", error);
+    return error.message || "Unable to remove this follower.";
+  }
+
+  return null;
+}

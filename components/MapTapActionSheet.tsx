@@ -1,12 +1,12 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Flag, MapPinned, Navigation, X } from "lucide-react";
+import { Flag, MapPinned, Navigation, Share2, X } from "lucide-react";
 import { useI18n } from "@/components/I18nProvider";
 import { formatSpotGeoLocationShortLabel } from "@/lib/spotLocationDisplay";
 import type { SpotGeoLocation } from "@/lib/spotLocation";
 
-export type MapTapAction = "directions" | "mark" | "cancel";
+export type MapTapAction = "directions" | "mark" | "share" | "cancel";
 
 type MapTapActionSheetProps = {
   location: SpotGeoLocation;
@@ -66,7 +66,7 @@ export default function MapTapActionSheet({
   const disabled = resolving || busyAction != null;
 
   const run = (action: MapTapAction) => {
-    if (disabled && action !== "cancel") {
+    if (disabled && action !== "cancel" && action !== "share") {
       return;
     }
 
@@ -79,6 +79,7 @@ export default function MapTapActionSheet({
     label: string;
     icon: typeof Navigation;
   }> = [
+    { action: "share", label: t("map.sharePlace.action"), icon: Share2 },
     { action: "directions", label: t("map.actionGoToPlace"), icon: Navigation },
     { action: "mark", label: t("map.actionMarkPlace"), icon: Flag },
   ];
@@ -127,12 +128,13 @@ export default function MapTapActionSheet({
         <div className="flex flex-col px-2 py-2">
           {options.map(({ action, label, icon: Icon }) => {
             const busy = busyAction === action || pressed === action;
+            const actionDisabled = disabled && action !== "share";
 
             return (
               <button
                 key={action}
                 type="button"
-                disabled={disabled}
+                disabled={actionDisabled}
                 onClick={() => run(action)}
                 className="flex w-full items-center gap-3 rounded-2xl px-3.5 py-3.5 text-left transition hover:bg-white/5 active:bg-white/8 disabled:cursor-not-allowed disabled:opacity-55"
               >

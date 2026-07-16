@@ -50,9 +50,28 @@ export type MapMark = {
   hub_city_slug: string | null;
   created_at: string;
   updated_at: string;
+  /** Marks auto-expire (and are hidden by RLS) 24h after created_at. */
+  expires_at: string | null;
   username: string;
   avatar_url: string | null;
 };
+
+/** True once a mark has passed its 24h expiry — used as a client-side belt-and-suspenders check on top of the RLS policy that already hides expired rows. */
+export function isMapMarkExpired(mark: Pick<MapMark, "expires_at" | "created_at">): boolean {
+  const expiresAt = mark.expires_at ? Date.parse(mark.expires_at) : NaN;
+
+  if (Number.isFinite(expiresAt)) {
+    return expiresAt <= Date.now();
+  }
+
+  // Older rows fetched before the `expires_at` column existed — fall back to created_at + 24h.
+  const createdAt = Date.parse(mark.created_at);
+  if (!Number.isFinite(createdAt)) {
+    return false;
+  }
+
+  return createdAt + 24 * 60 * 60 * 1000 <= Date.now();
+}
 
 export type MapMarkInput = {
   userId: string;
@@ -86,6 +105,7 @@ const MAP_MARK_SELECT = `
   hub_city_slug,
   created_at,
   updated_at,
+  expires_at,
   ${MAP_MARK_AUTHOR_PROFILES}(username, avatar_url, is_private, is_demo)
 `;
 
@@ -232,15 +252,19 @@ function mapRowToMark(row: Record<string, unknown>): MapMark | null {
     hub_city_slug: (row.hub_city_slug as string | null) ?? null,
     created_at: String(row.created_at ?? ""),
     updated_at: String(row.updated_at ?? ""),
+    expires_at: (row.expires_at as string | null) ?? null,
     username: publicProfileUsername(profile?.username),
     avatar_url: profile?.avatar_url ?? null,
   };
 }
 
 export async function loadMapMarks(limit = 400) {
+  const nowIso = new Date().toISOString();
+
   const primary = await supabase
     .from("map_marks")
     .select(MAP_MARK_SELECT)
+    .gt("expires_at", nowIso)
     .order("created_at", { ascending: false })
     .limit(limit);
 
@@ -272,7 +296,7 @@ export async function loadMapMarks(limit = 400) {
   for (const row of (data as unknown[]) ?? []) {
     const mark = mapRowToMark(row as Record<string, unknown>);
 
-    if (mark) {
+    if (mark && !isMapMarkExpired(mark)) {
       marks.push(mark);
     }
   }
@@ -312,7 +336,13 @@ export async function loadMapMarkById(markId: string) {
     return { mark: null as MapMark | null, error: null };
   }
 
-  return { mark: mapRowToMark(data as Record<string, unknown>), error: null };
+  const mark = mapRowToMark(data as Record<string, unknown>);
+
+  if (mark && isMapMarkExpired(mark)) {
+    return { mark: null as MapMark | null, error: null };
+  }
+
+  return { mark, error: null };
 }
 
 function resolveRegionFields(location: SpotGeoLocation): RegionRoomResolution {
@@ -448,6 +478,9 @@ async function insertMapMarkRoomMessage(input: {
     placeName: input.mark.place_name,
     latitude: input.mark.latitude,
     longitude: input.mark.longitude,
+    creatorUserId: input.mark.user_id,
+    creatorUsername: input.mark.username,
+    creatorAvatarUrl: input.mark.avatar_url,
   });
 
   const withRelation = await supabase

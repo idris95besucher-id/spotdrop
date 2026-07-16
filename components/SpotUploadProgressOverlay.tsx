@@ -8,12 +8,15 @@ type SpotUploadProgressOverlayProps = {
   visible: boolean;
   progress: SpotUploadProgress | null;
   showDetailed?: boolean;
+  /** e.g. "Retrying… (2 of 4)" — shown while an automatic transient-failure retry is in flight. */
+  retryLabel?: string | null;
 };
 
 export default function SpotUploadProgressOverlay({
   visible,
   progress,
   showDetailed = false,
+  retryLabel = null,
 }: SpotUploadProgressOverlayProps) {
   if (!visible) {
     return null;
@@ -30,6 +33,7 @@ export default function SpotUploadProgressOverlay({
       <Loader2 className="h-10 w-10 animate-spin text-white" aria-hidden />
       <div className="w-full max-w-xs space-y-3 text-center">
         <p className="text-sm font-semibold text-white">{label}</p>
+        {retryLabel ? <p className="text-xs text-amber-300">{retryLabel}</p> : null}
         {showBar ? (
           <div className="h-1.5 overflow-hidden rounded-full bg-white/15">
             <div
