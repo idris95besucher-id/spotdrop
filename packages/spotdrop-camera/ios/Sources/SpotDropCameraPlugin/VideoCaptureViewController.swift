@@ -66,8 +66,10 @@ final class CameraCaptureViewController: UIViewController {
     /// Matches the existing app's `CAMERA_MAX_VIDEO_SECONDS` (lib/cameraCapture.ts)
     /// so Spot content length stays consistent regardless of which capture engine
     /// produced it.
-    private static let maxRecordedDurationSeconds: Double = 30
-    private static let targetBitrate = 16_000_000
+    private static let maxRecordedDurationSeconds: Double = 15
+    /// Stays at 1080p (session preset below is unchanged) — bitrate tuned so a max-length
+    /// (15s) clip lands well under 30 MB and uploads quickly without softening resolution.
+    private static let targetBitrate = 6_000_000
 
     private var captureMode: CameraCaptureMode = .photo
     private var currentDevice: AVCaptureDevice?

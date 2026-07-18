@@ -3,7 +3,7 @@
 import { useCallback, useRef, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { navigateBack } from "@/lib/navigateBack";
-import { useIosEdgeSwipeBack } from "@/lib/useIosEdgeSwipeBack";
+import { useInteractiveSwipeBack } from "@/lib/useInteractiveSwipeBack";
 
 type NavigationStackScreenProps = {
   children: ReactNode;
@@ -27,7 +27,7 @@ export default function NavigationStackScreen({
     navigateBack(router, fallbackHref);
   }, [fallbackHref, router]);
 
-  const { panelStyle } = useIosEdgeSwipeBack({
+  const { panelStyle } = useInteractiveSwipeBack({
     enabled,
     onBack: handleBack,
     targetRef: rootRef,

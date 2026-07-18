@@ -5,6 +5,7 @@ import AppProviders from "@/components/AppProviders";
 import { THEME_BOOTSTRAP_SCRIPT } from "@/lib/themeAccent";
 import { PASSWORD_RECOVERY_BOOTSTRAP_SCRIPT } from "@/lib/passwordRecoveryBootstrap";
 import { CAPACITOR_LAUNCH_BOOTSTRAP_SCRIPT } from "@/lib/capacitorLaunchBootstrap";
+import { SEGMENT_PREFETCH_GUARD_SCRIPT } from "@/lib/segmentPrefetchGuard";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -64,6 +65,17 @@ export default function RootLayout({
       suppressHydrationWarning
       className={`${geistSans.variable} ${geistMono.variable} h-full w-full max-w-full overflow-hidden antialiased bg-[#050816] text-white`}
     >
+      <head>
+        {/*
+          Must be a true synchronous inline <head> script — next/script beforeInteractive
+          is deferred via self.__next_s and runs too late (after segment prefetch starts).
+          Only patches fetch inside Capacitor (capacitor:/ionic: protocol or Cap bridge).
+        */}
+        <script
+          id="spotdrop-segment-prefetch-guard"
+          dangerouslySetInnerHTML={{ __html: SEGMENT_PREFETCH_GUARD_SCRIPT }}
+        />
+      </head>
       <body className="h-full w-full max-w-full overflow-hidden bg-[#050816] text-white">
         <Script id="spotdrop-capacitor-platform" strategy="beforeInteractive">{`
           (function(){

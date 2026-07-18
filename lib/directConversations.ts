@@ -47,6 +47,8 @@ export type DirectMessageRow = {
   live_location_lng: number | null;
   live_location_updated_at: string | null;
   live_location_expires_at: string | null;
+  edited_at: string | null;
+  deleted_at: string | null;
 };
 
 type DirectMessageRowInput = {
@@ -68,11 +70,13 @@ type DirectMessageRowInput = {
   live_location_lng?: number | null;
   live_location_updated_at?: string | null;
   live_location_expires_at?: string | null;
+  edited_at?: string | null;
+  deleted_at?: string | null;
 };
 
 /** Exported so every DM sender (voice/photo/location/text) selects the exact same column set — no drift. */
 export const DIRECT_MESSAGE_SELECT =
-  "id, sender_id, recipient_id, body, message_type, spot_share_id, post_id, created_at, delivered_at, read_at, audio_url, audio_duration_seconds, audio_waveform, image_url, live_location_lat, live_location_lng, live_location_updated_at, live_location_expires_at";
+  "id, sender_id, recipient_id, body, message_type, spot_share_id, post_id, created_at, delivered_at, read_at, audio_url, audio_duration_seconds, audio_waveform, image_url, live_location_lat, live_location_lng, live_location_updated_at, live_location_expires_at, edited_at, deleted_at";
 
 /** Normalize DB rows (handles missing message_type when spot_share_id is set). */
 export function normalizeDirectMessageRow(row: DirectMessageRowInput): DirectMessageRow {
@@ -111,6 +115,8 @@ export function normalizeDirectMessageRow(row: DirectMessageRowInput): DirectMes
     live_location_lng: row.live_location_lng ?? null,
     live_location_updated_at: row.live_location_updated_at ? String(row.live_location_updated_at) : null,
     live_location_expires_at: row.live_location_expires_at ? String(row.live_location_expires_at) : null,
+    edited_at: row.edited_at ? String(row.edited_at) : null,
+    deleted_at: row.deleted_at ? String(row.deleted_at) : null,
   };
 }
 

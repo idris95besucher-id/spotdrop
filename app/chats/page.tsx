@@ -274,24 +274,35 @@ function ChatsPageContent() {
 
       const mountAt = perfMark("chats-inbox");
       const cached = getCachedChatsInbox(userId);
+      const wasSilent = silentReloadRef.current;
 
-      if (cached && !silentReloadRef.current) {
+      if (cached && !wasSilent) {
         setItems(cached.items);
         setRequests(cached.requests);
         setLoadingChats(false);
         perfSince(mountAt, "first data received", { source: "cache" });
       } else {
-        setLoadingChats(!silentReloadRef.current);
+        setLoadingChats(!wasSilent);
       }
 
-      setError(null);
+      if (!wasSilent) {
+        setError(null);
+      }
 
       const result = await loadChatsInbox(userId);
 
       if (result.error) {
-        setError(result.error);
-        setItems([]);
-        setRequests([]);
+        // A background/silent reload failing (transient network hiccup, presence heartbeat,
+        // realtime patch fallback, etc.) must never wipe out an already-rendered list — that
+        // would unmount the scroll container and reset scrollTop, on top of losing the data.
+        // Only a genuine foreground load with nothing on screen yet shows the error state.
+        if (!wasSilent) {
+          setError(result.error);
+          setItems([]);
+          setRequests([]);
+        } else {
+          console.error("Silent chats inbox reload failed, keeping existing list:", result.error);
+        }
       } else {
         setItems(result.items);
         setRequests(result.requests);
@@ -533,7 +544,13 @@ function ChatsPageContent() {
               {t("auth.signIn")}
             </Link>
           </div>
-        ) : loadingChats ? (
+        ) : loadingChats && !hasInboxItems ? (
+          // Only the very first load (no items yet) shows the spinner in place of the list.
+          // Once the list has rendered once, every later reload (background refresh, presence
+          // heartbeat, realtime patch, action-sheet mute/remove) must keep rendering the same
+          // <ul> with its existing data — swapping it out for this placeholder would unmount the
+          // scroll container and reset scrollTop to 0, which is exactly the "jumps back to the
+          // top" bug this guards against.
           <div className="px-4 py-12 text-center text-sm text-muted">{t("common.loading")}</div>
         ) : error ? (
           <div className="mx-4 my-6 rounded-2xl border border-red-500/20 bg-red-500/5 p-4 text-sm text-red-200">
@@ -562,7 +579,10 @@ function ChatsPageContent() {
         ) : isSearching && filteredItems.length === 0 ? (
           <div className="px-4 py-16 text-center text-sm text-muted">{t("chats.noResultsFound")}</div>
         ) : (
-          <ul className="min-h-0 flex-1 divide-y divide-white/[0.06] overflow-y-auto px-2 py-1 select-none sm:px-3">
+          <ul
+            className="min-h-0 flex-1 divide-y divide-white/[0.06] overflow-y-auto overscroll-y-contain touch-pan-y px-2 pt-1 pb-[calc(54px+var(--sd-safe-bottom,0px)+22px)] [-webkit-overflow-scrolling:touch] select-none sm:px-3"
+            data-swipe-back-disabled
+          >
             {filteredItems.map((item) =>
               item.kind === "room" ? (
                 <RoomInboxListItem

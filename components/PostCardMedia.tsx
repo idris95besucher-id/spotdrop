@@ -5,6 +5,7 @@ import type { PostMediaFields } from "@/lib/posts";
 import { getPostMedia, getPostThumbnailUrl } from "@/lib/posts";
 import GridVideoPreview from "@/components/GridVideoPreview";
 import GridMultiMediaFlipPreview from "@/components/GridMultiMediaFlipPreview";
+import ZoomableImage from "@/components/ZoomableImage";
 
 type PostCardMediaProps = {
   post: PostMediaFields;
@@ -17,6 +18,8 @@ type PostCardMediaProps = {
   imageClassName?: string;
   /** Shown when media fails to load or is missing — keeps grid tiles stable. */
   fallbackLabel?: string | null;
+  /** Full-screen feed viewers only — enables pinch-to-zoom on plain (non-grid) photos. */
+  zoomable?: boolean;
 };
 
 function GridMediaFallback({
@@ -43,6 +46,7 @@ export default function PostCardMedia({
   className = "",
   imageClassName = "h-full w-full object-cover",
   fallbackLabel = null,
+  zoomable = false,
 }: PostCardMediaProps) {
   const { mediaUrl, mediaType } = getPostMedia(post);
   const thumbnailUrl = getPostThumbnailUrl(post);
@@ -104,6 +108,21 @@ export default function PostCardMedia({
         fallbackPhotoUrl={imageSrc}
         className={className}
         imageClassName={imageClassName}
+      />
+    );
+  }
+
+  if (zoomable) {
+    return (
+      <ZoomableImage
+        src={imageSrc}
+        alt=""
+        draggable={false}
+        loading="lazy"
+        decoding="async"
+        objectFit="cover"
+        imageClassName={`touch-manipulation ${imageClassName.replace(/object-(cover|contain)/g, "")} ${className}`}
+        onError={() => setMediaFailed(true)}
       />
     );
   }

@@ -7,6 +7,7 @@ export type GroupAppendSource = "realtime" | "fallback";
 
 export type GroupChatSyncHandlers = {
   onAppendMessage: (message: GroupChatMessageRow, source: GroupAppendSource) => void;
+  onUpdateMessage: (message: GroupChatMessageRow) => void;
   getLatestCreatedAt: () => string | null;
   hasMessageId: (messageId: string) => boolean;
   rememberMessageId: (messageId: string) => void;
@@ -84,6 +85,13 @@ export function startGroupThreadLiveSync(
       { event: "INSERT", schema: "public", table: "group_chat_messages", filter: `group_id=eq.${groupId}` },
       (payload) => {
         handleInsert(payload.new as GroupChatMessageRow, "realtime");
+      }
+    )
+    .on(
+      "postgres_changes",
+      { event: "UPDATE", schema: "public", table: "group_chat_messages", filter: `group_id=eq.${groupId}` },
+      (payload) => {
+        handlers.onUpdateMessage(payload.new as GroupChatMessageRow);
       }
     )
     .subscribe((status) => {

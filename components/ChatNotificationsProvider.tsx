@@ -50,6 +50,7 @@ import {
 } from "@/lib/messageNotificationSound";
 import { buildRoomHref, fetchRoomMembershipForCity } from "@/lib/roomMemberships";
 import { loadUserSettingsPreferences } from "@/lib/settingsPreferences";
+import { isCapacitorNative } from "@/lib/capacitorUtils";
 import { supabase } from "@/lib/supabaseClient";
 
 type ChatToast = {
@@ -109,6 +110,14 @@ export default function ChatNotificationsProvider({ children }: { children: Reac
   const [toast, setToast] = useState<ChatToast | null>(null);
   const [currentUsername, setCurrentUsername] = useState<string | null>(null);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Bumped whenever the app resumes from background/reconnects. Included in each global
+  // channel's subscribe effect deps below so a resume tears down and re-subscribes fresh
+  // channels — the same "channel might be dead after a socket drop, don't just log it" gap that
+  // OnlinePresenceBootstrap already closes for presence. Realtime's own auto-rejoin timer is a
+  // background setTimeout that iOS can starve while the WKWebView is suspended, so these three
+  // notification channels (DM/Room/Group) could otherwise stay CHANNEL_ERROR indefinitely after
+  // any backgrounding or network drop until the whole app was force-restarted.
+  const [resumeGeneration, setResumeGeneration] = useState(0);
 
   const userId = session?.user?.id ?? null;
 
@@ -237,6 +246,57 @@ export default function ChatNotificationsProvider({ children }: { children: Reac
       window.removeEventListener(CHATS_INBOX_REFRESH_EVENT, handleInboxRefresh);
     };
   }, [refreshUnreadCount]);
+
+  useEffect(() => {
+    const bumpResumeGeneration = (source: string) => {
+      console.log("[Chat global] resume — reconnecting global channels", { source });
+      setResumeGeneration((current) => current + 1);
+    };
+
+    const onVisibilityChange = () => {
+      if (!isCapacitorNative() && document.visibilityState === "visible") {
+        bumpResumeGeneration("visibility-visible");
+      }
+    };
+
+    const onWindowFocus = () => {
+      if (!isCapacitorNative()) {
+        bumpResumeGeneration("window-focus");
+      }
+    };
+
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    window.addEventListener("focus", onWindowFocus);
+
+    let removeAppListener: (() => void) | undefined;
+
+    void (async () => {
+      if (!isCapacitorNative()) {
+        return;
+      }
+
+      try {
+        const { App } = await import("@capacitor/app");
+        const handle = await App.addListener("appStateChange", ({ isActive }) => {
+          if (isActive) {
+            bumpResumeGeneration("appStateChange-active");
+          }
+        });
+
+        removeAppListener = () => {
+          void handle.remove();
+        };
+      } catch (error) {
+        console.error("[Chat global] Capacitor App listener setup failed", error);
+      }
+    })();
+
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener("focus", onWindowFocus);
+      removeAppListener?.();
+    };
+  }, []);
 
   useEffect(() => {
     if (!userId) {
@@ -371,7 +431,7 @@ export default function ChatNotificationsProvider({ children }: { children: Reac
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, [userId]);
+  }, [userId, resumeGeneration]);
 
   useEffect(() => {
     if (!userId) {
@@ -512,7 +572,7 @@ export default function ChatNotificationsProvider({ children }: { children: Reac
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, [userId]);
+  }, [userId, resumeGeneration]);
 
   useEffect(() => {
     if (!userId) {
@@ -606,7 +666,7 @@ export default function ChatNotificationsProvider({ children }: { children: Reac
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, [userId]);
+  }, [userId, resumeGeneration]);
 
   useEffect(() => {
     return () => {

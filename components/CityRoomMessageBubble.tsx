@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Pencil, Trash2, UserRound } from "lucide-react";
+import { useState } from "react";
+import { UserRound } from "lucide-react";
 import CityRoomPlaceCard from "@/components/CityRoomPlaceCard";
 import CityRoomMapMarkCard from "@/components/CityRoomMapMarkCard";
 import ChatLocationCardPreview, {
@@ -19,6 +20,10 @@ import {
 } from "@/lib/locationCardShareMessage";
 import { localizeUserMessage } from "@/lib/i18n/localizeUserMessage";
 import { publicProfileUsername } from "@/lib/publicProfile";
+import { canDeleteMessage, canEditMessage } from "@/lib/messageEditWindow";
+import { useLongPress } from "@/lib/useLongPress";
+import MessageActionSheet from "@/components/chat/MessageActionSheet";
+import DeletedMessageBubble from "@/components/chat/DeletedMessageBubble";
 import VoiceMessagePlayer from "@/components/voice/VoiceMessagePlayer";
 import ChatImageBubble from "@/components/chat/ChatImageBubble";
 import ChatLocationBubble from "@/components/chat/ChatLocationBubble";
@@ -34,6 +39,7 @@ export type CityRoomMessageBubbleMessage = {
   created_at: string;
   user_id: string;
   edited_at?: string | null;
+  deleted_at?: string | null;
   profile: CityRoomMessageProfile | null;
   audio_url?: string | null;
   audio_duration_seconds?: number | null;
@@ -53,19 +59,14 @@ type CityRoomMessageBubbleProps = {
   isFirstInGroup: boolean;
   isLastInGroup: boolean;
   isEditing?: boolean;
-  isConfirmingDelete?: boolean;
   editDraft?: string;
   editError?: string | null;
-  deleteError?: string | null;
   savingEdit?: boolean;
-  deletingMessage?: boolean;
   onStartEdit?: () => void;
   onCancelEdit?: () => void;
   onSaveEdit?: () => void;
   onEditDraftChange?: (value: string) => void;
-  onRequestDelete?: () => void;
-  onCancelDelete?: () => void;
-  onConfirmDelete?: () => void;
+  onDelete?: () => void;
 };
 
 function AvatarPlaceholder({ profile }: { profile: CityRoomMessageProfile | null }) {
@@ -90,24 +91,21 @@ export default function CityRoomMessageBubble({
   isFirstInGroup,
   isLastInGroup,
   isEditing = false,
-  isConfirmingDelete = false,
   editDraft = "",
   editError = null,
-  deleteError = null,
   savingEdit = false,
-  deletingMessage = false,
   onStartEdit,
   onCancelEdit,
   onSaveEdit,
   onEditDraftChange,
-  onRequestDelete,
-  onCancelDelete,
-  onConfirmDelete,
+  onDelete,
 }: CityRoomMessageBubbleProps) {
   const router = useRouter();
   const { t } = useI18n();
   const postViewer = usePostViewerOptional();
+  const [actionsOpen, setActionsOpen] = useState(false);
   const sender = message.profile;
+  const isDeleted = Boolean(message.deleted_at);
   const parsedContent = parseCityRoomMessageContent(message.content);
   const isStructuredMessage =
     Boolean(message.audio_url) ||
@@ -119,10 +117,21 @@ export default function CityRoomMessageBubble({
     parsedContent.kind === "map_mark";
   const isMapMarkMessage = parsedContent.kind === "map_mark";
   const cornerClass = getCityRoomBubbleCornerClass(isFirstInGroup, isLastInGroup);
-  const bubbleShellClass = `${cornerClass} bg-[#1a2332]/88 text-slate-100 shadow-[0_4px_14px_rgba(0,0,0,0.18)] ring-1 ring-white/[0.04]`;
   const displayName = sender ? publicProfileUsername(sender.username) : t("common.user");
   const localizedEditError = localizeUserMessage(t, editError);
-  const localizedDeleteError = localizeUserMessage(t, deleteError);
+
+  const canOpenActions = isOwnMessage && !isDeleted && !isEditing && !isMapMarkMessage;
+  const canEdit = canOpenActions && !isStructuredMessage && canEditMessage(message.created_at);
+  const canDelete = canOpenActions && canDeleteMessage(message.created_at);
+
+  const { longPressProps, onClickCapture } = useLongPress({
+    onLongPress: () => {
+      if (canOpenActions && (canEdit || canDelete)) {
+        setActionsOpen(true);
+      }
+    },
+    disabled: !canOpenActions,
+  });
 
   const openLocationCard = (card: LocationCardSharePayload) => {
     const item = locationCardSharePayloadToViewerItem(card, message.user_id, {
@@ -141,31 +150,8 @@ export default function CityRoomMessageBubble({
   };
 
   const renderBubbleBody = () => {
-    if (isConfirmingDelete) {
-      return (
-        <div className={`${bubbleShellClass} px-3 py-2.5`}>
-          <p className="text-sm font-medium text-slate-100">{t("rooms.message.deleteTitle")}</p>
-          {localizedDeleteError ? <p className="mt-1.5 text-xs text-red-300">{localizedDeleteError}</p> : null}
-          <div className="mt-2.5 flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={onConfirmDelete}
-              disabled={deletingMessage}
-              className="rounded-full bg-red-500 px-3 py-1 text-xs font-semibold text-white transition hover:bg-red-400 disabled:opacity-60"
-            >
-              {deletingMessage ? t("rooms.message.deleting") : t("common.delete")}
-            </button>
-            <button
-              type="button"
-              onClick={onCancelDelete}
-              disabled={deletingMessage}
-              className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-medium text-slate-200 transition hover:bg-white/10 disabled:opacity-60"
-            >
-              {t("common.cancel")}
-            </button>
-          </div>
-        </div>
-      );
+    if (isDeleted) {
+      return <DeletedMessageBubble isOwnMessage={isOwnMessage} />;
     }
 
     if (message.audio_url) {
@@ -201,8 +187,6 @@ export default function CityRoomMessageBubble({
           <ChatLocationBubble
             latitude={message.live_location_lat}
             longitude={message.live_location_lng}
-            updatedAt={message.live_location_updated_at ?? message.created_at}
-            expiresAt={message.live_location_expires_at ?? null}
             isOwnMessage={isOwnMessage}
           />
           <span className="mt-1 text-[9.5px] leading-none text-slate-500">
@@ -246,7 +230,7 @@ export default function CityRoomMessageBubble({
           />
           <span className="pointer-events-none absolute bottom-1 right-1 inline-flex items-center gap-1 rounded-full bg-[#0b1020]/80 px-1.5 py-0.5 text-[10px] leading-none text-slate-500">
             {message.edited_at ? (
-              <span className="text-[9px] uppercase tracking-wide opacity-80">{t("rooms.message.edited")}</span>
+              <span className="text-[9px] uppercase tracking-wide opacity-80">{t("messageActions.edited")}</span>
             ) : null}
             <span>{formatChatMessageTime(message.created_at)}</span>
           </span>
@@ -288,12 +272,22 @@ export default function CityRoomMessageBubble({
     }
 
     return (
-      <div className={`group/bubble relative ${bubbleShellClass} px-2.5 py-1.5`}>
-        <p className="whitespace-pre-wrap break-words pr-12 text-[14.5px] leading-[1.4] text-slate-50">{message.content}</p>
-        <span className="absolute bottom-1.5 right-2 inline-flex items-center gap-1 text-[9.5px] leading-none text-slate-500">
-          {message.edited_at ? <span className="text-[8.5px] uppercase tracking-wide opacity-80">{t("rooms.message.edited")}</span> : null}
-          <span>{formatChatMessageTime(message.created_at)}</span>
-        </span>
+      <div
+        className={`group/bubble relative w-fit max-w-full rounded-[22px] px-4 py-2.5 shadow-md shadow-black/20 ${
+          isOwnMessage
+            ? "rounded-br-md bg-primary/20 text-cyan-50"
+            : "rounded-bl-md border border-white/10 bg-[#0B1026] text-slate-100"
+        }`}
+      >
+        <p className="whitespace-pre-wrap break-normal break-words text-[15px] leading-6">{message.content}</p>
+        {message.edited_at ? (
+          <span className="mt-0.5 block text-right text-[9.5px] uppercase tracking-wide text-slate-400/80">
+            {t("messageActions.edited")}
+          </span>
+        ) : null}
+        <div className={`flex ${isOwnMessage ? "justify-end" : "justify-start"}`}>
+          <span className="mt-1 text-[10px] text-muted">{formatChatMessageTime(message.created_at)}</span>
+        </div>
       </div>
     );
   };
@@ -308,7 +302,7 @@ export default function CityRoomMessageBubble({
         <div className="mt-0.5 w-7 shrink-0" aria-hidden />
       )}
 
-      <div className={`min-w-0 flex-1 ${isMapMarkMessage ? "max-w-[min(92%,17.5rem)]" : "max-w-[min(88%,28rem)]"}`}>
+      <div className={`min-w-0 w-fit ${isMapMarkMessage ? "max-w-[min(92%,17.5rem)]" : "max-w-[min(80%,28rem)]"}`}>
         {!isMapMarkMessage && showSenderName ? (
           <div className="mb-0.5 flex flex-wrap items-center gap-x-1.5 px-0.5">
             {isOwnMessage ? (
@@ -327,31 +321,17 @@ export default function CityRoomMessageBubble({
           </div>
         ) : null}
 
-        {renderBubbleBody()}
-
-        {isOwnMessage && isLastInGroup && !isEditing && !isConfirmingDelete ? (
-          <div className="mt-0.5 flex gap-0.5 px-0.5 opacity-55 transition hover:opacity-100">
-            {!isStructuredMessage ? (
-              <button
-                type="button"
-                onClick={onStartEdit}
-                className="rounded-md p-0.5 text-slate-500 transition hover:bg-white/5 hover:text-slate-300"
-                aria-label={t("rooms.message.edit")}
-              >
-                <Pencil className="h-3 w-3" strokeWidth={1.75} aria-hidden />
-              </button>
-            ) : null}
-            <button
-              type="button"
-              onClick={onRequestDelete}
-              className="rounded-md p-0.5 text-slate-500 transition hover:bg-red-500/10 hover:text-red-300"
-              aria-label={t("rooms.message.delete")}
-            >
-              <Trash2 className="h-3 w-3" strokeWidth={1.75} aria-hidden />
-            </button>
-          </div>
-        ) : null}
+        <div {...longPressProps} onClickCapture={onClickCapture} className="select-none touch-manipulation">
+          {renderBubbleBody()}
+        </div>
       </div>
+
+      <MessageActionSheet
+        isOpen={actionsOpen}
+        onClose={() => setActionsOpen(false)}
+        onEdit={canEdit ? onStartEdit : undefined}
+        onDelete={canDelete ? onDelete : undefined}
+      />
     </article>
   );
 }

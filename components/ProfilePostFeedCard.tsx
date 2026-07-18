@@ -92,6 +92,7 @@ export default function ProfilePostFeedCard({
             postId={post.id}
             className="aspect-[4/5] w-full"
             imageClassName="aspect-[4/5] w-full object-cover"
+            zoomable
           />
         </div>
       ) : null}

@@ -180,10 +180,10 @@ export default function VoiceMessagePlayer({
 
   return (
     <div
-      // The waveform below is a horizontal seek target — opt it out of the app-wide
-      // edge-swipe-to-go-back gesture (lib/useIosEdgeSwipeBack.ts) explicitly, rather than
-      // relying on it never landing inside the screen's ~28px edge zone.
-      data-ios-swipe-back-disabled
+      // The waveform below is a horizontal seek target — opt it out of the shared full-screen
+      // swipe-back gesture (lib/useInteractiveSwipeBack.ts) explicitly. Now that swipe-back can
+      // start from anywhere (not just a screen edge), this matters wherever the bubble sits.
+      data-swipe-back-disabled
       className={`flex w-56 max-w-[85vw] shrink-0 items-center gap-2.5 overflow-hidden rounded-2xl px-3 py-2.5 ${
         isOwnMessage ? "bg-primary/20 text-cyan-50" : "border border-white/10 bg-[#0B1026] text-slate-100"
       }`}

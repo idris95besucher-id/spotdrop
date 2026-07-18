@@ -15,6 +15,7 @@ export type PostCommentRow = {
   user_id: string;
   content: string;
   created_at: string;
+  edited_at: string | null;
   profiles: PostCommentProfile;
 };
 
@@ -24,6 +25,7 @@ const COMMENT_SELECT = `
   user_id,
   content,
   created_at,
+  edited_at,
   profiles!post_comments_user_id_fkey (
     username,
     avatar_url
@@ -66,6 +68,7 @@ function normalizeCommentRow(
     user_id: row.user_id,
     content: row.content,
     created_at: row.created_at,
+    edited_at: row.edited_at ?? null,
     profiles: {
       username: publicProfileUsername(profile.username),
       avatar_url: profile.avatar_url ?? null,
@@ -128,6 +131,21 @@ export async function loadPostCommentsCount(postId: string): Promise<{
   }
 }
 
+/**
+ * Maps a raised-in-Postgres guard-trigger error (post_comments_guard_owner_edit, see
+ * database/add-post-comment-edit-delete.sql) to the exact English catalog string for that case,
+ * so localizeUserMessage's reverse-lookup can translate it like any other error.
+ */
+export function mapCommentActionError(kind: "edit" | "delete", message: string | null | undefined): string {
+  const text = (message ?? "").toLowerCase();
+
+  if (kind === "edit" && text.includes("edit window has expired")) {
+    return "You can no longer edit this comment.";
+  }
+
+  return kind === "delete" ? "Unable to delete this comment." : "Unable to save your edit.";
+}
+
 export async function addPostComment(
   postId: string,
   userId: string,
@@ -170,5 +188,125 @@ export async function addPostComment(
       comment: null,
       error: toUserFacingError(error, "Unable to post comment."),
     };
+  }
+}
+
+/**
+ * Edits the author's own comment. Ownership and the 15-minute edit window (COMMENT_EDIT_WINDOW_MS
+ * in lib/commentEditWindow.ts) are both enforced client-side before calling this, and again on
+ * the server by the post_comments_guard_owner_edit trigger + "Users can update own comments" RLS
+ * policy — so a stale client can never bypass either rule.
+ */
+export async function updatePostComment(
+  commentId: number,
+  userId: string,
+  content: string
+): Promise<{ comment: PostCommentRow | null; error: string | null }> {
+  const trimmed = content.trim();
+
+  if (!trimmed) {
+    return { comment: null, error: "Comment cannot be empty." };
+  }
+
+  try {
+    const { data, error, status, statusText } = await supabase
+      .from("post_comments")
+      .update({ content: trimmed, edited_at: new Date().toISOString() })
+      .eq("id", commentId)
+      .eq("user_id", userId)
+      .select(COMMENT_SELECT)
+      .maybeSingle();
+
+    if (error) {
+      console.error("[updatePostComment] Supabase update failed", {
+        commentId,
+        userId,
+        status,
+        statusText,
+        code: error.code,
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+      });
+
+      return { comment: null, error: mapCommentActionError("edit", error.message) };
+    }
+
+    // RLS/the guard trigger silently filters non-matching rows (wrong author, or the edit
+    // window already expired) instead of raising an error — a zero-row "success" is really a
+    // rejection, so it's treated as one and logged the same way a real error would be.
+    if (!data) {
+      console.error("[updatePostComment] update matched zero rows (ownership/window failure)", {
+        commentId,
+        userId,
+      });
+
+      return { comment: null, error: "Unable to save your edit." };
+    }
+
+    return {
+      comment: normalizeCommentRow(data as PostCommentRow & { profiles: PostCommentProfile | PostCommentProfile[] }),
+      error: null,
+    };
+  } catch (error) {
+    console.error("[updatePostComment] threw", error);
+    return { comment: null, error: toUserFacingError(error, "Unable to save your edit.") };
+  }
+}
+
+/**
+ * Hard-deletes the author's own comment. Deleting has no time limit, so only ownership is
+ * checked (client-side here, and by the "Users can delete own comments" RLS policy on the
+ * server).
+ */
+export async function deletePostComment(
+  commentId: number,
+  userId: string
+): Promise<{ error: string | null }> {
+  try {
+    const { data, error, status, statusText } = await supabase
+      .from("post_comments")
+      .delete()
+      .eq("id", commentId)
+      .eq("user_id", userId)
+      .select("id, user_id, post_id");
+
+    if (error) {
+      console.error("[deletePostComment] Supabase delete failed", {
+        commentId,
+        userId,
+        status,
+        statusText,
+        code: error.code,
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+      });
+
+      return { error: mapCommentActionError("delete", error.message) };
+    }
+
+    if (!data || data.length === 0) {
+      const { data: existingRow, error: lookupError } = await supabase
+        .from("post_comments")
+        .select("id, user_id, post_id")
+        .eq("id", commentId)
+        .maybeSingle();
+
+      console.error("[deletePostComment] delete matched zero rows (permission/ownership failure)", {
+        commentId,
+        currentUserId: userId,
+        rowOwnerId: existingRow?.user_id ?? null,
+        rowExists: Boolean(existingRow),
+        lookupError: lookupError?.message ?? null,
+      });
+
+      return { error: "Unable to delete this comment." };
+    }
+
+    return { error: null };
+  } catch (error) {
+    console.error("[deletePostComment] threw", error);
+    return { error: toUserFacingError(error, "Unable to delete this comment.") };
   }
 }

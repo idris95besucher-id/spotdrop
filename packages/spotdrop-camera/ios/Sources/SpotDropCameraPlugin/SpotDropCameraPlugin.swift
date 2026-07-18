@@ -18,6 +18,7 @@ public class SpotDropCameraPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "isAvailable", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "openCamera", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "readCapturedFile", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "uploadVideoToStorage", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "cancel", returnType: CAPPluginReturnPromise)
     ]
 
@@ -86,20 +87,8 @@ public class SpotDropCameraPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     /// Reads a file this plugin itself produced and hands it back as base64 over
-    /// the standard plugin-call bridge, bypassing `fetch()` against the
-    /// `capacitor://.../_capacitor_file_` scheme entirely.
-    ///
-    /// This exists because `fetch(Capacitor.convertFileSrc(path))` was observed
-    /// failing with a transport-level error (status 0) specifically for recorded
-    /// video files on device, regardless of which directory the file lived in —
-    /// confirmed by testing with the file moved from the temp directory into a
-    /// stable Caches directory and seeing the identical failure. The plugin
-    /// bridge (this call mechanism) is a completely different code path from the
-    /// WKWebView custom-scheme URL loading system, so it isn't subject to
-    /// whatever is causing that failure.
-    ///
-    /// Restricted to paths inside this app's own container — this isn't a
-    /// general-purpose file-read bridge.
+    /// the standard plugin-call bridge. Used for **photos only** now — Spot videos
+    /// must never go through this path (see `uploadVideoToStorage`).
     @objc func readCapturedFile(_ call: CAPPluginCall) {
         guard let path = call.getString("path") else {
             call.reject("Missing path.")
@@ -108,6 +97,13 @@ public class SpotDropCameraPlugin: CAPPlugin, CAPBridgedPlugin {
 
         guard path.hasPrefix(NSHomeDirectory()) else {
             call.reject("Refusing to read a path outside the app container.")
+            return
+        }
+
+        // Refuse to base64 large video files — that path is the measured upload bottleneck.
+        let ext = (path as NSString).pathExtension.lowercased()
+        if ["mov", "mp4", "m4v"].contains(ext) {
+            call.reject("Video files must use uploadVideoToStorage — base64 bridge is disabled for video.")
             return
         }
 
@@ -125,6 +121,79 @@ public class SpotDropCameraPlugin: CAPPlugin, CAPBridgedPlugin {
                     "base64": base64,
                     "sizeBytes": data.count
                 ])
+            }
+        }
+    }
+
+    /// Compresses (once, if needed) and uploads a Spot video straight from the native
+    /// filesystem path to Supabase Storage via URLSession — no base64, no JS FileReader.
+    @objc func uploadVideoToStorage(_ call: CAPPluginCall) {
+        guard let path = call.getString("path"),
+              let supabaseUrl = call.getString("supabaseUrl"),
+              let bucket = call.getString("bucket"),
+              let objectPath = call.getString("objectPath"),
+              let accessToken = call.getString("accessToken"),
+              let apikey = call.getString("apikey") else {
+            call.reject("Missing required upload parameters.")
+            return
+        }
+
+        let coverObjectPath = call.getString("coverObjectPath")
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            do {
+                let result = try NativeVideoUploader.prepareAndUpload(
+                    path: path,
+                    supabaseUrl: supabaseUrl,
+                    bucket: bucket,
+                    objectPath: objectPath,
+                    coverObjectPath: coverObjectPath,
+                    accessToken: accessToken,
+                    apikey: apikey,
+                    onProgress: { [weak self] fraction in
+                        let percent = Int((fraction * 100).rounded())
+                        DispatchQueue.main.async {
+                            self?.notifyListeners("nativeVideoUploadProgress", data: [
+                                "percent": percent,
+                                "objectPath": objectPath
+                            ])
+                        }
+                    },
+                    onLog: { message in
+                        print(message)
+                    }
+                )
+
+                DispatchQueue.main.async {
+                    call.resolve([
+                        "objectPath": result.publicObjectPath,
+                        "coverObjectPath": result.coverObjectPath as Any,
+                        "originalSizeBytes": result.originalSizeBytes,
+                        "finalSizeBytes": result.finalSizeBytes,
+                        "durationSeconds": result.durationSeconds,
+                        "width": result.width,
+                        "height": result.height,
+                        "bitrateMbps": result.bitrateMbps,
+                        "compressed": result.compressed,
+                        "uploadSpeedMbps": result.uploadSpeedMbps,
+                        "httpStatus": result.httpStatus,
+                        "timing": [
+                            "probeMs": result.timing.probeMs,
+                            "compressMs": result.timing.compressMs,
+                            "coverMs": result.timing.coverMs,
+                            "uploadMs": result.timing.uploadMs,
+                            "serverWaitMs": result.timing.serverWaitMs,
+                            "totalMs": result.timing.totalMs
+                        ]
+                    ])
+                }
+            } catch {
+                print("[NATIVE-UPLOAD] exact error: \(error.localizedDescription)")
+                DispatchQueue.main.async {
+                    call.reject(error.localizedDescription, "NATIVE_UPLOAD_FAILED", error, [
+                        "message": error.localizedDescription
+                    ])
+                }
             }
         }
     }

@@ -12,7 +12,7 @@ import ProfileGalleryDeleteConfirmSheet from "@/components/profile/ProfileGaller
 import ProfileGalleryDescriptionSheet from "@/components/profile/ProfileGalleryDescriptionSheet";
 import ProfileGalleryGrid from "@/components/ProfileGalleryGrid";
 import ProfileGalleryItemActionSheet from "@/components/profile/ProfileGalleryItemActionSheet";
-import ProfileGalleryViewer from "@/components/ProfileGalleryViewer";
+import ProfileGalleryFeedViewer from "@/components/profile/ProfileGalleryFeedViewer";
 import Shell from "@/components/Shell";
 import { useI18n } from "@/components/I18nProvider";
 import { getSafeAuthSession } from "@/lib/authSession";
@@ -62,6 +62,7 @@ export default function ProfileGalleryScreen({
   const [ownerProfile, setOwnerProfile] = useState<OwnerProfile | null>(null);
   const [personalPosts, setPersonalPosts] = useState<ProfileContentPost[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [duplicatePostIdWarning, setDuplicatePostIdWarning] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [addSheetOpen, setAddSheetOpen] = useState(false);
   const [actionItem, setActionItem] = useState<ProfileContentPost | null>(null);
@@ -71,7 +72,7 @@ export default function ProfileGalleryScreen({
   const [editorFile, setEditorFile] = useState<File | null>(null);
   const [savingDescription, setSavingDescription] = useState(false);
   const [deleting, setDeleting] = useState(false);
-  const [viewerIndex, setViewerIndex] = useState<number | null>(null);
+  const [viewerPostId, setViewerPostId] = useState<string | null>(null);
 
   const viewerUserId = session?.user?.id ?? null;
   const isOwner = Boolean(viewerUserId && viewerUserId === ownerUserId);
@@ -133,6 +134,7 @@ export default function ProfileGalleryScreen({
 
     setLoadingPosts(true);
     setError(null);
+    setDuplicatePostIdWarning(null);
 
     const contentResult = await loadOwnProfileContent(ownerUserId);
 
@@ -140,6 +142,29 @@ export default function ProfileGalleryScreen({
       setError(contentResult.error);
       setPersonalPosts([]);
     } else {
+      // Likes/comments are isolated purely by posts.id (see ProfileGalleryFeedCard /
+      // PostCommentsSection). The only way two gallery tiles could ever show the same
+      // like/comment is if two tiles literally resolve to the same posts.id — which would mean
+      // this fetch itself returned a duplicate row, not a bug in the viewer's state handling.
+      // This check makes that condition impossible to miss instead of silently mis-rendering.
+      const seenIds = new Set<string>();
+      const duplicateIds = new Set<string>();
+
+      for (const post of contentResult.personal) {
+        if (seenIds.has(post.id)) {
+          duplicateIds.add(post.id);
+        }
+        seenIds.add(post.id);
+      }
+
+      if (duplicateIds.size > 0) {
+        const idList = Array.from(duplicateIds).join(", ");
+        console.error("[ProfileGallery] duplicate posts.id returned for gallery items:", idList);
+        setDuplicatePostIdWarning(
+          `Data integrity issue: ${duplicateIds.size} gallery photo id(s) appear more than once (${idList}). Likes/comments on these tiles will appear shared because they are, in fact, the same database row.`
+        );
+      }
+
       setPersonalPosts(contentResult.personal);
     }
 
@@ -310,18 +335,11 @@ export default function ProfileGalleryScreen({
     setPersonalPosts((current) => {
       const next = current.filter((post) => post.id !== deletedId);
 
-      if (viewerIndex != null) {
-        const deletedIndex = current.findIndex((post) => post.id === deletedId);
-
-        if (deletedIndex === viewerIndex) {
-          if (next.length === 0) {
-            setViewerIndex(null);
-          } else {
-            setViewerIndex(Math.min(viewerIndex, next.length - 1));
-          }
-        } else if (deletedIndex >= 0 && deletedIndex < viewerIndex) {
-          setViewerIndex(viewerIndex - 1);
-        }
+      // The feed viewer has no active index to reclamp — every remaining post just keeps
+      // scrolling normally. The only case that needs handling here is the gallery going
+      // fully empty while the feed is open, which has nothing left to show.
+      if (next.length === 0) {
+        setViewerPostId(null);
       }
 
       return next;
@@ -342,8 +360,6 @@ export default function ProfileGalleryScreen({
   const lockedMessage = t("profile.galleryPrivate");
 
   const LockedIcon = Lock;
-
-  const viewerActiveItem = viewerIndex != null ? personalPosts[viewerIndex] ?? null : null;
 
   if (loadingSession || loadingAccess) {
     return (
@@ -408,6 +424,20 @@ export default function ProfileGalleryScreen({
               </div>
             ) : null}
 
+            {duplicatePostIdWarning ? (
+              <div className="mx-4 mb-3 flex items-start gap-2 rounded-2xl border border-red-500/25 bg-red-500/10 px-3 py-3 text-xs text-red-100">
+                <p className="min-w-0 flex-1">{duplicatePostIdWarning}</p>
+                <button
+                  type="button"
+                  onClick={() => setDuplicatePostIdWarning(null)}
+                  className="shrink-0 rounded-full p-1 text-red-100/80 transition hover:bg-white/10"
+                  aria-label={t("common.close")}
+                >
+                  <X className="h-3.5 w-3.5" aria-hidden />
+                </button>
+              </div>
+            ) : null}
+
             {error ? (
               <div className="mx-4 mb-3 flex items-start gap-2 rounded-2xl border border-amber-500/25 bg-amber-500/10 px-3 py-3 text-xs text-amber-100">
                 <p className="min-w-0 flex-1">{localizeError(t, error) ?? error}</p>
@@ -426,7 +456,7 @@ export default function ProfileGalleryScreen({
               items={personalPosts}
               loading={loadingPosts}
               isOwner={isOwner}
-              onSelectItem={setViewerIndex}
+              onSelectItem={(index) => setViewerPostId(personalPosts[index]?.id ?? null)}
               onOpenItemMenu={isOwner ? openItemMenu : undefined}
             />
           </div>
@@ -484,16 +514,16 @@ export default function ProfileGalleryScreen({
         />
       ) : null}
 
-      {canViewGallery && viewerIndex != null && viewerUserId && viewerActiveItem ? (
-        <ProfileGalleryViewer
+      {canViewGallery && viewerPostId && viewerUserId ? (
+        <ProfileGalleryFeedViewer
           items={personalPosts}
-          activeIndex={viewerIndex}
+          initialPostId={viewerPostId}
           userId={viewerUserId}
           ownerUsername={ownerProfile?.username ?? null}
           isOwner={isOwner}
-          onClose={() => setViewerIndex(null)}
-          onActiveIndexChange={setViewerIndex}
-          onOpenItemMenu={isOwner ? () => setActionItem(viewerActiveItem) : undefined}
+          title={title}
+          onClose={() => setViewerPostId(null)}
+          onOpenItemMenu={isOwner ? (post) => setActionItem(post) : undefined}
         />
       ) : null}
     </Shell>

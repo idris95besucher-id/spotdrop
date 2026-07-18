@@ -17,7 +17,8 @@ export type CityMessageRawRow = {
   live_location_lng: number | null;
   live_location_updated_at: string | null;
   live_location_expires_at: string | null;
+  deleted_at: string | null;
 };
 
 export const CITY_MESSAGE_SELECT =
-  "id, content, created_at, user_id, edited_at, audio_url, audio_duration_seconds, audio_waveform, image_url, live_location_lat, live_location_lng, live_location_updated_at, live_location_expires_at";
+  "id, content, created_at, user_id, edited_at, audio_url, audio_duration_seconds, audio_waveform, image_url, live_location_lat, live_location_lng, live_location_updated_at, live_location_expires_at, deleted_at";

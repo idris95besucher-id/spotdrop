@@ -1,16 +1,18 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { FormEvent } from "react";
 import { Loader2, MessageCircle, Send, UserRound } from "lucide-react";
+import CommentActionSheet from "@/components/CommentActionSheet";
+import CommentRow from "@/components/CommentRow";
+import GroupActionConfirmSheet from "@/components/GroupActionConfirmSheet";
+import MessageActionErrorToast from "@/components/chat/MessageActionErrorToast";
 import { useI18n } from "@/components/I18nProvider";
 import { addPostComment, loadPostComments, loadPostCommentsCount, type PostCommentRow } from "@/lib/postComments";
 import { postIdForQuery } from "@/lib/postIds";
 import { loadSpotPublicStats } from "@/lib/spotRanking";
 import { localizeUserMessage } from "@/lib/i18n/localizeUserMessage";
-import { formatPostTime } from "@/lib/posts";
 import { isEmailLikeValue, publicProfileUsername } from "@/lib/publicProfile";
 import { bottomSheetLayout, useBottomSheetScrollLock } from "@/lib/bottomSheetScrollLock";
 import {
@@ -18,6 +20,7 @@ import {
   useEnsureFocusedInputVisible,
   useKeyboardViewportFrame,
 } from "@/lib/keyboardSystem";
+import { useCommentActions } from "@/lib/useCommentActions";
 import { supabase } from "@/lib/supabaseClient";
 
 type PostCommentsSectionProps = {
@@ -98,13 +101,23 @@ export default function PostCommentsSection({
   const [loadingComments, setLoadingComments] = useState(false);
   const [loadingCount, setLoadingCount] = useState(true);
   const [posting, setPosting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  /** Failure loading the count/list for the *current* postId — never a fake/stale count alongside it. */
+  const [loadError, setLoadError] = useState<string | null>(null);
+  /** Failure submitting a new comment — kept separate from loadError so the two states can never render together. */
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const [currentUserProfile, setCurrentUserProfile] = useState<{ username: string; avatar_url: string | null } | null>(null);
   const [drawerPresent, setDrawerPresent] = useState(false);
   const [drawerVisible, setDrawerVisible] = useState(false);
   const commentsEndRef = useRef<HTMLLIElement>(null);
   const commentInputRef = useRef<HTMLTextAreaElement>(null);
   const [portalMounted, setPortalMounted] = useState(false);
+  /** Tracks the postId a given async load was issued for, so a late response for a photo the
+   * user has already swiped away from can never overwrite the currently active photo's state. */
+  const activePostIdRef = useRef(postId);
+
+  useEffect(() => {
+    activePostIdRef.current = postId;
+  }, [postId]);
 
   useEffect(() => {
     setPortalMounted(true);
@@ -112,12 +125,17 @@ export default function PostCommentsSection({
 
   useEffect(() => {
     const loadCount = async () => {
+      // Every postId switch starts from a clean slate — regardless of which branch below runs —
+      // so a previous photo's comment list/flags/error can never bleed into this one.
+      setComments([]);
+      setHasLoadedComments(false);
+      setLoadError(null);
+      setSubmitError(null);
+      setExpanded(false);
+
       if (disabled) {
-        setComments([]);
         setCommentCount(0);
         setLoadingCount(false);
-        setExpanded(false);
-        setHasLoadedComments(false);
         return;
       }
 
@@ -128,28 +146,38 @@ export default function PostCommentsSection({
       }
 
       setLoadingCount(true);
-      setError(null);
-      setComments([]);
-      setExpanded(false);
-      setHasLoadedComments(false);
 
-      if (uniqueCommentersCount) {
-        const stats = await loadSpotPublicStats(postId);
-        setCommentCount(stats?.comments_count ?? 0);
-      } else {
-        const result = await loadPostCommentsCount(postId);
-        setCommentCount(result.count);
-        setError(result.error);
+      const requestedPostId = postId;
+
+      const result = uniqueCommentersCount
+        ? { count: (await loadSpotPublicStats(postId))?.comments_count ?? 0, error: null as string | null }
+        : await loadPostCommentsCount(postId);
+
+      if (activePostIdRef.current !== requestedPostId) {
+        return;
       }
+
+      setCommentCount(result.count);
+      setLoadError(result.error);
       setLoadingCount(false);
     };
 
     void loadCount();
   }, [postId, disabled, uniqueCommentersCount, initialCommentCount, skipInitialCountFetch]);
 
+  // Reported via a ref so a re-render that only changes the *identity* of onCountChange (the
+  // parent gallery viewer recreates its callback on every photo swipe) can never re-fire this
+  // with this component's not-yet-updated commentCount from the previous photo — only a genuine
+  // change to commentCount (already scoped to the current postId above) reports upward.
+  const onCountChangeRef = useRef(onCountChange);
+
   useEffect(() => {
-    onCountChange?.(commentCount);
-  }, [commentCount, onCountChange]);
+    onCountChangeRef.current = onCountChange;
+  }, [onCountChange]);
+
+  useEffect(() => {
+    onCountChangeRef.current?.(commentCount);
+  }, [commentCount]);
 
   useEffect(() => {
     if (expanded && !loadingComments && comments.length > 0) {
@@ -217,12 +245,21 @@ export default function PostCommentsSection({
       return;
     }
 
+    const requestedPostId = postId;
+
     setLoadingComments(true);
-    setError(null);
+    setLoadError(null);
 
     const result = await loadPostComments(postId);
+
+    // The user may have already swiped to a different photo while this request was in flight —
+    // a late response for the photo they left must never overwrite what's now on screen.
+    if (activePostIdRef.current !== requestedPostId) {
+      return;
+    }
+
     setComments(result.comments);
-    setError(result.error);
+    setLoadError(result.error);
     if (!result.error) {
       if (!uniqueCommentersCount) {
         setCommentCount(result.comments.length);
@@ -231,6 +268,30 @@ export default function PostCommentsSection({
     }
     setLoadingComments(false);
   };
+
+  const commentActions = useCommentActions({
+    userId,
+    onCommentUpdated: (updatedComment) => {
+      setComments((current) =>
+        current.map((comment) => (comment.id === updatedComment.id ? updatedComment : comment))
+      );
+    },
+    onCommentDeleted: (deletedId) => {
+      setComments((current) => current.filter((comment) => comment.id !== deletedId));
+
+      if (uniqueCommentersCount) {
+        void loadSpotPublicStats(postId).then((stats) => {
+          if (stats) {
+            setCommentCount(stats.comments_count);
+          }
+        });
+      } else {
+        setCommentCount((current) => Math.max(0, current - 1));
+      }
+    },
+  });
+
+  const actionSheetComment = comments.find((comment) => comment.id === commentActions.actionSheetCommentId) ?? null;
 
   const commentsVisible = mode === "drawer" ? drawerPresent : expanded;
 
@@ -319,6 +380,33 @@ export default function PostCommentsSection({
           }
         }
       )
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "post_comments",
+          filter: `post_id=eq.${postIdForQuery(postId)}`,
+        },
+        (payload) => {
+          const updated = payload.new as { id?: number; content?: string; edited_at?: string | null };
+
+          if (updated?.id == null) {
+            return;
+          }
+
+          // Raw postgres_changes rows carry no joined profiles data — merge just the edited
+          // columns into whichever comment we already have locally (including the editor's own
+          // optimistic update, which this naturally no-ops against since the values will match).
+          setComments((current) =>
+            current.map((comment) =>
+              comment.id === updated.id
+                ? { ...comment, content: updated.content ?? comment.content, edited_at: updated.edited_at ?? null }
+                : comment
+            )
+          );
+        }
+      )
       .subscribe();
 
     return () => {
@@ -351,7 +439,7 @@ export default function PostCommentsSection({
     }
 
     setPosting(true);
-    setError(null);
+    setSubmitError(null);
 
     if (isEmailLikeValue(draft)) {
       setDraft("");
@@ -359,10 +447,17 @@ export default function PostCommentsSection({
       return;
     }
 
+    const requestedPostId = postId;
     const result = await addPostComment(postId, userId, draft);
 
+    // Never apply a comment (or its error) for a photo the user has already swiped away from.
+    if (activePostIdRef.current !== requestedPostId) {
+      setPosting(false);
+      return;
+    }
+
     if (result.error) {
-      setError(result.error);
+      setSubmitError(result.error);
       setPosting(false);
       return;
     }
@@ -384,34 +479,31 @@ export default function PostCommentsSection({
     setPosting(false);
   };
 
+  // Loading / error / empty / list are mutually exclusive — never render two of these together
+  // (e.g. "No comments yet" next to a load-failure banner for the same request).
   const commentsList = loadingComments ? (
     <CommentListSkeleton />
+  ) : loadError ? (
+    <p className="text-sm text-red-300">{localizeUserMessage(t, loadError) ?? loadError}</p>
   ) : comments.length === 0 ? (
     <p className="text-sm text-slate-500">{t("comments.empty")}</p>
   ) : (
     <ul className="space-y-4">
       {comments.map((comment) => (
-        <li key={comment.id} className="flex gap-3">
-          <Link
-            href={`/user?id=${comment.user_id}`}
-            className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-slate-800"
-          >
-            {comment.profiles.avatar_url ? (
-              <img src={comment.profiles.avatar_url} alt="" className="h-full w-full object-cover" />
-            ) : (
-              <UserRound className="h-4 w-4 text-slate-400" strokeWidth={1.5} aria-hidden />
-            )}
-          </Link>
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-              <Link href={`/user?id=${comment.user_id}`} className="text-sm font-semibold text-white hover:underline">
-                {publicProfileUsername(comment.profiles.username)}
-              </Link>
-              <time className="text-xs text-slate-500">{formatPostTime(comment.created_at)}</time>
-            </div>
-            <p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed text-slate-200">{comment.content}</p>
-          </div>
-        </li>
+        <CommentRow
+          key={comment.id}
+          comment={comment}
+          isOwnComment={Boolean(userId) && userId === comment.user_id}
+          isEditing={commentActions.editingCommentId === comment.id}
+          isDeleting={commentActions.deleting && commentActions.confirmDeleteId === comment.id}
+          editDraft={commentActions.editDraft}
+          editError={commentActions.editingCommentId === comment.id ? commentActions.editError : null}
+          savingEdit={commentActions.savingEdit}
+          onLongPress={() => commentActions.openActionSheet(comment.id)}
+          onEditDraftChange={commentActions.setEditDraft}
+          onSaveEdit={() => void commentActions.saveEdit()}
+          onCancelEdit={commentActions.cancelEdit}
+        />
       ))}
       <li ref={commentsEndRef} />
     </ul>
@@ -476,15 +568,54 @@ export default function PostCommentsSection({
     <>
       {commentsVisible ? commentsList : null}
       {commentsVisible ? commentComposer : null}
-      {error ? (
-        <p className="text-xs text-red-300">{localizeUserMessage(t, error) ?? error}</p>
+      {submitError ? (
+        <p className="text-xs text-red-300">{localizeUserMessage(t, submitError) ?? submitError}</p>
       ) : null}
+    </>
+  );
+
+  const commentActionOverlays = (
+    <>
+      <CommentActionSheet
+        isOpen={commentActions.actionSheetCommentId != null}
+        onClose={commentActions.closeActionSheet}
+        onEdit={
+          actionSheetComment && commentActions.canEdit(actionSheetComment)
+            ? () => commentActions.startEdit(actionSheetComment)
+            : undefined
+        }
+        onDelete={
+          actionSheetComment && commentActions.canDelete(actionSheetComment)
+            ? () => commentActions.requestDelete(actionSheetComment.id)
+            : undefined
+        }
+      />
+      <GroupActionConfirmSheet
+        isOpen={commentActions.confirmDeleteId != null}
+        title={t("comments.actions.deleteConfirmTitle")}
+        body={t("comments.actions.deleteConfirmBody")}
+        confirmLabel={commentActions.deleting ? t("comments.actions.deleting") : t("comments.actions.delete")}
+        destructive
+        working={commentActions.deleting}
+        onClose={commentActions.cancelDelete}
+        onConfirm={() => void commentActions.confirmDelete()}
+      />
+      <MessageActionErrorToast
+        message={
+          commentActions.actionError
+            ? localizeUserMessage(t, commentActions.actionError) ?? commentActions.actionError
+            : null
+        }
+        onDismiss={commentActions.dismissActionError}
+      />
     </>
   );
 
   if (mode === "drawer") {
     if (!drawerPresent) {
-      return null;
+      return commentActions.actionSheetCommentId != null || commentActions.confirmDeleteId != null
+        ? commentActionOverlays
+        : null;
     }
 
     const overlayClassName = elevatedOverlay
@@ -515,7 +646,9 @@ export default function PostCommentsSection({
           <div className="flex shrink-0 items-center justify-between border-b border-white/10 px-4 py-3">
             <h2 className="text-sm font-semibold text-white">
               {t("comments.title")}
-              <span className="ml-2 text-slate-400">{loadingCount ? "..." : commentCount}</span>
+              <span className="ml-2 text-slate-400">
+                {loadingCount ? "..." : loadError ? "–" : commentCount}
+              </span>
             </h2>
             <button
               type="button"
@@ -533,8 +666,8 @@ export default function PostCommentsSection({
             style={{ paddingBottom: footerPadding }}
           >
             {commentComposer}
-            {error ? (
-              <p className="text-xs text-red-300">{localizeUserMessage(t, error) ?? error}</p>
+            {submitError ? (
+              <p className="text-xs text-red-300">{localizeUserMessage(t, submitError) ?? submitError}</p>
             ) : null}
           </div>
         </section>
@@ -542,7 +675,13 @@ export default function PostCommentsSection({
     );
 
     if (portalMounted && typeof document !== "undefined") {
-      return createPortal(drawer, document.body);
+      return createPortal(
+        <>
+          {drawer}
+          {commentActionOverlays}
+        </>,
+        document.body
+      );
     }
 
     return drawer;
@@ -561,10 +700,13 @@ export default function PostCommentsSection({
       >
         <MessageCircle className="h-4 w-4" aria-hidden />
         {t("comments.title")}
-        <span className="text-xs font-medium text-slate-400">{loadingCount ? "..." : commentCount}</span>
+        <span className="text-xs font-medium text-slate-400">
+          {loadingCount ? "..." : loadError ? "–" : commentCount}
+        </span>
       </button>
 
       {commentsBody}
+      {commentActionOverlays}
     </section>
   );
 }

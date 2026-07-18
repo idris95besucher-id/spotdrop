@@ -43,9 +43,15 @@ import { uploadVoiceMessage } from "@/lib/voiceMessages/uploadVoiceMessage";
 import type { VoiceRecordingResult } from "@/lib/voiceMessages/useVoiceRecorder";
 import ChatAttachmentMenu from "@/components/chat/ChatAttachmentMenu";
 import { sendGroupPhoto } from "@/lib/sendChatPhoto";
-import { sendGroupLocation, updateGroupLocation } from "@/lib/sendChatLocation";
-import { useLiveLocationSharing } from "@/lib/useLiveLocationSharing";
+import { pickChatPhotos } from "@/lib/pickMediaFromGallery";
+import { sendGroupLocation } from "@/lib/sendChatLocation";
 import { requestCheckSpotGpsReading } from "@/lib/checkSpotGps";
+import { canEditMessage, canDeleteMessage } from "@/lib/messageEditWindow";
+import { editGroupMessage, deleteGroupMessageForEveryone, mapEditDeleteError } from "@/lib/messageEditDelete";
+import MessageActionSheet from "@/components/chat/MessageActionSheet";
+import MessageActionErrorToast from "@/components/chat/MessageActionErrorToast";
+import MessageLongPressZone from "@/components/chat/MessageLongPressZone";
+import DeletedMessageBubble from "@/components/chat/DeletedMessageBubble";
 
 export default function GroupThreadView() {
   const { t } = useI18n();
@@ -216,6 +222,19 @@ export default function GroupThreadView() {
         scrollOnMessageAppended();
         window.dispatchEvent(new Event(CHATS_INBOX_REFRESH_EVENT));
       },
+      onUpdateMessage: (updated) => {
+        setMessages((current) =>
+          current.map((message) =>
+            message.id === updated.id
+              ? { ...message, body: updated.body, edited_at: updated.edited_at, deleted_at: updated.deleted_at }
+              : message
+          )
+        );
+
+        if (updated.deleted_at) {
+          setEditingMessageId((current) => (current === updated.id ? null : current));
+        }
+      },
       getLatestCreatedAt: () => {
         const list = messagesRef.current;
         return list.length > 0 ? list[list.length - 1]?.created_at ?? null : null;
@@ -315,35 +334,46 @@ export default function GroupThreadView() {
     scrollOnSend();
   };
 
-  const handlePhotoSend = async (file: File) => {
-    if (sending || !currentUserId || !groupId) {
+  const handlePhotoSend = async (files: File[]) => {
+    if (sending || !currentUserId || !groupId || files.length === 0) {
       return;
     }
 
     setSending(true);
     setSendError(null);
 
-    const sendResult = await sendGroupPhoto({ groupId, senderId: currentUserId, file });
+    for (const file of files) {
+      const sendResult = await sendGroupPhoto({ groupId, senderId: currentUserId, file });
+
+      if (sendResult.error) {
+        setSendError(describeGroupError(sendResult.error, t("chatAttach.sendFailed")));
+        continue;
+      }
+
+      if (sendResult.message) {
+        seenMessageIdsRef.current.add(sendResult.message.id);
+        setMessages((current) => {
+          if (current.some((m) => m.id === sendResult.message!.id)) {
+            return current;
+          }
+          return [...current, sendResult.message!];
+        });
+      }
+    }
 
     setSending(false);
+    window.dispatchEvent(new Event(CHATS_INBOX_REFRESH_EVENT));
+    scrollOnSend();
+  };
 
-    if (sendResult.error) {
-      setSendError(describeGroupError(sendResult.error, t("chatAttach.sendFailed")));
+  const handlePickAndSendPhotos = async () => {
+    const files = await pickChatPhotos();
+
+    if (files.length === 0) {
       return;
     }
 
-    if (sendResult.message) {
-      seenMessageIdsRef.current.add(sendResult.message.id);
-      setMessages((current) => {
-        if (current.some((m) => m.id === sendResult.message!.id)) {
-          return current;
-        }
-        return [...current, sendResult.message!];
-      });
-    }
-
-    window.dispatchEvent(new Event(CHATS_INBOX_REFRESH_EVENT));
-    scrollOnSend();
+    await handlePhotoSend(files);
   };
 
   const handleSendCurrentLocation = async () => {
@@ -367,7 +397,6 @@ export default function GroupThreadView() {
       senderId: currentUserId,
       latitude: reading.latitude,
       longitude: reading.longitude,
-      expiresAt: null,
     });
 
     setSending(false);
@@ -391,35 +420,111 @@ export default function GroupThreadView() {
     scrollOnSend();
   };
 
-  const liveLocation = useLiveLocationSharing({
-    sendInitial: async (latitude, longitude, expiresAt) => {
-      if (!currentUserId || !groupId) {
-        return { messageId: null, error: null };
-      }
-
-      const sendResult = await sendGroupLocation({ groupId, senderId: currentUserId, latitude, longitude, expiresAt });
-
-      if (sendResult.message) {
-        seenMessageIdsRef.current.add(sendResult.message.id);
-        setMessages((current) =>
-          current.some((m) => m.id === sendResult.message!.id) ? current : [...current, sendResult.message!]
-        );
-        scrollOnSend();
-      }
-
-      return { messageId: sendResult.message?.id ?? null, error: sendResult.error };
-    },
-    updateExisting: async (messageId, latitude, longitude, expiresAt) => {
-      if (!currentUserId) {
-        return { error: null };
-      }
-
-      return updateGroupLocation({ messageId, senderId: currentUserId, latitude, longitude, expiresAt });
-    },
-  });
-
   const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false);
-  const photoInputRef = useRef<HTMLInputElement>(null);
+  const [actionSheetMessageId, setActionSheetMessageId] = useState<string | null>(null);
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState("");
+  const [editError, setEditError] = useState<string | null>(null);
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const deletingMessageIdsRef = useRef<Set<string>>(new Set());
+
+  const startEditingMessage = (message: GroupChatMessageRow) => {
+    if (!canEditMessage(message.created_at)) {
+      return;
+    }
+
+    setEditError(null);
+    setEditingMessageId(message.id);
+    setEditDraft(message.body ?? "");
+  };
+
+  const cancelEditingMessage = () => {
+    setEditError(null);
+    setEditingMessageId(null);
+    setEditDraft("");
+  };
+
+  const saveEditedMessage = async () => {
+    if (!currentUserId || !editingMessageId) {
+      return;
+    }
+
+    const trimmed = editDraft.trim();
+    if (!trimmed) {
+      setEditError("Message cannot be empty.");
+      return;
+    }
+
+    const targetMessage = messages.find((message) => message.id === editingMessageId);
+    if (!targetMessage || targetMessage.sender_id !== currentUserId) {
+      return;
+    }
+
+    if (trimmed === targetMessage.body) {
+      cancelEditingMessage();
+      return;
+    }
+
+    setSavingEdit(true);
+    setEditError(null);
+
+    const { message: updatedMessage, error: updateError } = await editGroupMessage({
+      messageId: editingMessageId,
+      senderId: currentUserId,
+      body: trimmed,
+    });
+
+    if (updateError || !updatedMessage) {
+      setEditError(mapEditDeleteError("edit", updateError));
+      setSavingEdit(false);
+      return;
+    }
+
+    setMessages((current) =>
+      current.map((message) =>
+        message.id === updatedMessage.id
+          ? { ...message, body: updatedMessage.body, edited_at: updatedMessage.edited_at }
+          : message
+      )
+    );
+
+    cancelEditingMessage();
+    setSavingEdit(false);
+  };
+
+  const handleDeleteMessage = async (targetMessage: GroupChatMessageRow) => {
+    if (!currentUserId || targetMessage.sender_id !== currentUserId) {
+      return;
+    }
+
+    if (deletingMessageIdsRef.current.has(targetMessage.id)) {
+      return;
+    }
+
+    deletingMessageIdsRef.current.add(targetMessage.id);
+
+    try {
+      const { error: deleteErrorResult } = await deleteGroupMessageForEveryone({
+        messageId: targetMessage.id,
+        senderId: currentUserId,
+      });
+
+      if (deleteErrorResult) {
+        console.error("Failed to delete group message:", deleteErrorResult);
+        setActionError(mapEditDeleteError("delete", deleteErrorResult));
+        return;
+      }
+
+      setMessages((current) =>
+        current.map((message) =>
+          message.id === targetMessage.id ? { ...message, deleted_at: new Date().toISOString() } : message
+        )
+      );
+    } finally {
+      deletingMessageIdsRef.current.delete(targetMessage.id);
+    }
+  };
 
   const isSendDisabled = sending || !draft.trim() || !canSend;
   const composerPlaceholder = !isMember && !loading ? t("group.error.notMember") : t("group.placeholder.message");
@@ -448,7 +553,7 @@ export default function GroupThreadView() {
 
           <div
             ref={messagesContainerRef}
-            className={`relative z-10 min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-y-contain [overflow-anchor:none] px-4 pt-4 ${CHAT_MESSAGES_FLEX_PADDING} ${
+            className={`relative z-10 min-h-0 flex-1 touch-pan-y space-y-3 overflow-y-auto overscroll-y-contain [overflow-anchor:none] px-4 pt-4 ${CHAT_MESSAGES_FLEX_PADDING} ${
               !initialBottomReady && messages.length > 0 ? "pointer-events-none invisible" : ""
             }`}
           >
@@ -487,132 +592,150 @@ export default function GroupThreadView() {
                   message.message_type === "text" && isCityRoomPlaceMessage(message.body ?? "");
                 const isMapMarkMessage =
                   message.message_type === "text" && isCityRoomMapMarkMessage(message.body ?? "");
+                const isDeletedMessage = Boolean(message.deleted_at);
+                const isEditingThis = editingMessageId === message.id;
+                const isStructuredMessage =
+                  Boolean(message.audio_url) ||
+                  Boolean(message.image_url) ||
+                  Boolean(message.live_location_lat != null && message.live_location_lng != null) ||
+                  isMapMarkMessage ||
+                  isPlaceMessage;
+                const canEditThis = isOwnMessage && !isStructuredMessage && canEditMessage(message.created_at);
+                const canDeleteThis = isOwnMessage && canDeleteMessage(message.created_at);
+                const localizedEditError = isEditingThis ? editError : null;
 
-                if (message.audio_url) {
-                  return (
-                    <Fragment key={message.id}>
-                      {showDateSeparator ? <ChatDateSeparator createdAt={message.created_at} /> : null}
-                      <div className={`flex ${isOwnMessage ? "justify-end" : "justify-start"}`}>
-                        <div className="max-w-[85%]">
-                          {!isOwnMessage ? (
-                            <p className="mb-1 ml-1 truncate text-[11px] font-medium text-slate-500">{senderName}</p>
-                          ) : null}
-                          <VoiceMessagePlayer
-                            audioUrl={message.audio_url}
-                            durationSeconds={message.audio_duration_seconds}
-                            waveform={message.audio_waveform}
-                            isOwnMessage={isOwnMessage}
-                          />
-                          <div className={`flex ${isOwnMessage ? "justify-end" : "justify-start"}`}>
-                            <span className="mt-1 text-[10px] text-muted">
-                              {formatChatMessageTime(message.created_at)}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                    </Fragment>
-                  );
-                }
+                const senderNameLabel = !isOwnMessage ? (
+                  <p className="mb-1 ml-1 truncate text-[11px] font-medium text-slate-500">{senderName}</p>
+                ) : null;
 
-                if (message.image_url) {
-                  return (
-                    <Fragment key={message.id}>
-                      {showDateSeparator ? <ChatDateSeparator createdAt={message.created_at} /> : null}
-                      <div className={`flex ${isOwnMessage ? "justify-end" : "justify-start"}`}>
-                        <div className="max-w-[85%]">
-                          {!isOwnMessage ? (
-                            <p className="mb-1 ml-1 truncate text-[11px] font-medium text-slate-500">{senderName}</p>
-                          ) : null}
-                          <ChatImageBubble imageUrl={message.image_url} isOwnMessage={isOwnMessage} />
-                          <div className={`flex ${isOwnMessage ? "justify-end" : "justify-start"}`}>
-                            <span className="mt-1 text-[10px] text-muted">
-                              {formatChatMessageTime(message.created_at)}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                    </Fragment>
-                  );
-                }
+                const timestampRow = (
+                  <div className={`flex ${isOwnMessage ? "justify-end" : "justify-start"}`}>
+                    <span className="mt-1 text-[10px] text-muted">
+                      {message.edited_at ? `${t("messageActions.edited")} · ` : ""}
+                      {formatChatMessageTime(message.created_at)}
+                    </span>
+                  </div>
+                );
 
-                if (message.live_location_lat != null && message.live_location_lng != null) {
-                  return (
-                    <Fragment key={message.id}>
-                      {showDateSeparator ? <ChatDateSeparator createdAt={message.created_at} /> : null}
-                      <div className={`flex ${isOwnMessage ? "justify-end" : "justify-start"}`}>
-                        <div className="max-w-[85%]">
-                          {!isOwnMessage ? (
-                            <p className="mb-1 ml-1 truncate text-[11px] font-medium text-slate-500">{senderName}</p>
-                          ) : null}
-                          <ChatLocationBubble
-                            latitude={message.live_location_lat}
-                            longitude={message.live_location_lng}
-                            updatedAt={message.live_location_updated_at ?? message.created_at}
-                            expiresAt={message.live_location_expires_at ?? null}
-                            isOwnMessage={isOwnMessage}
-                          />
-                          <div className={`flex ${isOwnMessage ? "justify-end" : "justify-start"}`}>
-                            <span className="mt-1 text-[10px] text-muted">
-                              {formatChatMessageTime(message.created_at)}
-                            </span>
-                          </div>
-                        </div>
+                const bubbleContent = isDeletedMessage ? (
+                  <div className="max-w-[85%]">
+                    {senderNameLabel}
+                    <DeletedMessageBubble isOwnMessage={isOwnMessage} />
+                  </div>
+                ) : isEditingThis ? (
+                  <div className="max-w-[85%] min-w-[220px]">
+                    {senderNameLabel}
+                    <div className="rounded-[22px] border border-cyan-400/35 bg-[#122033]/95 px-3 py-2.5 shadow-sm ring-1 ring-cyan-400/20">
+                      <textarea
+                        value={editDraft}
+                        onChange={(event) => setEditDraft(event.target.value)}
+                        disabled={savingEdit}
+                        rows={3}
+                        className="w-full resize-none rounded-xl border border-white/10 bg-slate-950/80 px-3 py-2 text-[15px] leading-6 text-white outline-none transition focus:border-cyan-400/50 disabled:opacity-60"
+                      />
+                      {localizedEditError ? <p className="mt-1.5 px-1 text-xs text-red-300">{localizedEditError}</p> : null}
+                      <div className="mt-2 flex flex-wrap gap-2 px-1">
+                        <button
+                          type="button"
+                          onClick={() => void saveEditedMessage()}
+                          disabled={savingEdit || !editDraft.trim()}
+                          className="rounded-full bg-cyan-500 px-3 py-1 text-xs font-semibold text-slate-950 transition hover:bg-cyan-400 disabled:opacity-60"
+                        >
+                          {savingEdit ? t("common.saving") : t("common.accept")}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={cancelEditingMessage}
+                          disabled={savingEdit}
+                          className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-medium text-slate-200 transition hover:bg-white/10 disabled:opacity-60"
+                        >
+                          {t("common.cancel")}
+                        </button>
                       </div>
-                    </Fragment>
-                  );
-                }
-
-                if (isMapMarkMessage) {
-                  return (
-                    <Fragment key={message.id}>
-                      {showDateSeparator ? <ChatDateSeparator createdAt={message.created_at} /> : null}
-                      <div className={`flex ${isOwnMessage ? "justify-end" : "justify-start"}`}>
-                        <div className="max-w-[85%]">
-                          {!isOwnMessage ? (
-                            <p className="mb-1 ml-1 truncate text-[11px] font-medium text-slate-500">{senderName}</p>
-                          ) : null}
-                          <GroupMessageMapMarkCard body={message.body ?? ""} isOwnMessage={isOwnMessage} />
-                        </div>
-                      </div>
-                    </Fragment>
-                  );
-                }
-
-                if (isPlaceMessage) {
-                  return (
-                    <Fragment key={message.id}>
-                      {showDateSeparator ? <ChatDateSeparator createdAt={message.created_at} /> : null}
-                      <div className={`flex ${isOwnMessage ? "justify-end" : "justify-start"}`}>
-                        <div className="max-w-[85%]">
-                          {!isOwnMessage ? (
-                            <p className="mb-1 ml-1 truncate text-[11px] font-medium text-slate-500">{senderName}</p>
-                          ) : null}
-                          <GroupMessagePlaceCard body={message.body ?? ""} isOwnMessage={isOwnMessage} />
-                        </div>
-                      </div>
-                    </Fragment>
-                  );
-                }
+                    </div>
+                  </div>
+                ) : message.audio_url ? (
+                  <div className="max-w-[85%]">
+                    {senderNameLabel}
+                    <VoiceMessagePlayer
+                      audioUrl={message.audio_url}
+                      durationSeconds={message.audio_duration_seconds}
+                      waveform={message.audio_waveform}
+                      isOwnMessage={isOwnMessage}
+                    />
+                    {timestampRow}
+                  </div>
+                ) : message.image_url ? (
+                  <div className="max-w-[85%]">
+                    {senderNameLabel}
+                    <ChatImageBubble imageUrl={message.image_url} isOwnMessage={isOwnMessage} />
+                    {timestampRow}
+                  </div>
+                ) : message.live_location_lat != null && message.live_location_lng != null ? (
+                  <div className="max-w-[85%]">
+                    {senderNameLabel}
+                    <ChatLocationBubble
+                      latitude={message.live_location_lat}
+                      longitude={message.live_location_lng}
+                      isOwnMessage={isOwnMessage}
+                    />
+                    {timestampRow}
+                  </div>
+                ) : isMapMarkMessage ? (
+                  <div className="max-w-[85%]">
+                    {senderNameLabel}
+                    <GroupMessageMapMarkCard body={message.body ?? ""} isOwnMessage={isOwnMessage} />
+                  </div>
+                ) : isPlaceMessage ? (
+                  <div className="max-w-[85%]">
+                    {senderNameLabel}
+                    <GroupMessagePlaceCard body={message.body ?? ""} isOwnMessage={isOwnMessage} />
+                  </div>
+                ) : (
+                  <div className="w-fit max-w-full">
+                    {senderNameLabel}
+                    <div
+                      className={`w-fit max-w-full rounded-[22px] px-4 py-2.5 shadow-md shadow-black/20 ${
+                        isOwnMessage
+                          ? "rounded-br-md bg-primary/20 text-cyan-50"
+                          : "rounded-bl-md border border-white/10 bg-[#0B1026] text-slate-100"
+                      }`}
+                    >
+                      <p className="whitespace-pre-wrap break-normal break-words text-[15px] leading-6">{message.body}</p>
+                      {message.edited_at ? (
+                        <span className="mt-0.5 block text-right text-[9.5px] uppercase tracking-wide text-slate-400/80">
+                          {t("messageActions.edited")}
+                        </span>
+                      ) : null}
+                    </div>
+                  </div>
+                );
 
                 return (
                   <Fragment key={message.id}>
                     {showDateSeparator ? <ChatDateSeparator createdAt={message.created_at} /> : null}
                     <div className={`flex ${isOwnMessage ? "justify-end" : "justify-start"}`}>
-                      <div className="max-w-[85%]">
-                        {!isOwnMessage ? (
-                          <p className="mb-1 ml-1 truncate text-[11px] font-medium text-slate-500">{senderName}</p>
-                        ) : null}
-                        <div
-                          className={`rounded-[22px] px-4 py-2.5 shadow-md shadow-black/20 ${
-                            isOwnMessage
-                              ? "rounded-br-md bg-primary/20 text-cyan-50"
-                              : "rounded-bl-md border border-white/10 bg-[#0B1026] text-slate-100"
-                          }`}
+                      {/* min-w-0 w-fit max-w-[80%] must live on this outermost box, not on bubbleContent's
+                          own div — nesting two independent width:fit-content boxes breaks WebKit's
+                          shrink-to-fit width computation for overflow-wrap:break-word text, causing
+                          normal short words to wrap mid-word (e.g. "Привет" -> "При"/"вет") even with
+                          plenty of room. bubbleContent is max-w-full precisely so only this box supplies
+                          the cap. */}
+                      <div className="min-w-0 w-fit max-w-[80%]">
+                        <MessageLongPressZone
+                          enabled={isOwnMessage && !isDeletedMessage && !isEditingThis && (canEditThis || canDeleteThis)}
+                          onLongPress={() => setActionSheetMessageId(message.id)}
                         >
-                          <p className="whitespace-pre-wrap break-words text-[15px] leading-6">{message.body}</p>
-                        </div>
+                          {bubbleContent}
+                        </MessageLongPressZone>
                       </div>
                     </div>
+                    <MessageActionSheet
+                      isOpen={actionSheetMessageId === message.id}
+                      onClose={() => setActionSheetMessageId(null)}
+                      onEdit={canEditThis ? () => startEditingMessage(message) : undefined}
+                      onDelete={canDeleteThis ? () => void handleDeleteMessage(message) : undefined}
+                    />
                   </Fragment>
                 );
               })
@@ -628,27 +751,11 @@ export default function GroupThreadView() {
               onSubmit={(event) => void handleSend(event)}
               className="border-t border-white/10 bg-[#070b14]/95 px-3 pt-2.5 backdrop-blur-xl"
             >
-              <input
-                ref={photoInputRef}
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={(event) => {
-                  const file = event.target.files?.[0];
-                  event.target.value = "";
-                  if (file) {
-                    void handlePhotoSend(file);
-                  }
-                }}
-              />
               <ChatAttachmentMenu
                 isOpen={attachmentMenuOpen}
                 onClose={() => setAttachmentMenuOpen(false)}
-                onSendPhoto={() => photoInputRef.current?.click()}
+                onSendPhoto={() => void handlePickAndSendPhotos()}
                 onSendCurrentLocation={() => void handleSendCurrentLocation()}
-                onShareLiveLocation={() => void liveLocation.start()}
-                isSharingLiveLocation={liveLocation.isSharing}
-                onStopLiveLocation={() => void liveLocation.stop()}
               />
               <div className="relative flex items-end gap-2">
                 <button
@@ -685,13 +792,12 @@ export default function GroupThreadView() {
               </div>
               {sendError ? (
                 <p className="mt-2 text-xs text-red-300">{sendError}</p>
-              ) : liveLocation.error ? (
-                <p className="mt-2 text-xs text-red-300">{liveLocation.error}</p>
               ) : null}
             </form>
           </div>
         </section>
       </DmChatThreadShell>
+      <MessageActionErrorToast message={actionError} onDismiss={() => setActionError(null)} />
     </Shell>
   );
 }

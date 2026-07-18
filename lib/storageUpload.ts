@@ -134,8 +134,14 @@ export type StorageUploadError = Error & {
   diagnostics: UploadDiagnostics;
 };
 
+/**
+ * Only true transport dropouts are auto-retried. Never retry 413 / auth / permanent 4xx /
+ * stalls / timeouts / 5xx — those either need a smaller file (already compressed once) or a
+ * user-triggered retry, and re-sending the same large video multiple times is what made
+ * Spot uploads feel endlessly stuck.
+ */
 function isRetryableErrorKind(kind: UploadErrorKind) {
-  return kind === "no-internet" || kind === "timeout" || kind === "stalled" || kind === "network" || kind === "http-retryable";
+  return kind === "no-internet" || kind === "network";
 }
 
 export function isRetryableUploadError(error: unknown): boolean {
@@ -143,8 +149,12 @@ export function isRetryableUploadError(error: unknown): boolean {
   return kind ? isRetryableErrorKind(kind) : false;
 }
 
-/** No progress at all for this long is treated as a dead connection, not "still slow". */
-const STALL_TIMEOUT_MS = 20_000;
+/**
+ * No progress events for this long is treated as a dead connection. Sized generously so a
+ * slow-but-alive cellular upload of a 15s 1080p Spot is not aborted mid-transfer (the old
+ * 20s stall window caused abort → full re-upload loops that looked like endless retries).
+ */
+const STALL_TIMEOUT_MS = 90_000;
 /**
  * Hard backstop for a single attempt against a connection that never errors and never
  * technically stalls (bytes still trickle in occasionally) but is effectively too slow to
@@ -343,8 +353,12 @@ export function uploadFileToStorageWithProgress(
       lastProgressAtMs = performance.now();
       bytesSent = event.loaded;
 
-      if (event.lengthComputable) {
-        options.onProgress?.(Math.round((event.loaded / event.total) * 100));
+      // Prefer the XHR total when the browser provides it; otherwise fall back to the known
+      // File/Blob size so iOS/WKWebView still shows a real bytes-sent percentage.
+      const totalBytes = event.lengthComputable && event.total > 0 ? event.total : fileSize;
+
+      if (totalBytes > 0) {
+        options.onProgress?.(Math.min(99, Math.round((event.loaded / totalBytes) * 100)));
       }
     };
 
@@ -383,10 +397,10 @@ export function uploadFileToStorageWithProgress(
         return;
       }
 
-      const kind: UploadErrorKind = "stalled";
+      const kind: UploadErrorKind = abortedByAbsoluteTimeout ? "timeout" : "stalled";
       const message = abortedByAbsoluteTimeout
         ? "Upload timed out — this connection is too slow to finish."
-        : "Upload interrupted — no data was sent for 20 seconds.";
+        : "Upload interrupted — no data was sent for 90 seconds.";
 
       console.error("[post-media upload] stalled/timed out", diagnostics);
 
@@ -422,7 +436,10 @@ export function uploadFileToStorageWithProgress(
         return;
       }
 
-      let message = `Upload failed with status ${xhr.status}.`;
+      let message =
+        xhr.status === 413
+          ? "This file is too large for the server to accept."
+          : `Upload failed with status ${xhr.status}.`;
       let statusCode: string | number | undefined;
 
       try {
@@ -434,17 +451,26 @@ export function uploadFileToStorageWithProgress(
         message = parsed.message || parsed.error || message;
         statusCode = parsed.statusCode;
       } catch {
-        // Non-JSON error body — keep the generic status-based message.
+        // Non-JSON error body — keep the generic status-based message. Payload-too-large
+        // responses in particular are frequently plain text (or empty) from the gateway in
+        // front of Supabase Storage, not JSON, so this is the common case for 413, not the
+        // exception.
       }
 
       console.error("[post-media upload] bad status", { ...diagnostics, responseBody: xhr.responseText?.slice(0, 500) });
 
+      // 413 is never safe to blindly retry as-is (the same bytes will just be rejected again),
+      // but callers that can shrink the file first (see lib/videoCompress.ts + the
+      // "file-too-large" handling in lib/spotUploadPipeline.ts) key off this specific kind to
+      // recompress harder and retry once, instead of surfacing a dead-end generic failure.
       const kind: UploadErrorKind =
         xhr.status === 401 || xhr.status === 403
           ? "auth"
-          : xhr.status === 429 || xhr.status >= 500
-            ? "http-retryable"
-            : "http-permanent";
+          : xhr.status === 413
+            ? "file-too-large"
+            : xhr.status === 429 || xhr.status >= 500
+              ? "http-retryable"
+              : "http-permanent";
 
       const error = new Error(message) as StorageUploadError;
       error.errorKind = kind;

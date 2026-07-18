@@ -72,7 +72,7 @@ export default function DmThreadHeader({
     <header
       className={`relative z-[80] shrink-0 border-b border-white/[0.08] bg-[#050816] px-2 pb-2.5 ${MOBILE_SAFE_AREA_INSET_TOP} sm:px-3`}
     >
-      <div className="flex items-center gap-1">
+      <div className="mx-auto flex w-full max-w-2xl items-center gap-1">
         <button
           type="button"
           onClick={handleBack}

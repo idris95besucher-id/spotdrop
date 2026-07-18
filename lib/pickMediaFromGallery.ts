@@ -346,3 +346,106 @@ export async function pickSpotGalleryMedia(): Promise<{ file: File; mediaType: S
 
   return { file, mediaType: isVideoGalleryFile(file) ? "video" : "image" };
 }
+
+async function pickPhotosFromNativeLibrary(): Promise<File[]> {
+  const { Camera, CameraErrorCode, MediaTypeSelection } = await import("@capacitor/camera");
+
+  const permission = await Camera.checkPermissions();
+
+  if (permission.photos !== "granted" && permission.photos !== "limited") {
+    const requested = await Camera.requestPermissions({ permissions: ["photos"] });
+
+    if (requested.photos !== "granted" && requested.photos !== "limited") {
+      return [];
+    }
+  }
+
+  try {
+    const { results } = await Camera.chooseFromGallery({
+      mediaType: MediaTypeSelection.Photo,
+      allowMultipleSelection: true,
+      editable: "no",
+      includeMetadata: true,
+    });
+
+    const files = await Promise.all(results.map((item) => mediaResultToFile(item, "image")));
+    return files.filter((file): file is File => Boolean(file));
+  } catch (error) {
+    const errorCode =
+      error && typeof error === "object" && "code" in error
+        ? String((error as { code?: string }).code ?? "")
+        : "";
+
+    if (isGalleryPickCancelled(error) || errorCode === CameraErrorCode.ChooseMediaCancelled) {
+      return [];
+    }
+
+    throw error;
+  }
+}
+
+function pickPhotosFromWebInput(): Promise<File[]> {
+  return new Promise((resolve) => {
+    if (typeof document === "undefined") {
+      resolve([]);
+      return;
+    }
+
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = GALLERY_IMAGE_ACCEPT;
+    input.multiple = true;
+    input.setAttribute("aria-hidden", "true");
+    input.tabIndex = -1;
+    input.className = "sr-only";
+
+    let settled = false;
+
+    const finish = (files: File[]) => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      window.removeEventListener("focus", handleCancel);
+      input.remove();
+      resolve(files);
+    };
+
+    const handleCancel = () => {
+      window.setTimeout(() => {
+        if (!settled && !input.files?.length) {
+          finish([]);
+        }
+      }, 500);
+    };
+
+    input.addEventListener(
+      "change",
+      () => {
+        finish(input.files ? Array.from(input.files) : []);
+      },
+      { once: true }
+    );
+
+    document.body.appendChild(input);
+    window.addEventListener("focus", handleCancel, { once: true });
+
+    window.requestAnimationFrame(() => {
+      input.click();
+    });
+  });
+}
+
+/**
+ * Chat "+" menu photo picker: opens the native Photos-only picker directly (PHPickerViewController
+ * via `chooseFromGallery`), so there's no "Photo Library / Take Photo / Choose File" action sheet
+ * and no videos or files show up. Supports selecting multiple photos in one pick.
+ */
+export async function pickChatPhotos(): Promise<File[]> {
+  if (isCapacitorNative()) {
+    return pickPhotosFromNativeLibrary();
+  }
+
+  return pickPhotosFromWebInput();
+}

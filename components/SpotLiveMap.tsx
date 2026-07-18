@@ -7,7 +7,6 @@ import LiveMapUserSheet from "@/components/LiveMapUserSheet";
 import MapMarkClusterSheet from "@/components/MapMarkClusterSheet";
 import MapMarkCreateSheet from "@/components/MapMarkCreateSheet";
 import MapMarkDetailSheet from "@/components/MapMarkDetailSheet";
-import MapOverlapActionSheet from "@/components/MapOverlapActionSheet";
 import MapPlacesSearch from "@/components/MapPlacesSearch";
 import MapTapActionSheet, { type MapTapAction } from "@/components/MapTapActionSheet";
 import ShareMapPlaceSheet from "@/components/ShareMapPlaceSheet";
@@ -17,10 +16,8 @@ import { geoLocationToMapPlaceSharePayload } from "@/lib/mapPlaceShare";
 import { DEFAULT_MAP_CENTER, DEFAULT_MAP_ZOOM, getMapLibreStyleUrl } from "@/lib/mapLibre";
 import {
   buildMixedMapOverlapClusters,
-  buildSpiderfyLngLats,
+  buildSideBySideClusterLayout,
   MAP_MARKER_OVERLAP_THRESHOLD_PX,
-  shouldSpiderfyOverlapClusters,
-  type MapOverlapCluster,
 } from "@/lib/mapMarkerOverlap";
 import {
   buildMapMarkClusters,
@@ -171,10 +168,6 @@ function createUserMarkerElement(avatarUrl: string | null, label: string, isSelf
   root.className = isSelf ? "spot-live-user-marker spot-live-user-marker--self" : "spot-live-user-marker";
   root.setAttribute("aria-label", label);
 
-  const pulse = document.createElement("span");
-  pulse.className = "spot-live-user-marker__pulse";
-  root.appendChild(pulse);
-
   const avatar = document.createElement("div");
   avatar.className = "spot-live-user-marker__avatar";
 
@@ -268,97 +261,6 @@ function createSpotMarkerElement(
       onActivate: () => onSelect(pin),
     });
   }
-
-  return anchor;
-}
-
-function createCombinedOverlapMarkerElement(
-  clusterId: string,
-  cluster: MapOverlapCluster,
-  ariaLabel: string,
-  onSelect: (clusterId: string) => void,
-  onGuard?: () => void
-) {
-  const anchor = createMapLibreMarkerAnchor("spot-map-overlap-marker-anchor");
-  const button = document.createElement("button");
-  button.type = "button";
-  button.className = "spot-map-overlap-marker spot-map-overlap-marker--appear";
-  button.dataset.overlapClusterId = clusterId;
-  button.setAttribute("aria-label", ariaLabel);
-
-  const ring = document.createElement("span");
-  ring.className = "spot-map-overlap-marker__ring";
-  ring.setAttribute("aria-hidden", "true");
-  button.appendChild(ring);
-
-  const primarySpot = cluster.spots[0] ?? null;
-  const primaryUser = cluster.users[0] ?? null;
-  const spotPreview = primarySpot ? getMapSpotPinPreviewUrl(primarySpot) : null;
-  const faceUrl = spotPreview || primaryUser?.avatar_url || null;
-
-  const face = document.createElement("span");
-  face.className = "spot-map-overlap-marker__face";
-
-  if (faceUrl) {
-    const image = document.createElement("img");
-    image.src = faceUrl;
-    image.alt = "";
-    image.loading = "lazy";
-    image.draggable = false;
-    face.appendChild(image);
-  } else {
-    const fallback = document.createElement("span");
-    fallback.className = "spot-map-overlap-marker__face-fallback";
-    fallback.textContent = (primaryUser?.username || "S").charAt(0).toUpperCase();
-    face.appendChild(fallback);
-  }
-
-  button.appendChild(face);
-
-  if (primaryUser) {
-    const userBadge = document.createElement("span");
-    userBadge.className = "spot-map-overlap-marker__badge spot-map-overlap-marker__badge--user";
-    userBadge.setAttribute("aria-hidden", "true");
-
-    if (primaryUser.avatar_url) {
-      const badgeImage = document.createElement("img");
-      badgeImage.src = primaryUser.avatar_url;
-      badgeImage.alt = "";
-      badgeImage.draggable = false;
-      userBadge.appendChild(badgeImage);
-    } else {
-      userBadge.textContent = primaryUser.username.charAt(0).toUpperCase();
-      userBadge.style.fontSize = "9px";
-      userBadge.style.fontWeight = "700";
-      userBadge.style.color = "#fff";
-    }
-
-    button.appendChild(userBadge);
-  }
-
-  if (primarySpot && (!spotPreview || faceUrl === primaryUser?.avatar_url)) {
-    const spotBadge = document.createElement("span");
-    spotBadge.className = "spot-map-overlap-marker__badge spot-map-overlap-marker__badge--spot";
-    spotBadge.setAttribute("aria-hidden", "true");
-    spotBadge.innerHTML = SPOT_PIN_SVG;
-    button.appendChild(spotBadge);
-  }
-
-  const total = cluster.users.length + cluster.spots.length;
-
-  if (total > 2) {
-    const count = document.createElement("span");
-    count.className = "spot-map-overlap-marker__count";
-    count.textContent = String(total);
-    button.appendChild(count);
-  }
-
-  anchor.appendChild(button);
-
-  bindMapMarkerTapShield(anchor, {
-    onGuard,
-    onActivate: () => onSelect(clusterId),
-  });
 
   return anchor;
 }
@@ -543,8 +445,6 @@ export default function SpotLiveMap({
   const selectedLiveUserRef = useRef<LiveMapUser | null>(null);
   const selectedMapMarkRef = useRef<MapMark | null>(null);
   const markClusterSheetRef = useRef<MapMarkCluster | null>(null);
-  const overlapSheetRef = useRef<MapOverlapCluster | null>(null);
-  const overlapClustersByIdRef = useRef<Map<string, MapOverlapCluster>>(new Map());
   const handleMapTapRef = useRef<(latitude: number, longitude: number) => void>(() => {});
   const mapTapRequestRef = useRef(0);
   /** Ignore map background tap until this timestamp (marker just handled the gesture). */
@@ -581,7 +481,6 @@ export default function SpotLiveMap({
   const [liveError, setLiveError] = useState<string | null>(null);
   const [selectedPin, setSelectedPin] = useState<MapSpotPin | null>(null);
   const [selectedLiveUser, setSelectedLiveUser] = useState<LiveMapUser | null>(null);
-  const [overlapSheet, setOverlapSheet] = useState<MapOverlapCluster | null>(null);
   const [tapSave, setTapSave] = useState<{
     location: SpotGeoLocation;
     resolving: boolean;
@@ -623,14 +522,6 @@ export default function SpotLiveMap({
     markClusterSheetRef.current = markClusterSheet;
   }, [markClusterSheet]);
 
-  useEffect(() => {
-    overlapSheetRef.current = overlapSheet;
-  }, [overlapSheet]);
-
-  const clearOverlapSheet = useCallback(() => {
-    setOverlapSheet(null);
-  }, []);
-
   const clearTapSave = useCallback(() => {
     setTapActionBusy(null);
     setTapSave(null);
@@ -652,7 +543,6 @@ export default function SpotLiveMap({
 
       setSelectedPin(null);
       setSelectedLiveUser(null);
-      setOverlapSheet(null);
       setSelectedMapMark(null);
       setMarkClusterSheet(null);
       clearTapSave();
@@ -1038,11 +928,6 @@ export default function SpotLiveMap({
             return;
           }
 
-          if (overlapSheetRef.current) {
-            setOverlapSheet(null);
-            return;
-          }
-
           if (selectedMapMarkRef.current) {
             setSelectedMapMark(null);
             return;
@@ -1272,7 +1157,6 @@ export default function SpotLiveMap({
         isLiveRef.current = true;
         setIsLive(true);
         setGoingLive(false);
-        setLiveSuccess(t("map.visibleOnMap"));
         void refreshLiveUsers();
 
         const map = mapRef.current;
@@ -1391,7 +1275,6 @@ export default function SpotLiveMap({
     armMarkerTapGuard();
     mapTapRequestRef.current += 1;
     clearTapSave();
-    setOverlapSheet(null);
     setMarkClusterSheet(null);
     setSelectedMapMark(null);
     setSelectedLiveUser(user);
@@ -1411,7 +1294,6 @@ export default function SpotLiveMap({
     armMarkerTapGuard();
     mapTapRequestRef.current += 1;
     clearTapSave();
-    setOverlapSheet(null);
     setMarkClusterSheet(null);
     setSelectedMapMark(null);
     setSelectedPin(pin);
@@ -1428,37 +1310,6 @@ export default function SpotLiveMap({
       });
     }
   }, [armMarkerTapGuard, clearTapSave]);
-
-  const handleSelectOverlapCluster = useCallback((cluster: MapOverlapCluster) => {
-    armMarkerTapGuard();
-    mapTapRequestRef.current += 1;
-    setSelectedPin(null);
-    setSelectedLiveUser(null);
-    setSelectedMapMark(null);
-    setMarkClusterSheet(null);
-    clearTapSave();
-    setOverlapSheet(cluster);
-
-    const map = mapRef.current;
-    if (map) {
-      map.flyTo({
-        center: [cluster.longitude, cluster.latitude],
-        zoom: Math.max(map.getZoom(), 14),
-        essential: true,
-      });
-    }
-  }, [armMarkerTapGuard, clearTapSave]);
-
-  const handleSelectOverlapClusterId = useCallback(
-    (clusterId: string) => {
-      const cluster = overlapClustersByIdRef.current.get(clusterId);
-
-      if (cluster) {
-        handleSelectOverlapCluster(cluster);
-      }
-    },
-    [handleSelectOverlapCluster]
-  );
 
   useEffect(() => {
     const map = mapRef.current;
@@ -1502,131 +1353,109 @@ export default function SpotLiveMap({
     }
 
     const liveForMap = onlineLiveUsers.filter((liveUser) => liveUser.user_id !== userId);
+
+    // Include the self live pin so it also separates from nearby Spots.
+    const usersForOverlap: LiveMapUser[] = [...liveForMap];
+    if (isLive && userCoords && userId) {
+      usersForOverlap.push({
+        user_id: userId,
+        latitude: userCoords.latitude,
+        longitude: userCoords.longitude,
+        city: null,
+        country: null,
+        is_live: true,
+        updated_at: new Date().toISOString(),
+        username: userLabel || "me",
+        avatar_url: userAvatarUrl,
+        is_online: true,
+        last_seen_at: new Date().toISOString(),
+      });
+    }
+
     const { clusters, freeUsers, freeSpots } = buildMixedMapOverlapClusters(
       map,
-      liveForMap,
+      usersForOverlap,
       pins,
       MAP_MARKER_OVERLAP_THRESHOLD_PX
     );
-    overlapClustersByIdRef.current = new Map(clusters.map((cluster) => [cluster.id, cluster]));
-    const spiderfy = shouldSpiderfyOverlapClusters(map.getZoom());
-
-    const nextLiveIds = new Set(freeUsers.map((user) => user.user_id));
+    const nextLiveIds = new Set(
+      freeUsers.filter((user) => user.user_id !== userId).map((user) => user.user_id)
+    );
     const nextSpotIds = new Set(freeSpots.map((pin) => pin.id));
-    const nextCombinedIds = new Set<string>();
-    const nextSpiderIds = new Set<string>();
+    const nextPairIds = new Set<string>();
+    let selfPairLngLat: [number, number] | null = null;
 
+    // Mixed overlaps: separate markers — user left, Spot right — ≥16px gap, every zoom.
     for (const cluster of clusters) {
-      if (spiderfy) {
-        const items: Array<
-          | { key: string; kind: "user"; user: LiveMapUser }
-          | { key: string; kind: "spot"; pin: MapSpotPin }
-        > = [
-          ...cluster.users.map((user) => ({
-            key: `user:${user.user_id}`,
-            kind: "user" as const,
-            user,
-          })),
-          ...cluster.spots.map((pin) => ({
-            key: `spot:${pin.id}`,
-            kind: "spot" as const,
-            pin,
-          })),
-        ];
-        const offsets = buildSpiderfyLngLats(map, cluster, items.length);
+      const items = buildSideBySideClusterLayout(map, cluster);
 
-        items.forEach((item, index) => {
-          const offset = offsets[index] ?? {
-            longitude: cluster.longitude,
-            latitude: cluster.latitude,
-          };
-          const offsetLngLat = resolveMapLngLat(offset.latitude, offset.longitude, {
-            kind: "spiderfy-offset",
-            id: item.key,
-          });
+      for (const item of items) {
+        const offsetLngLat = resolveMapLngLat(item.latitude, item.longitude, {
+          kind: "pair-offset",
+          id: item.key,
+        });
 
-          if (!offsetLngLat) {
-            return;
+        if (!offsetLngLat) {
+          continue;
+        }
+
+        if (item.kind === "user" && item.user.user_id === userId) {
+          selfPairLngLat = offsetLngLat;
+          continue;
+        }
+
+        nextPairIds.add(item.key);
+        const existing = spiderMarkersRef.current.get(item.key);
+
+        if (existing) {
+          existing.setLngLat(offsetLngLat);
+
+          if (item.kind === "spot") {
+            updateSpotMarkerSavedState(existing.getElement(), savedIds.has(item.pin.id));
           }
 
-          nextSpiderIds.add(item.key);
-          const existing = spiderMarkersRef.current.get(item.key);
+          continue;
+        }
 
-          if (existing) {
-            existing.setLngLat(offsetLngLat);
-
-            if (item.kind === "spot") {
-              updateSpotMarkerSavedState(existing.getElement(), savedIds.has(item.pin.id));
-            }
-
-            return;
-          }
-
-          if (item.kind === "user") {
-            const element = createLiveUserMarkerElement(
-              item.user,
-              t("map.userIsLive", { username: item.user.username }),
-              handleSelectLiveUser,
-              armMarkerTapGuard
-            );
-            const marker = new maplibregl.Marker({ element, anchor: "center" })
-              .setLngLat(offsetLngLat)
-              .addTo(map);
-            spiderMarkersRef.current.set(item.key, marker);
-            return;
-          }
-
-          const animateIn = !seenSpotPinIdsRef.current.has(item.pin.id);
-          if (animateIn) {
-            seenSpotPinIdsRef.current.add(item.pin.id);
-          }
-
-          const element = createSpotMarkerElement(
-            item.pin,
-            savedIds.has(item.pin.id),
-            animateIn,
-            handleSelectSpotPin,
+        if (item.kind === "user") {
+          const element = createLiveUserMarkerElement(
+            item.user,
+            t("map.userIsLive", { username: item.user.username }),
+            handleSelectLiveUser,
             armMarkerTapGuard
           );
-
           const marker = new maplibregl.Marker({ element, anchor: "center" })
             .setLngLat(offsetLngLat)
             .addTo(map);
           spiderMarkersRef.current.set(item.key, marker);
-        });
-      } else {
-        const clusterLngLat = resolveMapLngLat(cluster.latitude, cluster.longitude, {
-          kind: "overlap-cluster",
-          id: cluster.id,
-        });
-
-        if (!clusterLngLat) {
           continue;
         }
 
-        nextCombinedIds.add(cluster.id);
-        const existing = combinedOverlapMarkersRef.current.get(cluster.id);
-
-        if (existing) {
-          existing.setLngLat(clusterLngLat);
-          continue;
+        const animateIn = !seenSpotPinIdsRef.current.has(item.pin.id);
+        if (animateIn) {
+          seenSpotPinIdsRef.current.add(item.pin.id);
         }
 
-        const element = createCombinedOverlapMarkerElement(
-          cluster.id,
-          cluster,
-          t("map.overlapCombinedLabel"),
-          handleSelectOverlapClusterId,
+        const element = createSpotMarkerElement(
+          item.pin,
+          savedIds.has(item.pin.id),
+          animateIn,
+          handleSelectSpotPin,
           armMarkerTapGuard
         );
+
         const marker = new maplibregl.Marker({ element, anchor: "center" })
-          .setLngLat(clusterLngLat)
+          .setLngLat(offsetLngLat)
           .addTo(map);
-        combinedOverlapMarkersRef.current.set(cluster.id, marker);
+        spiderMarkersRef.current.set(item.key, marker);
       }
     }
 
     for (const liveUser of freeUsers) {
+      if (liveUser.user_id === userId) {
+        continue;
+      }
+
       const lngLat = resolveMapLngLat(liveUser.latitude, liveUser.longitude, {
         kind: "live-user",
         id: liveUser.user_id,
@@ -1690,6 +1519,19 @@ export default function SpotLiveMap({
       spotMarkersRef.current.set(pin.id, marker);
     }
 
+    if (userMarkerRef.current) {
+      if (selfPairLngLat) {
+        userMarkerRef.current.setLngLat(selfPairLngLat);
+      } else if (userCoords && isLive) {
+        const selfLngLat = resolveMapLngLat(userCoords.latitude, userCoords.longitude, {
+          kind: "self-live-user",
+        });
+        if (selfLngLat) {
+          userMarkerRef.current.setLngLat(selfLngLat);
+        }
+      }
+    }
+
     liveMarkersRef.current.forEach((marker, userIdKey) => {
       if (!nextLiveIds.has(userIdKey)) {
         marker.remove();
@@ -1704,15 +1546,11 @@ export default function SpotLiveMap({
       }
     });
 
-    combinedOverlapMarkersRef.current.forEach((marker, clusterId) => {
-      if (!nextCombinedIds.has(clusterId)) {
-        marker.remove();
-        combinedOverlapMarkersRef.current.delete(clusterId);
-      }
-    });
+    combinedOverlapMarkersRef.current.forEach((marker) => marker.remove());
+    combinedOverlapMarkersRef.current.clear();
 
     spiderMarkersRef.current.forEach((marker, spiderId) => {
-      if (!nextSpiderIds.has(spiderId)) {
+      if (!nextPairIds.has(spiderId)) {
         marker.remove();
         spiderMarkersRef.current.delete(spiderId);
       }
@@ -1720,15 +1558,18 @@ export default function SpotLiveMap({
   }, [
     armMarkerTapGuard,
     handleSelectLiveUser,
-    handleSelectOverlapClusterId,
     handleSelectSpotPin,
+    isLive,
     mapReady,
     markerLayoutTick,
     onlineLiveUsers,
     pins,
     savedIds,
     t,
+    userAvatarUrl,
+    userCoords,
     userId,
+    userLabel,
   ]);
 
   useEffect(() => {
@@ -1807,7 +1648,6 @@ export default function SpotLiveMap({
 
       setSelectedPin(null);
       setSelectedLiveUser(null);
-      setOverlapSheet(null);
       setTapSave(null);
       setMarkClusterSheet(null);
       setSelectedMapMark(loaded);
@@ -1851,7 +1691,6 @@ export default function SpotLiveMap({
     clearPlaceSearchHighlight();
     setSelectedPin(null);
     setSelectedLiveUser(null);
-    setOverlapSheet(null);
     setSelectedMapMark(null);
     setMarkClusterSheet(null);
     clearTapSave();
@@ -1951,7 +1790,6 @@ export default function SpotLiveMap({
       setSelectedMapMark(mark);
       setSelectedPin(null);
       setSelectedLiveUser(null);
-      setOverlapSheet(null);
       map.flyTo({
         center: [mark.longitude, mark.latitude],
         zoom: Math.max(map.getZoom(), 14),
@@ -1972,7 +1810,6 @@ export default function SpotLiveMap({
       setSelectedMapMark(null);
       setSelectedPin(null);
       setSelectedLiveUser(null);
-      setOverlapSheet(null);
       setMarkClusterSheet(cluster);
       map.flyTo({
         center: [cluster.longitude, cluster.latitude],
@@ -2178,33 +2015,43 @@ export default function SpotLiveMap({
       ) : null}
 
       {mapLoadError ? (
-        <div className="absolute inset-x-4 top-[max(7.5rem,calc(env(safe-area-inset-top)+6.5rem))] z-30 rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-2 text-sm text-red-200">
+        <div className="absolute inset-x-4 top-[max(11.75rem,calc(env(safe-area-inset-top)+10.75rem))] z-30 rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-2 text-sm text-red-200">
           {t("map.couldNotLoadMap")}
         </div>
       ) : null}
 
       {error ? (
-        <div className="absolute inset-x-4 top-[max(7.5rem,calc(env(safe-area-inset-top)+6.5rem))] z-30 rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-2 text-sm text-red-200">
+        <div className="absolute inset-x-4 top-[max(11.75rem,calc(env(safe-area-inset-top)+10.75rem))] z-30 rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-2 text-sm text-red-200">
           {localizeError(t, error) ?? error}
         </div>
       ) : null}
 
       {liveError ? (
-        <div className="absolute inset-x-4 top-[max(7.5rem,calc(env(safe-area-inset-top)+6.5rem))] z-30 rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-2 text-sm text-amber-100">
+        <div className="absolute inset-x-4 top-[max(11.75rem,calc(env(safe-area-inset-top)+10.75rem))] z-30 rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-2 text-sm text-amber-100">
           {liveError}
         </div>
       ) : null}
 
       {liveSuccess ? (
-        <div className="absolute inset-x-4 top-[max(7.5rem,calc(env(safe-area-inset-top)+6.5rem))] z-30 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-2 text-sm text-emerald-100">
+        <div className="absolute inset-x-4 top-[max(11.75rem,calc(env(safe-area-inset-top)+10.75rem))] z-30 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-2 text-sm text-emerald-100">
           {liveSuccess}
         </div>
       ) : null}
 
-      <div className="pointer-events-none absolute inset-x-0 top-0 z-20 flex flex-col gap-3 p-4 pt-[max(0.75rem,env(safe-area-inset-top))]">
+      <div className="pointer-events-none absolute inset-x-0 top-0 z-20 p-4 pt-[max(0.75rem,env(safe-area-inset-top))]">
         <div className="flex w-full items-start gap-2">
-          <div className="min-w-0 flex-1">
+          <div className="flex min-w-0 flex-1 flex-col gap-2.5 pr-2">
             <MapPlacesSearch onSelectPlace={handleSelectPlace} disabled={!mapReady || mapLoadError} />
+
+            {/* Screen-fixed status chips — left-aligned under search, never map-anchored. */}
+            <div className="flex max-w-[min(15.5rem,100%)] flex-col items-start gap-2">
+              <div className="rounded-full border border-white/12 bg-[#0B1026]/88 px-3.5 py-1.5 text-xs font-semibold text-white shadow-lg backdrop-blur-md">
+                {liveCount > 0 ? t("map.onlineNearby", { count: liveCount }) : t("map.nobodyOnline")}
+              </div>
+              <div className="rounded-full border border-white/12 bg-[#0B1026]/88 px-3.5 py-1.5 text-xs font-semibold text-slate-200 shadow-lg backdrop-blur-md">
+                {isLive ? t("map.visibleOnMap") : t("map.hiddenFromMap")}
+              </div>
+            </div>
           </div>
 
           <div className="pointer-events-auto flex shrink-0 flex-col gap-2">
@@ -2235,10 +2082,6 @@ export default function SpotLiveMap({
             </button>
           </div>
         </div>
-
-        <div className="pointer-events-auto self-start rounded-full border border-white/12 bg-[#0B1026]/88 px-4 py-2 text-xs font-semibold text-white shadow-lg backdrop-blur-md">
-          {liveCount > 0 ? t("map.onlineNearby", { count: liveCount }) : t("map.nobodyOnline")}
-        </div>
       </div>
 
       <div
@@ -2248,9 +2091,6 @@ export default function SpotLiveMap({
             : "pb-4"
         }`}
       >
-        <p className="pointer-events-none text-center text-xs font-medium text-slate-300">
-          {isLive ? t("map.visibleOnMap") : t("map.hiddenFromMap")}
-        </p>
         {isLive ? (
           <button
             type="button"
@@ -2283,22 +2123,6 @@ export default function SpotLiveMap({
         embedded={embedded}
         onClose={() => setSelectedLiveUser(null)}
       />
-      {overlapSheet ? (
-        <MapOverlapActionSheet
-          users={overlapSheet.users}
-          spots={overlapSheet.spots}
-          embedded={embedded}
-          onClose={clearOverlapSheet}
-          onOpenUser={(user) => {
-            clearOverlapSheet();
-            handleSelectLiveUser(user);
-          }}
-          onOpenSpot={(pin) => {
-            clearOverlapSheet();
-            handleSelectSpotPin(pin);
-          }}
-        />
-      ) : null}
       {markClusterSheet ? (
         <MapMarkClusterSheet
           marks={markClusterSheet.marks}
@@ -2309,7 +2133,6 @@ export default function SpotLiveMap({
             setSelectedMapMark(mark);
             setSelectedPin(null);
             setSelectedLiveUser(null);
-            setOverlapSheet(null);
           }}
         />
       ) : null}

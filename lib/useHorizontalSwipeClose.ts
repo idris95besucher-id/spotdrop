@@ -207,6 +207,13 @@ export function useHorizontalSwipeClose({
     }
 
     const handleTouchStart = (event: TouchEvent) => {
+      // A second finger landing anywhere means this is a pinch (e.g. pinch-to-zoom on a photo),
+      // never a swipe-back — fully disengage so it can never fight a zoom/pan gesture underneath.
+      if (event.touches.length > 1) {
+        resetGesture();
+        return;
+      }
+
       if (isAnimatingRef.current || isBottomSheetScrollLocked() || isSwipeCloseBlockedTarget(event.target)) {
         return;
       }
@@ -229,7 +236,7 @@ export function useHorizontalSwipeClose({
     const handleTouchMove = (event: TouchEvent) => {
       const start = touchStartRef.current;
 
-      if (!start || isAnimatingRef.current || isBottomSheetScrollLocked()) {
+      if (event.touches.length > 1 || !start || isAnimatingRef.current || isBottomSheetScrollLocked()) {
         return;
       }
 

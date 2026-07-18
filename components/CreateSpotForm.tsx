@@ -249,6 +249,12 @@ export default function CreateSpotForm({
       setPublishAsLocationCard(asLocationCard);
       setError(null);
       setStep("publish");
+
+      // My Spots is photos-only — a video replacing a prior photo selection (or vice versa,
+      // within the same open create flow) must not leave a stale "my-spots" choice in place.
+      if (items.some((item) => item.mediaType === "video")) {
+        setPublishDestination("public");
+      }
     },
     [clearPublishPreview]
   );
@@ -276,7 +282,9 @@ export default function CreateSpotForm({
     file: File,
     mediaType: "image" | "video",
     captureLocation: SpotGeoLocation | null,
-    nativeWebPath?: string
+    nativeWebPath?: string,
+    nativeFilePath?: string,
+    nativeFileSizeBytes?: number
   ) => {
     if (captureLocation && hasVerifiedSpotCaptureLocation(captureLocation)) {
       setLocation(captureLocation);
@@ -288,16 +296,21 @@ export default function CreateSpotForm({
     // trusted directly via `mediaType` — the recorder itself already enforces
     // the max duration, so no extra validation is needed here.
     if (mediaType === "video") {
-      // Prefer the native webPath as the Share-screen preview source (streamed
-      // directly by WKWebView from disk) over a blob: URL built from the
-      // already-decoded `file` — see createMediaEditorItem for why, and
-      // CarouselVideoSlide for the automatic fallback if it fails to load.
+      // Keep bytes on disk: preview via webPath, upload via nativeFilePath.
+      // Never base64 / FileReader the video into JS memory.
       const item = await withMeasuredVideoDuration(
-        createMediaEditorItem(file, "video", { nativeWebPath })
+        createMediaEditorItem(file, "video", {
+          nativeWebPath,
+          nativeFilePath,
+          nativeFileSizeBytes,
+        })
       );
-      console.log(
-        `[CreateSpotForm][video-preview] item created | previewUrl=${item.previewUrl} | fallbackPreviewUrl=${item.fallbackPreviewUrl ?? "(none)"} | fileSize=${file.size} | fileType=${file.type}`
-      );
+      console.log("[SPOT-VIDEO-TIMING] share item ready (no JS memory load)", {
+        previewUrl: item.previewUrl,
+        nativeFilePath: item.nativeFilePath ?? null,
+        nativeFileSizeBytes: item.nativeFileSizeBytes ?? null,
+        stubFileSize: file.size,
+      });
       goToPublish([item], false);
       return;
     }
@@ -475,7 +488,7 @@ export default function CreateSpotForm({
     // IMPORTANT — this used to also be wrapped in `window.setTimeout(() => controller.abort(),
     // 180_000)` as a whole-pipeline safety net. That net is exactly what caused the
     // "[post-media upload] Upload aborted" bug: once automatic upload retries (with backoff)
-    // were added, a 30s video needing even one retry on a slow connection could legitimately
+    // were added, a 15s video needing even one retry on a slow connection could legitimately
     // take longer than 180s end-to-end (location + media prep + upload attempts + backoff
     // delays + DB insert), so the timer fired and killed a request that was still healthy and
     // making progress — often moments before it would have succeeded. Confirmed via
@@ -514,6 +527,10 @@ export default function CreateSpotForm({
 
       const matchedPlace = findNearestDiscoveryPlace(publishLocation!, placesRef.current)?.name ?? null;
       const label = formatSpotGeoLocationShortLabel(publishLocation!, locale);
+      // Defensive: My Spots is photos-only. The Share screen already hides/forces this off for
+      // a video, but never trust UI state alone for what gets written to the database.
+      const isMySpotsPublish =
+        publishDestination === "my-spots" && itemsToPublish[0]!.mediaType !== "video";
 
       const result = await publishSpotWithProgress({
         userId,
@@ -525,7 +542,7 @@ export default function CreateSpotForm({
           ? undefined
           : normalizeSpotCaption(caption).trim() || undefined,
         location: publishLocation!,
-        publishToMySpots: publishDestination === "my-spots",
+        publishToMySpots: isMySpotsPublish,
         discoveryPlaces: placesRef.current,
         locationCard: publishAsLocationCard,
         signal: controller.signal,
@@ -554,7 +571,7 @@ export default function CreateSpotForm({
 
       if (postId) {
         // Capture before resetAll() below resets it back to "public".
-        const publishedDestinationTab = publishDestination === "my-spots" ? "my-spots" : "spots";
+        const publishedDestinationTab = isMySpotsPublish ? "my-spots" : "spots";
 
         // 1) Tear down temporary camera/media state before navigation.
         revokeMediaEditorItems(itemsToPublish);
@@ -709,8 +726,15 @@ export default function CreateSpotForm({
       onPickGallery={() => void handlePickGallery()}
       galleryDisabled={pickingMedia || publishing}
       onClose={() => void handleClose()}
-      onCapture={(file, mediaType, captureLocation, nativeWebPath) => {
-        void handleCameraCapture(file, mediaType, captureLocation, nativeWebPath);
+      onCapture={(file, mediaType, captureLocation, nativeWebPath, nativeFilePath, nativeFileSizeBytes) => {
+        void handleCameraCapture(
+          file,
+          mediaType,
+          captureLocation,
+          nativeWebPath,
+          nativeFilePath,
+          nativeFileSizeBytes
+        );
       }}
     />,
     document.body

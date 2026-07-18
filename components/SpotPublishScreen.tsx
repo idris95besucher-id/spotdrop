@@ -101,8 +101,21 @@ export default function SpotPublishScreen({
     setActiveIndex((index) => Math.min(index, Math.max(0, mediaItems.length - 1)));
   }, [mediaItems.length]);
 
+  // My Spots is photos-only — a video can only ever go to Public Spot.
+  const hasVideo = mediaItems.some((item) => item.mediaType === "video");
+
   useEffect(() => {
-    if (!destinationOpen) {
+    if (hasVideo) {
+      setDestinationOpen(false);
+
+      if (destination !== "public") {
+        onDestinationChange("public");
+      }
+    }
+  }, [destination, hasVideo, onDestinationChange]);
+
+  useEffect(() => {
+    if (!destinationOpen || hasVideo) {
       return;
     }
 
@@ -119,7 +132,7 @@ export default function SpotPublishScreen({
       document.removeEventListener("mousedown", handlePointerDown);
       document.removeEventListener("touchstart", handlePointerDown);
     };
-  }, [destinationOpen]);
+  }, [destinationOpen, hasVideo]);
 
   const isPublicDestination = destination === "public";
   const destinationLabel = isPublicDestination
@@ -199,64 +212,70 @@ export default function SpotPublishScreen({
             <p className="min-w-0 flex-1 truncate text-sm font-medium text-cyan-100/90">{locationLabel}</p>
           </div>
 
-          <div ref={destinationRef} className="relative">
-            <button
-              type="button"
-              disabled={publishing}
-              onClick={() => setDestinationOpen((open) => !open)}
-              className="flex w-full items-center justify-between rounded-xl bg-white/[0.06] px-3.5 py-2.5 text-left ring-1 ring-white/10 transition hover:bg-white/[0.08] disabled:opacity-50"
-              aria-expanded={destinationOpen}
-              aria-haspopup="listbox"
-            >
-              <span className="text-xs text-white/60">{t("spotEditor.shareTo")}</span>
-              <span className="inline-flex items-center gap-1 text-sm font-semibold text-white">
-                {destinationLabel}
-                <ChevronDown
-                  className={`h-4 w-4 text-white/55 transition ${destinationOpen ? "rotate-180" : ""}`}
-                  aria-hidden
-                />
-              </span>
-            </button>
-
-            {destinationOpen ? (
-              <div
-                role="listbox"
-                className="absolute inset-x-0 bottom-[calc(100%+0.5rem)] z-40 overflow-hidden rounded-2xl bg-[#12141c]/95 py-1 shadow-2xl ring-1 ring-white/12 backdrop-blur-xl"
+          {hasVideo ? (
+            <p className="px-0.5 text-center text-xs leading-snug text-white/55">
+              {t("spotEditor.videoPublicOnly")}
+            </p>
+          ) : (
+            <div ref={destinationRef} className="relative">
+              <button
+                type="button"
+                disabled={publishing}
+                onClick={() => setDestinationOpen((open) => !open)}
+                className="flex w-full items-center justify-between rounded-xl bg-white/[0.06] px-3.5 py-2.5 text-left ring-1 ring-white/10 transition hover:bg-white/[0.08] disabled:opacity-50"
+                aria-expanded={destinationOpen}
+                aria-haspopup="listbox"
               >
-                <button
-                  type="button"
-                  role="option"
-                  aria-selected={isPublicDestination}
-                  onClick={() => {
-                    onDestinationChange("public");
-                    setDestinationOpen(false);
-                  }}
-                  className="flex w-full items-center justify-between px-4 py-3 text-left text-sm transition hover:bg-white/6"
-                >
-                  <span className="font-medium text-white">{t("spotEditor.publicSpot")}</span>
-                  {isPublicDestination ? (
-                    <Check className="h-4 w-4 text-cyan-300" strokeWidth={2.5} aria-hidden />
-                  ) : null}
-                </button>
+                <span className="text-xs text-white/60">{t("spotEditor.shareTo")}</span>
+                <span className="inline-flex items-center gap-1 text-sm font-semibold text-white">
+                  {destinationLabel}
+                  <ChevronDown
+                    className={`h-4 w-4 text-white/55 transition ${destinationOpen ? "rotate-180" : ""}`}
+                    aria-hidden
+                  />
+                </span>
+              </button>
 
-                <button
-                  type="button"
-                  role="option"
-                  aria-selected={!isPublicDestination}
-                  onClick={() => {
-                    onDestinationChange("my-spots");
-                    setDestinationOpen(false);
-                  }}
-                  className="flex w-full items-center justify-between px-4 py-3 text-left text-sm transition hover:bg-white/6"
+              {destinationOpen ? (
+                <div
+                  role="listbox"
+                  className="absolute inset-x-0 bottom-[calc(100%+0.5rem)] z-40 overflow-hidden rounded-2xl bg-[#12141c]/95 py-1 shadow-2xl ring-1 ring-white/12 backdrop-blur-xl"
                 >
-                  <span className="font-medium text-white">{t("spotEditor.mySpots")}</span>
-                  {!isPublicDestination ? (
-                    <Check className="h-4 w-4 text-cyan-300" strokeWidth={2.5} aria-hidden />
-                  ) : null}
-                </button>
-              </div>
-            ) : null}
-          </div>
+                  <button
+                    type="button"
+                    role="option"
+                    aria-selected={isPublicDestination}
+                    onClick={() => {
+                      onDestinationChange("public");
+                      setDestinationOpen(false);
+                    }}
+                    className="flex w-full items-center justify-between px-4 py-3 text-left text-sm transition hover:bg-white/6"
+                  >
+                    <span className="font-medium text-white">{t("spotEditor.publicSpot")}</span>
+                    {isPublicDestination ? (
+                      <Check className="h-4 w-4 text-cyan-300" strokeWidth={2.5} aria-hidden />
+                    ) : null}
+                  </button>
+
+                  <button
+                    type="button"
+                    role="option"
+                    aria-selected={!isPublicDestination}
+                    onClick={() => {
+                      onDestinationChange("my-spots");
+                      setDestinationOpen(false);
+                    }}
+                    className="flex w-full items-center justify-between px-4 py-3 text-left text-sm transition hover:bg-white/6"
+                  >
+                    <span className="font-medium text-white">{t("spotEditor.mySpots")}</span>
+                    {!isPublicDestination ? (
+                      <Check className="h-4 w-4 text-cyan-300" strokeWidth={2.5} aria-hidden />
+                    ) : null}
+                  </button>
+                </div>
+              ) : null}
+            </div>
+          )}
 
           {offlineMode ? (
             <p className="text-center text-xs text-white/70">{t("spotEditor.offlineHint")}</p>

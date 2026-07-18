@@ -54,10 +54,13 @@ import { uploadVoiceMessage } from "@/lib/voiceMessages/uploadVoiceMessage";
 import type { VoiceRecordingResult } from "@/lib/voiceMessages/useVoiceRecorder";
 import { CITY_MESSAGE_SELECT } from "@/lib/cityMessageRow";
 import ChatAttachmentMenu from "@/components/chat/ChatAttachmentMenu";
+import MessageActionErrorToast from "@/components/chat/MessageActionErrorToast";
 import { sendCityRoomPhoto } from "@/lib/sendChatPhoto";
-import { sendCityRoomLocation, updateCityRoomLocation } from "@/lib/sendChatLocation";
-import { useLiveLocationSharing } from "@/lib/useLiveLocationSharing";
+import { pickChatPhotos } from "@/lib/pickMediaFromGallery";
+import { sendCityRoomLocation } from "@/lib/sendChatLocation";
 import { requestCheckSpotGpsReading } from "@/lib/checkSpotGps";
+import { canEditMessage } from "@/lib/messageEditWindow";
+import { editCityMessage, deleteCityMessageForEveryone, mapEditDeleteError } from "@/lib/messageEditDelete";
 
 type Country = {
   id: string;
@@ -85,6 +88,7 @@ type RawCityMessage = {
   created_at: string;
   user_id: string;
   edited_at?: string | null;
+  deleted_at?: string | null;
   audio_url?: string | null;
   audio_duration_seconds?: number | null;
   audio_waveform?: number[] | null;
@@ -101,6 +105,7 @@ type CityMessageWithSender = {
   created_at: string;
   user_id: string;
   edited_at?: string | null;
+  deleted_at?: string | null;
   profile: SenderProfile | null;
   audio_url?: string | null;
   audio_duration_seconds?: number | null;
@@ -119,6 +124,7 @@ function buildMessage(message: RawCityMessage, profile: SenderProfile | null): C
     created_at: message.created_at,
     user_id: message.user_id,
     edited_at: message.edited_at ?? null,
+    deleted_at: message.deleted_at ?? null,
     profile,
     audio_url: message.audio_url ?? null,
     audio_duration_seconds: message.audio_duration_seconds ?? null,
@@ -133,12 +139,13 @@ function buildMessage(message: RawCityMessage, profile: SenderProfile | null): C
 
 function applyMessagePatch(
   message: CityMessageWithSender,
-  patch: Pick<RawCityMessage, "content" | "edited_at">
+  patch: Pick<RawCityMessage, "content" | "edited_at" | "deleted_at">
 ): CityMessageWithSender {
   return {
     ...message,
     content: patch.content,
     edited_at: patch.edited_at ?? null,
+    deleted_at: patch.deleted_at ?? null,
   };
 }
 
@@ -242,9 +249,8 @@ export default function RoomChatPage() {
   const [editDraft, setEditDraft] = useState("");
   const [editError, setEditError] = useState<string | null>(null);
   const [savingEdit, setSavingEdit] = useState(false);
-  const [pendingDeleteMessageId, setPendingDeleteMessageId] = useState<string | null>(null);
-  const [deletingMessage, setDeletingMessage] = useState(false);
-  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const deletingMessageIdsRef = useRef<Set<string>>(new Set());
 
   const loadSession = useCallback(async () => {
     const { session, error: sessionError, expired } = await getSafeAuthSession();
@@ -472,10 +478,20 @@ export default function RoomChatPage() {
                   ? applyMessagePatch(message, {
                       content: updatedMessage.content,
                       edited_at: updatedMessage.edited_at,
+                      deleted_at: updatedMessage.deleted_at,
                     })
                   : message
               )
             );
+
+            setEditingMessageId((current) => {
+              if (current === updatedMessage.id && updatedMessage.deleted_at) {
+                setEditDraft("");
+                setEditError(null);
+                return null;
+              }
+              return current;
+            });
           }
         )
         .on(
@@ -488,7 +504,6 @@ export default function RoomChatPage() {
             }
 
             setMessages((currentMessages) => currentMessages.filter((message) => message.id !== deletedId));
-            setPendingDeleteMessageId((current) => (current === deletedId ? null : current));
             setEditingMessageId((current) => {
               if (current === deletedId) {
                 setEditDraft("");
@@ -843,37 +858,49 @@ export default function RoomChatPage() {
     markForceScroll();
   };
 
-  const handlePhotoSend = async (file: File) => {
+  const handlePhotoSend = async (files: File[]) => {
     setError(null);
     setSendError(null);
 
-    if (sending || !session?.user?.id || !cityId) {
+    if (sending || !session?.user?.id || !cityId || files.length === 0) {
       return;
     }
 
     setSending(true);
 
-    const sendResult = await sendCityRoomPhoto({
-      userId: session.user.id,
-      countrySlug: country?.slug ?? countrySlug,
-      citySlug: city?.slug ?? citySlug,
-      file,
-    });
+    for (const file of files) {
+      const sendResult = await sendCityRoomPhoto({
+        userId: session.user.id,
+        countrySlug: country?.slug ?? countrySlug,
+        citySlug: city?.slug ?? citySlug,
+        file,
+      });
+
+      if (sendResult.error || !sendResult.message) {
+        setSendError(sendResult.error ?? "Unable to send your message.");
+        continue;
+      }
+
+      const appendedMessage = buildMessage(sendResult.message as RawCityMessage, {
+        username: publicProfileUsername(currentUsername ?? ""),
+        avatar_url: currentUserAvatarUrl,
+      });
+
+      setMessages((currentMessages) => mergeMessages(currentMessages, [appendedMessage]));
+    }
 
     setSending(false);
+    markForceScroll();
+  };
 
-    if (sendResult.error || !sendResult.message) {
-      setSendError(sendResult.error ?? "Unable to send your message.");
+  const handlePickAndSendPhotos = async () => {
+    const files = await pickChatPhotos();
+
+    if (files.length === 0) {
       return;
     }
 
-    const appendedMessage = buildMessage(sendResult.message as RawCityMessage, {
-      username: publicProfileUsername(currentUsername ?? ""),
-      avatar_url: currentUserAvatarUrl,
-    });
-
-    setMessages((currentMessages) => mergeMessages(currentMessages, [appendedMessage]));
-    markForceScroll();
+    await handlePhotoSend(files);
   };
 
   const handleSendCurrentLocation = async () => {
@@ -900,7 +927,6 @@ export default function RoomChatPage() {
       citySlug: city?.slug ?? citySlug,
       latitude: reading.latitude,
       longitude: reading.longitude,
-      expiresAt: null,
     });
 
     setSending(false);
@@ -919,43 +945,7 @@ export default function RoomChatPage() {
     markForceScroll();
   };
 
-  const liveLocation = useLiveLocationSharing({
-    sendInitial: async (latitude, longitude, expiresAt) => {
-      if (!session?.user?.id || !cityId) {
-        return { messageId: null, error: null };
-      }
-
-      const sendResult = await sendCityRoomLocation({
-        userId: session.user.id,
-        countrySlug: country?.slug ?? countrySlug,
-        citySlug: city?.slug ?? citySlug,
-        latitude,
-        longitude,
-        expiresAt,
-      });
-
-      if (sendResult.message) {
-        const appendedMessage = buildMessage(sendResult.message as RawCityMessage, {
-          username: publicProfileUsername(currentUsername ?? ""),
-          avatar_url: currentUserAvatarUrl,
-        });
-        setMessages((currentMessages) => mergeMessages(currentMessages, [appendedMessage]));
-        markForceScroll();
-      }
-
-      return { messageId: sendResult.message?.id ?? null, error: sendResult.error };
-    },
-    updateExisting: async (messageId, latitude, longitude, expiresAt) => {
-      if (!session?.user?.id) {
-        return { error: null };
-      }
-
-      return updateCityRoomLocation({ messageId, userId: session.user.id, latitude, longitude, expiresAt });
-    },
-  });
-
   const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false);
-  const photoInputRef = useRef<HTMLInputElement>(null);
 
   const handleSend = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -986,12 +976,10 @@ export default function RoomChatPage() {
   const localizedError = localizeUserMessage(t, error);
 
   const startEditingMessage = (message: CityMessageWithSender) => {
-    if (isCityRoomStructuredMessage(message.content)) {
+    if (isCityRoomStructuredMessage(message.content) || !canEditMessage(message.created_at)) {
       return;
     }
 
-    setDeleteError(null);
-    setPendingDeleteMessageId(null);
     setEditError(null);
     setEditingMessageId(message.id);
     setEditDraft(message.content);
@@ -1016,7 +1004,6 @@ export default function RoomChatPage() {
 
     const targetMessage = messages.find((message) => message.id === editingMessageId);
     if (!targetMessage || targetMessage.user_id !== session.user.id) {
-      setEditError("You can only edit your own messages.");
       return;
     }
 
@@ -1028,30 +1015,27 @@ export default function RoomChatPage() {
     setSavingEdit(true);
     setEditError(null);
 
-    const editedAt = new Date().toISOString();
-    const { data: updatedMessage, error: updateError } = await supabase
-      .from("city_messages")
-      .update({
-        content: trimmed,
-        edited_at: editedAt,
-      })
-      .eq("id", editingMessageId)
-      .eq("user_id", session.user.id)
-      .select(CITY_MESSAGE_SELECT)
-      .single();
+    const { message: updatedMessage, error: updateError } = await editCityMessage({
+      messageId: editingMessageId,
+      userId: session.user.id,
+      content: trimmed,
+    });
 
-    if (updateError) {
-      console.error("Failed to update city message:", updateError);
-      setEditError(updateError.message || "Unable to save your edit.");
+    if (updateError || !updatedMessage) {
+      setEditError(mapEditDeleteError("edit", updateError));
       setSavingEdit(false);
       return;
     }
 
-    const patch = updatedMessage as RawCityMessage;
-
     setMessages((currentMessages) =>
       currentMessages.map((message) =>
-        message.id === patch.id ? applyMessagePatch(message, { content: patch.content, edited_at: patch.edited_at }) : message
+        message.id === updatedMessage.id
+          ? applyMessagePatch(message, {
+              content: updatedMessage.content,
+              edited_at: updatedMessage.edited_at,
+              deleted_at: updatedMessage.deleted_at,
+            })
+          : message
       )
     );
 
@@ -1059,52 +1043,46 @@ export default function RoomChatPage() {
     setSavingEdit(false);
   };
 
-  const requestDeleteMessage = (message: CityMessageWithSender) => {
-    if (message.user_id !== session?.user?.id) {
+  const deleteMessageForEveryone = async (message: CityMessageWithSender) => {
+    if (!session?.user?.id || message.user_id !== session.user.id) {
       return;
     }
 
-    setDeleteError(null);
-    cancelEditingMessage();
-    setPendingDeleteMessageId(message.id);
-  };
-
-  const cancelDeleteMessage = () => {
-    setDeleteError(null);
-    setPendingDeleteMessageId(null);
-  };
-
-  const confirmDeleteMessage = async () => {
-    if (!session?.user?.id || !pendingDeleteMessageId) {
+    // Guard against double-delete: a second long-press/tap while the first request is still
+    // in flight must be a no-op, not a second DELETE round-trip.
+    if (deletingMessageIdsRef.current.has(message.id)) {
       return;
     }
 
-    const targetMessage = messages.find((message) => message.id === pendingDeleteMessageId);
-    if (!targetMessage || targetMessage.user_id !== session.user.id) {
-      setDeleteError("You can only delete your own messages.");
-      return;
+    deletingMessageIdsRef.current.add(message.id);
+
+    try {
+      const { error: deleteErrorResult } = await deleteCityMessageForEveryone({
+        messageId: message.id,
+        userId: session.user.id,
+      });
+
+      if (deleteErrorResult) {
+        console.error("Failed to delete city message:", deleteErrorResult);
+        setActionError(localizeUserMessage(t, mapEditDeleteError("delete", deleteErrorResult)));
+        return;
+      }
+
+      // Hard delete: remove the row from local state outright rather than flagging deleted_at —
+      // the realtime DELETE subscription does the same filter-out for every other connected
+      // client (see the "DELETE" postgres_changes handler above).
+      setMessages((currentMessages) => currentMessages.filter((current) => current.id !== message.id));
+      setEditingMessageId((current) => {
+        if (current === message.id) {
+          setEditDraft("");
+          setEditError(null);
+          return null;
+        }
+        return current;
+      });
+    } finally {
+      deletingMessageIdsRef.current.delete(message.id);
     }
-
-    setDeletingMessage(true);
-    setDeleteError(null);
-
-    const messageId = pendingDeleteMessageId;
-    const { error: deleteErrorResult } = await supabase
-      .from("city_messages")
-      .delete()
-      .eq("id", messageId)
-      .eq("user_id", session.user.id);
-
-    if (deleteErrorResult) {
-      console.error("Failed to delete city message:", deleteErrorResult);
-      setDeleteError(deleteErrorResult.message || "Unable to delete your message.");
-      setDeletingMessage(false);
-      return;
-    }
-
-    setMessages((currentMessages) => currentMessages.filter((message) => message.id !== messageId));
-    setPendingDeleteMessageId(null);
-    setDeletingMessage(false);
   };
 
   const openedFromMessages = useMemo(
@@ -1219,7 +1197,7 @@ export default function RoomChatPage() {
           <div
             ref={messagesContainerRef}
             onScroll={handleScroll}
-            className={`relative z-10 min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-3 py-3 ${CITY_ROOM_MESSAGES_FLEX_PADDING}`}
+            className={`relative z-10 min-h-0 flex-1 touch-pan-y overflow-y-auto overscroll-y-contain px-3 py-3 ${CITY_ROOM_MESSAGES_FLEX_PADDING}`}
           >
             {chatLoading ? (
               <div className="rounded-3xl border border-dashed border-white/10 bg-slate-950/55 p-8 text-center text-slate-300 backdrop-blur-md">
@@ -1236,7 +1214,6 @@ export default function RoomChatPage() {
                 {messages.map((message, messageIndex) => {
                   const isOwnMessage = message.user_id === session?.user?.id;
                   const isEditing = editingMessageId === message.id;
-                  const isConfirmingDelete = pendingDeleteMessageId === message.id;
                   const previousMessage = messageIndex > 0 ? messages[messageIndex - 1] : null;
                   const showDateSeparator = shouldShowChatDateSeparator(
                     previousMessage?.created_at,
@@ -1258,19 +1235,14 @@ export default function RoomChatPage() {
                           isFirstInGroup={isFirstInGroup}
                           isLastInGroup={isLastInGroup}
                           isEditing={isEditing}
-                          isConfirmingDelete={isConfirmingDelete}
                           editDraft={editDraft}
                           editError={editError}
-                          deleteError={deleteError}
                           savingEdit={savingEdit}
-                          deletingMessage={deletingMessage}
                           onStartEdit={() => startEditingMessage(message)}
                           onCancelEdit={cancelEditingMessage}
                           onSaveEdit={() => void saveEditedMessage()}
                           onEditDraftChange={setEditDraft}
-                          onRequestDelete={() => requestDeleteMessage(message)}
-                          onCancelDelete={cancelDeleteMessage}
-                          onConfirmDelete={() => void confirmDeleteMessage()}
+                          onDelete={() => void deleteMessageForEveryone(message)}
                         />
                       </div>
                     </Fragment>
@@ -1293,27 +1265,11 @@ export default function RoomChatPage() {
               </div>
             ) : null}
 
-            <input
-              ref={photoInputRef}
-              type="file"
-              accept="image/*"
-              className="hidden"
-              onChange={(event) => {
-                const file = event.target.files?.[0];
-                event.target.value = "";
-                if (file) {
-                  void handlePhotoSend(file);
-                }
-              }}
-            />
             <ChatAttachmentMenu
               isOpen={attachmentMenuOpen}
               onClose={() => setAttachmentMenuOpen(false)}
-              onSendPhoto={() => photoInputRef.current?.click()}
+              onSendPhoto={() => void handlePickAndSendPhotos()}
               onSendCurrentLocation={() => void handleSendCurrentLocation()}
-              onShareLiveLocation={() => void liveLocation.start()}
-              isSharingLiveLocation={liveLocation.isSharing}
-              onStopLiveLocation={() => void liveLocation.stop()}
             />
             <CityRoomChatComposer
             value={newMessage}
@@ -1321,7 +1277,7 @@ export default function RoomChatPage() {
             onSubmit={handleSend}
             sending={sending}
             sendDisabled={isSendDisabled}
-            sendError={sendError ?? liveLocation.error}
+            sendError={sendError}
             inputDisabled={!session?.user?.id}
             placeholder={session?.user?.id ? t("rooms.messagePlaceholder") : t("rooms.signInToChat")}
             textareaRef={composerTextareaRef}
@@ -1378,6 +1334,7 @@ export default function RoomChatPage() {
           animation: joinBadgeFade 3s ease forwards;
         }
       `}</style>
+      <MessageActionErrorToast message={actionError} onDismiss={() => setActionError(null)} />
     </Shell>
   );
 }

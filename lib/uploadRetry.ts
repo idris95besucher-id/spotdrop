@@ -9,14 +9,12 @@ export type RetryAttemptInfo = {
   message: string;
 };
 
-const DEFAULT_MAX_ATTEMPTS = 4;
+/** Diagnostics mode: no automatic retries — fail fast with the exact error. */
+const DEFAULT_MAX_ATTEMPTS = 1;
 const BASE_DELAY_MS = 1000;
-const MAX_DELAY_MS = 8000;
+const MAX_DELAY_MS = 4000;
 
 function backoffDelayMs(attempt: number) {
-  // attempt is 1-indexed for the retry that's about to happen: 1s, 2s, 4s, capped at 8s,
-  // plus up to 300ms of jitter so multiple concurrent uploads (primary + cover) don't all
-  // retry in lockstep against the same flaky connection.
   const exponential = Math.min(MAX_DELAY_MS, BASE_DELAY_MS * 2 ** (attempt - 1));
   const jitter = Math.random() * 300;
   return exponential + jitter;
@@ -73,14 +71,34 @@ function waitForConnectivity(signal?: AbortSignal, maxWaitMs = 15_000): Promise<
   });
 }
 
+function describeUploadError(caught: unknown) {
+  const asError = caught as {
+    message?: string;
+    name?: string;
+    errorKind?: UploadErrorKind;
+    statusCode?: string | number;
+    diagnostics?: unknown;
+    stack?: string;
+  } | null;
+
+  return {
+    name: asError?.name ?? (caught instanceof Error ? caught.name : typeof caught),
+    message: asError?.message ?? (caught instanceof Error ? caught.message : String(caught)),
+    errorKind: asError?.errorKind ?? null,
+    statusCode: asError?.statusCode ?? null,
+    diagnostics: asError?.diagnostics ?? null,
+    stack: asError?.stack ?? (caught instanceof Error ? caught.stack : null),
+  };
+}
+
 /**
- * Retries `attempt` with exponential backoff, but only for errors flagged retryable by
- * `isRetryableUploadError` (transient network/timeout/5xx) — never for auth/RLS/4xx errors,
- * and never once `signal` has been aborted (a manual retry or navigation supersedes this run).
+ * Retries `attempt` only for true network / offline failures (`isRetryableUploadError`).
+ * Never retries 413, auth, permanent 4xx, stalls, timeouts, or 5xx — those must surface
+ * immediately so the same large video is not re-sent in a loop.
  *
  * `attempt` is called with `attemptNumber` (1-indexed) so the caller can pass
  * `isRetryAttempt: attemptNumber > 1` through to `uploadFileToStorageWithProgress` — that's
- * what makes a 409-after-network-error on attempt 2+ resolve as success instead of failure.
+ * what makes a 409-after-network-error on attempt 2 resolve as success instead of failure.
  */
 export async function retryUpload<T>(
   attempt: (attemptNumber: number) => Promise<T>,
@@ -103,10 +121,17 @@ export async function retryUpload<T>(
     } catch (caught) {
       lastError = caught;
 
-      const errorKind = (caught as { errorKind?: UploadErrorKind })?.errorKind;
+      const details = describeUploadError(caught);
       const isAbort = caught instanceof DOMException && caught.name === "AbortError";
+      const retryable = !isAbort && isRetryableUploadError(caught);
 
-      if (isAbort || !isRetryableUploadError(caught) || attemptNumber >= maxAttempts) {
+      console.error(`[upload-retry] attempt ${attemptNumber}/${maxAttempts} failed`, {
+        ...details,
+        willRetry: retryable && attemptNumber < maxAttempts,
+        online: isDeviceOnline(),
+      });
+
+      if (isAbort || !retryable || attemptNumber >= maxAttempts) {
         throw caught;
       }
 
@@ -116,13 +141,14 @@ export async function retryUpload<T>(
         attempt: attemptNumber + 1,
         maxAttempts,
         delayMs,
-        errorKind: errorKind ?? "unknown",
-        message: caught instanceof Error ? caught.message : String(caught),
+        errorKind: details.errorKind ?? "unknown",
+        message: details.message,
       });
 
-      console.warn(`[upload-retry] attempt ${attemptNumber} failed (${errorKind ?? "unknown"}) — retrying in ${Math.round(delayMs)}ms`, {
-        message: caught instanceof Error ? caught.message : String(caught),
-      });
+      console.warn(
+        `[upload-retry] network error — retrying once with the same file in ${Math.round(delayMs)}ms`,
+        details
+      );
 
       await waitForConnectivity(options.signal);
       await sleep(delayMs, options.signal);

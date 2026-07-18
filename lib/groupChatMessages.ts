@@ -18,10 +18,13 @@ export type GroupChatMessageRow = {
   live_location_lng: number | null;
   live_location_updated_at: string | null;
   live_location_expires_at: string | null;
+  edited_at: string | null;
+  deleted_at: string | null;
 };
 
-const MESSAGE_SELECT =
-  "id, group_id, sender_id, message_type, body, post_id, created_at, audio_url, audio_duration_seconds, audio_waveform, image_url, live_location_lat, live_location_lng, live_location_updated_at, live_location_expires_at";
+/** Exported so every group message sender (voice/photo/location/text) selects the exact same column set — no drift. */
+export const MESSAGE_SELECT =
+  "id, group_id, sender_id, message_type, body, post_id, created_at, audio_url, audio_duration_seconds, audio_waveform, image_url, live_location_lat, live_location_lng, live_location_updated_at, live_location_expires_at, edited_at, deleted_at";
 
 function logGroupMessageError(context: string, error: { message?: string; code?: string; details?: string | null; hint?: string | null } | null) {
   if (!error) {

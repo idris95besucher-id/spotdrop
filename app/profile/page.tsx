@@ -456,6 +456,7 @@ export default function ProfilePage() {
                   ownerUserId={session.user.id}
                   viewerUserId={session.user.id}
                   visibility={galleryVisibility}
+                  showLabel
                 />
               </div>
             ) : (

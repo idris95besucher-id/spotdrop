@@ -91,7 +91,8 @@ export default function ProfileGalleryAvatarLink({
         />
       </span>
       {showLabel ? (
-        <span className="text-[10px] font-medium tracking-[0.04em] text-cyan-300/75 transition group-hover:text-cyan-200/90">
+        <span className="max-w-[5.5rem] text-center text-[10px] font-medium leading-tight tracking-[0.02em] text-cyan-300/75 transition group-hover:text-cyan-200/90">
+          {/* Visible label under the My Profile avatar only — not the gallery page header. */}
           {t("profile.galleryLabel")}
         </span>
       ) : null}

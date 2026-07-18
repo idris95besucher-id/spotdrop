@@ -66,7 +66,7 @@ function shouldReuseOriginalVideoFile(item: MediaEditorItem, sourceDuration: num
     return false;
   }
 
-  console.log("[UPLOAD] export skipped (file > 50MB, no compressor — upload original)", {
+  console.log("[UPLOAD] trim/mute export skipped (file > 50MB) — original file continues to lib/videoCompress.ts", {
     fileSizeMb: item.file.size / (1024 * 1024),
   });
   return true;
@@ -103,12 +103,23 @@ export async function prepareMediaFileForPublish(item: MediaEditorItem): Promise
     return { file: item.file, audioMuted: false };
   }
 
+  // Native iOS recordings stay on disk — compression + upload are handled by
+  // SpotDropCamera.uploadVideoToStorage. Never load / re-encode in JS here.
+  if (item.nativeFilePath) {
+    console.log("[SPOT-VIDEO-TIMING] preparePublish skipped for native disk video", {
+      nativeFilePath: item.nativeFilePath,
+      nativeFileSizeBytes: item.nativeFileSizeBytes ?? null,
+      audioMuted: !item.keepSound,
+    });
+    return { file: item.file, audioMuted: !item.keepSound };
+  }
+
   // No SHA-256/MP4-box diagnostics here anymore — those read and hashed the
   // *entire* file before upload even started (twice: once here, once again in
   // uploadPostMedia) purely for now-resolved corruption debugging, and were
   // the dominant cause of "Uploading video..." sitting for a long time before
   // any network activity began. Duration is still measured for real
-  // validation (the 30s cap below); that's a lightweight `<video>` metadata
+  // validation (the 15s cap below); that's a lightweight `<video>` metadata
   // load, not a full-file read.
   const sourceDuration = await resolveActualVideoDurationSeconds(item);
   const trimEnd = getResolvedTrimEnd(item, sourceDuration);

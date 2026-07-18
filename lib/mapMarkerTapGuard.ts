@@ -8,8 +8,6 @@ export const MAP_INTERACTIVE_MARKER_SELECTOR = [
   ".spot-live-share-marker",
   ".spot-live-user-marker-anchor",
   ".spot-live-user-marker",
-  ".spot-map-overlap-marker-anchor",
-  ".spot-map-overlap-marker",
   ".spot-map-public-mark-anchor",
   ".spot-map-public-mark",
   ".spot-map-public-mark-cluster-anchor",

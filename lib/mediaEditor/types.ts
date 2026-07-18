@@ -7,11 +7,17 @@ export type MediaEditorItem = {
   mediaType: MediaEditorMediaType;
   previewUrl: string;
   /**
+   * Absolute iOS filesystem path for a native SpotDropCamera recording.
+   * When set, publish uploads via URLSession from disk — the `file` field is an
+   * empty stub and must never be base64-decoded or XHR-uploaded.
+   */
+  nativeFilePath?: string | null;
+  /** On-disk size reported by the native recorder (stub `file.size` is always 0). */
+  nativeFileSizeBytes?: number | null;
+  /**
    * Secondary preview source, only set when `previewUrl` points at a native
    * file (`capacitor://.../_capacitor_file_...`) rather than a `blob:` URL.
-   * `CarouselVideoSlide` falls back to this (a `blob:` URL built from the
-   * already-decoded `file`) if the native source fails to load — see
-   * `createMediaEditorItem`.
+   * For native videos without a JS-decoded File, this stays null (no blob fallback).
    */
   fallbackPreviewUrl: string | null;
   /** When false, publish without audio (videos only). Default true. */

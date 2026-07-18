@@ -103,42 +103,6 @@ export default function MapOverlapActionSheet({
         <div className="min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain px-4 py-3">
           {view === "root" ? (
             <>
-              {users.length === 1 ? (
-                <button
-                  type="button"
-                  onClick={() => handleOpenUser(users[0]!)}
-                  className="flex w-full items-center gap-3 rounded-2xl border border-violet-400/25 bg-violet-500/10 px-3.5 py-3 text-left transition hover:bg-violet-500/15"
-                >
-                  <span className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full border-2 border-violet-400/80 bg-slate-800">
-                    {users[0]!.avatar_url ? (
-                      <img src={users[0]!.avatar_url} alt="" className="h-full w-full object-cover" />
-                    ) : (
-                      <UserRound className="h-5 w-5 text-slate-300" aria-hidden />
-                    )}
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-sm font-semibold text-white">{t("map.overlapOpenUser")}</span>
-                    <span className="block truncate text-xs text-slate-400">@{users[0]!.username}</span>
-                  </span>
-                </button>
-              ) : users.length > 1 ? (
-                <button
-                  type="button"
-                  onClick={() => setView("users")}
-                  className="flex w-full items-center gap-3 rounded-2xl border border-violet-400/25 bg-violet-500/10 px-3.5 py-3 text-left transition hover:bg-violet-500/15"
-                >
-                  <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border-2 border-violet-400/80 bg-slate-900 text-violet-200">
-                    <Users className="h-5 w-5" aria-hidden />
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-sm font-semibold text-white">
-                      {t("map.overlapUsersCount", { count: users.length })}
-                    </span>
-                    <span className="block text-xs text-slate-400">{t("map.overlapChooseUser")}</span>
-                  </span>
-                </button>
-              ) : null}
-
               {spots.length === 1 ? (
                 <button
                   type="button"
@@ -177,6 +141,42 @@ export default function MapOverlapActionSheet({
                       {t("map.overlapSpotsCount", { count: spots.length })}
                     </span>
                     <span className="block text-xs text-slate-400">{t("map.overlapChooseSpot")}</span>
+                  </span>
+                </button>
+              ) : null}
+
+              {users.length === 1 ? (
+                <button
+                  type="button"
+                  onClick={() => handleOpenUser(users[0]!)}
+                  className="flex w-full items-center gap-3 rounded-2xl border border-violet-400/25 bg-violet-500/10 px-3.5 py-3 text-left transition hover:bg-violet-500/15"
+                >
+                  <span className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full border-2 border-violet-400/80 bg-slate-800">
+                    {users[0]!.avatar_url ? (
+                      <img src={users[0]!.avatar_url} alt="" className="h-full w-full object-cover" />
+                    ) : (
+                      <UserRound className="h-5 w-5 text-slate-300" aria-hidden />
+                    )}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm font-semibold text-white">{t("map.overlapOpenUser")}</span>
+                    <span className="block truncate text-xs text-slate-400">@{users[0]!.username}</span>
+                  </span>
+                </button>
+              ) : users.length > 1 ? (
+                <button
+                  type="button"
+                  onClick={() => setView("users")}
+                  className="flex w-full items-center gap-3 rounded-2xl border border-violet-400/25 bg-violet-500/10 px-3.5 py-3 text-left transition hover:bg-violet-500/15"
+                >
+                  <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border-2 border-violet-400/80 bg-slate-900 text-violet-200">
+                    <Users className="h-5 w-5" aria-hidden />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm font-semibold text-white">
+                      {t("map.overlapUsersCount", { count: users.length })}
+                    </span>
+                    <span className="block text-xs text-slate-400">{t("map.overlapChooseUser")}</span>
                   </span>
                 </button>
               ) : null}

@@ -10,6 +10,8 @@ export type SpotPublishLabelContext = {
   primaryMediaType: "image" | "video";
   mediaCount: number;
   locationCard?: boolean;
+  /** True only while the "preparing" stage is actively re-encoding an oversized video. */
+  compressingVideo?: boolean;
 };
 
 export const SPOT_PUBLISH_STAGE_LABELS: Record<SpotPublishStage, string> = {
@@ -25,6 +27,10 @@ export function getSpotPublishStageLabel(
   stage: SpotPublishStage,
   context: SpotPublishLabelContext
 ): string {
+  if (stage === "preparing" && context.compressingVideo) {
+    return "Compressing video...";
+  }
+
   if (context.locationCard) {
     if (
       stage === "uploading_primary" ||

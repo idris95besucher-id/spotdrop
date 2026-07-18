@@ -167,38 +167,65 @@ export async function uploadPostMedia(
     await verifyStorageBucket(POST_MEDIA_BUCKET);
   }
 
-  // Storage upload starts immediately — no SHA-256 hashing, no MP4 box
-  // parsing, no metadata probe before this. Those were leftover corruption
-  // diagnostics from an earlier, now-fixed bug; they read the *entire* file
-  // into memory and hashed it (twice, once here and once again in
-  // prepareMediaFileForPublish) before any network request began, which was
-  // the dominant reason "Uploading video..." sat there for a long time.
-  options.onProgress?.(0);
+  // Confirm the exact payload size once, before any network request. Compression (if any)
+  // already happened upstream — this File is what every network retry will reuse unchanged.
+  console.log("[UPLOAD] confirming final file size before upload", {
+    requestId: options.requestId ?? null,
+    bucket: POST_MEDIA_BUCKET,
+    storage_path: storagePath,
+    fileName: file.name,
+    fileType: file.type || "(unknown)",
+    mediaType,
+    finalSizeBytes: file.size,
+    finalSizeMb: Math.round((file.size / (1024 * 1024)) * 100) / 100,
+  });
 
   const uploadStartedAt = performance.now();
   let uploadError: StorageUploadError | null = null;
+  let lastReportedPercent = -1;
+
+  const reportByteProgress = (percent: number) => {
+    // Avoid thrashing the UI with duplicate ticks; still report every real step so the bar
+    // tracks xhr.upload bytes sent (0–100), not a simulated jump.
+    const clamped = Math.max(0, Math.min(100, Math.round(percent)));
+
+    if (clamped === lastReportedPercent) {
+      return;
+    }
+
+    lastReportedPercent = clamped;
+    options.onProgress?.(clamped);
+  };
+
+  reportByteProgress(0);
 
   try {
     // Real XHR upload (not supabase-js's fetch-based `.upload()`) so
     // `onProgress` reports actual bytes sent, not a simulated 0-then-100 —
-    // and so the original File is streamed directly, never re-buffered or
-    // re-encoded for the upload itself.
+    // and so the prepared File is streamed directly, never re-compressed for the upload.
     //
-    // Wrapped in retryUpload: transient failures (network drop, stall, 5xx) retry with
-    // exponential backoff against this *same* storagePath — the video never has to be
-    // re-selected, and re-attempts reuse the same File reference so nothing is re-read
-    // into memory. Auth/RLS/4xx failures are never retried (see isRetryableUploadError).
+    // Wrapped in retryUpload: only true network/offline failures retry, once, against this
+    // *same* storagePath and File. 413 / permanent / stall / timeout are never retried.
     await retryUpload(
-      (attemptNumber) =>
-        uploadFileToStorageWithProgress(POST_MEDIA_BUCKET, storagePath, file, {
+      (attemptNumber) => {
+        console.log("[UPLOAD] starting single storage request", {
+          requestId: options.requestId ?? null,
+          attemptNumber,
+          storage_path: storagePath,
+          finalSizeBytes: file.size,
+          finalSizeMb: Math.round((file.size / (1024 * 1024)) * 100) / 100,
+        });
+
+        return uploadFileToStorageWithProgress(POST_MEDIA_BUCKET, storagePath, file, {
           accessToken,
           cacheControl: "3600",
           upsert: false,
-          onProgress: options.onProgress,
+          onProgress: reportByteProgress,
           signal: options.signal,
           isRetryAttempt: attemptNumber > 1,
           requestId: options.requestId,
-        }),
+        });
+      },
       { signal: options.signal, onRetry: options.onRetry }
     );
   } catch (caught) {

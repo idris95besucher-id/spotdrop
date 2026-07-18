@@ -1,6 +1,7 @@
 import type { DiscoveryPlace } from "@/lib/discoveryMap";
 import { prepareMediaFileForPublish, type MediaEditorItem } from "@/lib/mediaEditor";
 import { createGeoSpot, type CreateSpotInput } from "@/lib/spots";
+import { compressVideoForUploadIfNeeded } from "@/lib/videoCompress";
 import {
   getSpotPublishStageLabel,
   logSpotPublishStage,
@@ -152,6 +153,8 @@ export async function publishSpotWithProgress(input: PublishSpotInput): Promise<
     mediaType: "image" | "video";
     coverFile: File | null;
     audioMuted: boolean;
+    nativeFilePath?: string | null;
+    nativeFileSizeBytes?: number | null;
   }> = [];
 
   const exportSlice = 8 / Math.max(input.mediaItems.length, 1);
@@ -159,38 +162,81 @@ export async function publishSpotWithProgress(input: PublishSpotInput): Promise<
   try {
     for (let index = 0; index < input.mediaItems.length; index += 1) {
       const item = input.mediaItems[index]!;
+      const usesNativeDiskPath = Boolean(item.nativeFilePath);
       logSpotPublishStep("prepare_media", {
         index,
         fileName: item.file.name,
-        fileSize: item.file.size,
+        fileSize: usesNativeDiskPath ? item.nativeFileSizeBytes ?? 0 : item.file.size,
         fileType: item.file.type,
+        nativeFilePath: item.nativeFilePath ?? null,
       });
       const finishExport = timeUploadStep(`[UPLOAD] Export ${index + 1}`);
       const prepared = await prepareMediaFileForPublish(item);
       recordUploadStepDuration("exportDurationMs", finishExport());
 
-      if (item.mediaType === "video") {
-        console.log(
-          `[UPLOAD][audio] video ${index} | keepSound=${item.keepSound} | audioMuted(final)=${prepared.audioMuted} | mimeType=${prepared.file.type} | sizeBytes=${prepared.file.size}`
-        );
+      let finalFile = prepared.file;
+
+      if (item.mediaType === "video" && usesNativeDiskPath) {
+        // Native iOS path: compression + upload happen in URLSession from disk.
+        // Do NOT run JS canvas compress or load the file into memory here.
+        console.log("[SPOT-VIDEO-TIMING] prepare — native disk path (skip JS compress / memory load)", {
+          index,
+          nativeFilePath: item.nativeFilePath,
+          originalSizeBytes: item.nativeFileSizeBytes ?? 0,
+          readIntoMemoryMs: 0,
+          compressMs: 0,
+        });
+      } else if (item.mediaType === "video") {
+        const sliceStart = 4 + exportSlice * index;
+        const sliceEnd = 4 + exportSlice * (index + 1);
+        const compressionLabelContext: SpotPublishLabelContext = { ...labelContext, compressingVideo: true };
+
+        const finishCompression = timeUploadStep(`[UPLOAD] Compress ${index + 1}`);
+        const compressionOutcome = await compressVideoForUploadIfNeeded(finalFile, {
+          onProgress: (percent) => {
+            const clamped = Math.max(0, Math.min(100, percent));
+            reportProgress(
+              input.onProgress,
+              "preparing",
+              sliceStart + (clamped / 100) * (sliceEnd - sliceStart),
+              compressionLabelContext
+            );
+          },
+        });
+        finishCompression();
+
+        finalFile = compressionOutcome.file;
+
+        if (compressionOutcome.compressed) {
+          console.log("[UPLOAD] video compressed before upload", {
+            index,
+            originalSizeMb: Math.round((compressionOutcome.originalSizeBytes / (1024 * 1024)) * 100) / 100,
+            finalSizeMb: Math.round((compressionOutcome.finalSizeBytes / (1024 * 1024)) * 100) / 100,
+          });
+        }
       }
 
       if (index === 0) {
-        recordProcessedVideoSize(prepared.file.size);
+        recordProcessedVideoSize(
+          usesNativeDiskPath ? item.nativeFileSizeBytes ?? 0 : finalFile.size
+        );
         logUploadLifecycleEvent("media-prepared", {
           requestId: input.requestId,
           index,
-          originalSizeBytes: item.file.size,
-          processedSizeBytes: prepared.file.size,
-          reEncoded: prepared.file !== item.file,
+          originalSizeBytes: usesNativeDiskPath ? item.nativeFileSizeBytes ?? 0 : item.file.size,
+          processedSizeBytes: usesNativeDiskPath ? item.nativeFileSizeBytes ?? 0 : finalFile.size,
+          reEncoded: !usesNativeDiskPath && finalFile !== item.file,
+          nativeDiskUpload: usesNativeDiskPath,
         });
       }
 
       preparedFiles.push({
-        file: prepared.file,
+        file: finalFile,
         mediaType: item.mediaType,
         coverFile: item.coverFile ?? null,
         audioMuted: prepared.audioMuted,
+        nativeFilePath: item.nativeFilePath ?? null,
+        nativeFileSizeBytes: item.nativeFileSizeBytes ?? null,
       });
       reportProgress(input.onProgress, "preparing", 4 + exportSlice * (index + 1), labelContext);
     }
@@ -201,7 +247,21 @@ export async function publishSpotWithProgress(input: PublishSpotInput): Promise<
 
   reportProgress(input.onProgress, "preparing", 12, labelContext);
 
-  logSpotPublishStep("upload_primary", { preparedCount: preparedFiles.length });
+  const primaryPrepared = preparedFiles[0]!;
+  console.log("[SPOT-VIDEO-TIMING] final file confirmed before upload", {
+    mediaType: primaryPrepared.mediaType,
+    path: primaryPrepared.nativeFilePath ? "native-disk" : "web-xhr",
+    nativeFilePath: primaryPrepared.nativeFilePath ?? null,
+    originalSizeBytes: primaryPrepared.nativeFileSizeBytes ?? primaryPrepared.file.size,
+    finalSizeBytes: primaryPrepared.nativeFileSizeBytes ?? primaryPrepared.file.size,
+    preparedCount: preparedFiles.length,
+  });
+
+  logSpotPublishStep("upload_primary", {
+    preparedCount: preparedFiles.length,
+    finalSizeBytes: primaryPrepared.nativeFileSizeBytes ?? primaryPrepared.file.size,
+    nativeDiskUpload: Boolean(primaryPrepared.nativeFilePath),
+  });
 
   const result = await createGeoSpot({
     userId: user.id,

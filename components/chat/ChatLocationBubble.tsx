@@ -1,99 +1,74 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { LocateFixed, Radio } from "lucide-react";
+import { useState } from "react";
+import { LocateFixed, Navigation } from "lucide-react";
 import { useI18n } from "@/components/I18nProvider";
+import { mapboxStaticPlaceImageUrl } from "@/lib/placeImages";
 
 type ChatLocationBubbleProps = {
   latitude: number;
   longitude: number;
-  updatedAt: string;
-  expiresAt: string | null;
   isOwnMessage: boolean;
 };
 
-function formatRelativeTime(iso: string, justNowLabel: string): string {
-  const seconds = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
-
-  if (seconds < 30) {
-    return justNowLabel;
-  }
-  if (seconds < 60) {
-    return `${seconds}s`;
-  }
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) {
-    return `${minutes}m`;
-  }
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) {
-    return `${hours}h`;
-  }
-  const days = Math.floor(hours / 24);
-  return `${days}d`;
+function formatCoordinate(value: number) {
+  return value.toFixed(5);
 }
 
-export default function ChatLocationBubble({
-  latitude,
-  longitude,
-  updatedAt,
-  expiresAt,
-  isOwnMessage,
-}: ChatLocationBubbleProps) {
+/** Renders a one-time current-location snapshot shared in DM/group/City Room chat. */
+export default function ChatLocationBubble({ latitude, longitude, isOwnMessage }: ChatLocationBubbleProps) {
   const { t } = useI18n();
-  const [, setTick] = useState(0);
-
-  const isLive = Boolean(expiresAt);
-  const isExpired = isLive && expiresAt !== null && new Date(expiresAt).getTime() <= Date.now();
-  const isActiveLive = isLive && !isExpired;
-
-  useEffect(() => {
-    if (!isActiveLive) {
-      return;
-    }
-
-    const interval = setInterval(() => setTick((value) => value + 1), 15_000);
-    return () => clearInterval(interval);
-  }, [isActiveLive]);
+  const [mapImageFailed, setMapImageFailed] = useState(false);
 
   const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${latitude},${longitude}`;
+  // Static preview image — same Mapbox helper already used for Spot/place cards elsewhere in
+  // the app (lib/placeImages.ts). Returns null when no Mapbox token is configured, in which
+  // case we fall back to the plain icon tile below rather than a broken <img>.
+  const mapPreviewUrl = mapboxStaticPlaceImageUrl(latitude, longitude, 320, 176);
 
-  const label = isExpired
-    ? t("chatAttach.liveLocationEnded")
-    : isActiveLive
-      ? t("chatAttach.liveLocationLabel")
-      : t("chatAttach.currentLocationLabel");
+  const openOnMap = () => {
+    window.open(mapsUrl, "_blank", "noopener,noreferrer");
+  };
 
   return (
-    <a
-      href={mapsUrl}
-      target="_blank"
-      rel="noopener noreferrer"
-      className={`block w-56 max-w-[85vw] shrink-0 overflow-hidden rounded-2xl ${
+    <div
+      className={`w-64 max-w-[85vw] shrink-0 overflow-hidden rounded-2xl ${
         isOwnMessage ? "rounded-br-md" : "rounded-bl-md"
-      } bg-[#101a2c] ring-1 ring-white/10 transition hover:ring-white/20`}
+      } bg-[#101a2c] ring-1 ring-white/10`}
     >
-      <div className="flex h-24 w-full items-center justify-center bg-[radial-gradient(circle_at_center,rgba(45,212,191,0.18),transparent_65%)]">
-        <span
-          className={`inline-flex h-10 w-10 items-center justify-center rounded-full ${
-            isActiveLive ? "bg-red-500/15 text-red-300 ring-1 ring-red-400/25" : "bg-white/8 text-cyan-300 ring-1 ring-white/10"
-          }`}
-        >
-          {isActiveLive ? (
-            <Radio className="h-5 w-5" strokeWidth={1.75} aria-hidden />
-          ) : (
+      <button type="button" onClick={openOnMap} className="relative block h-28 w-full">
+        <div className="absolute inset-0 flex items-center justify-center bg-[radial-gradient(circle_at_center,rgba(45,212,191,0.18),transparent_65%)]">
+          {mapPreviewUrl && !mapImageFailed ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={mapPreviewUrl}
+              alt=""
+              className="absolute inset-0 h-full w-full object-cover"
+              onError={() => setMapImageFailed(true)}
+            />
+          ) : null}
+          <span className="relative z-10 inline-flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-cyan-300 shadow-lg shadow-black/40 ring-1 ring-white/15">
             <LocateFixed className="h-5 w-5" strokeWidth={1.75} aria-hidden />
-          )}
-        </span>
-      </div>
-      <div className="flex items-center justify-between gap-2 px-3 py-2">
-        <span className={`text-xs font-semibold ${isExpired ? "text-slate-400" : "text-slate-100"}`}>{label}</span>
-        {!isExpired ? (
-          <span className="shrink-0 text-[10px] text-slate-400">
-            {t("chatAttach.liveLocationUpdated", { time: formatRelativeTime(updatedAt, t("chatAttach.justNow")) })}
           </span>
-        ) : null}
+        </div>
+      </button>
+
+      <div className="space-y-2 px-3 py-2.5">
+        <span className="text-xs font-semibold text-slate-100">{t("chatAttach.currentLocationLabel")}</span>
+
+        <p className="text-[11px] text-slate-500">
+          {formatCoordinate(latitude)}, {formatCoordinate(longitude)}
+        </p>
+
+        <button
+          type="button"
+          onClick={openOnMap}
+          className="inline-flex w-full items-center justify-center gap-1.5 rounded-full bg-gradient-to-r from-cyan-500/80 to-teal-400/75 px-3 py-2 text-[12px] font-semibold text-slate-950 transition duration-150 hover:from-cyan-400/90 hover:to-teal-300/85 active:scale-[0.98]"
+        >
+          <Navigation className="h-3.5 w-3.5 shrink-0" strokeWidth={2.25} aria-hidden />
+          {t("chatAttach.openInMaps")}
+        </button>
       </div>
-    </a>
+    </div>
   );
 }

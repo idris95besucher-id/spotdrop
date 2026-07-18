@@ -165,18 +165,6 @@ export function patchInboxItemsOptimistically(
   });
 }
 
-function inboxItemLastAt(item: InboxItem) {
-  if (item.kind === "dm") return item.chat.lastAt;
-  if (item.kind === "group") return item.group.lastAt;
-  return item.room.lastAt;
-}
-
-function sortInboxItemsByLastAt(items: InboxItem[]): InboxItem[] {
-  return [...items].sort((left, right) => {
-    return new Date(inboxItemLastAt(right)).getTime() - new Date(inboxItemLastAt(left)).getTime();
-  });
-}
-
 export function patchInboxItemsForIncomingDm(
   items: InboxItem[],
   detail: DmIncomingDetail
@@ -212,7 +200,12 @@ export function patchInboxItemsForIncomingDm(
     return { items, partnerFound: false };
   }
 
-  return { items: sortInboxItemsByLastAt(patched), partnerFound: true };
+  // Deliberately NOT re-sorted here: a live incoming message updates that row's preview/unread
+  // badge in place, but must not reshuffle the list out from under someone who's mid-scroll.
+  // The list re-settles into recency order on the next natural full reload (background silent
+  // refresh, or reopening the page) via loadChatsInbox's own sort — never as a side effect of
+  // just receiving a message while the inbox happens to be open.
+  return { items: patched, partnerFound: true };
 }
 
 export function patchInboxItemsForIncomingRoom(
@@ -249,7 +242,8 @@ export function patchInboxItemsForIncomingRoom(
     return { items, roomFound: false };
   }
 
-  return { items: sortInboxItemsByLastAt(patched), roomFound: true };
+  // Same reasoning as patchInboxItemsForIncomingDm above: update in place, don't reorder live.
+  return { items: patched, roomFound: true };
 }
 
 export async function markDmThreadOpened(

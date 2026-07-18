@@ -4,8 +4,33 @@ import { resolveSpotMapLngLat } from "@/lib/mapSpotPin";
 import type { MapSpotPin } from "@/lib/spots";
 import type { LiveMapUser } from "@/lib/userLiveLocation";
 
-/** Screen-pixel distance between marker centers that counts as an overlap. */
-export const MAP_MARKER_OVERLAP_THRESHOLD_PX = 40;
+/** Half-width of the live-user avatar tap target (`.spot-live-share-marker-anchor`). */
+export const MAP_LIVE_USER_MARKER_HALF_PX = 24;
+
+/** Half-width of the Spot pin tap target (52px face + 6px padding each side). */
+export const MAP_SPOT_MARKER_HALF_PX = 32;
+
+/** Minimum visible gap between user and Spot tap areas when co-located. */
+export const MAP_MARKER_MIN_GAP_PX = 16;
+
+/**
+ * Screen-pixel distance between natural marker centers that triggers separation.
+ * Anything closer than user-half + Spot-half + min gap would visually touch/overlap.
+ */
+export const MAP_MARKER_OVERLAP_THRESHOLD_PX =
+  MAP_LIVE_USER_MARKER_HALF_PX + MAP_SPOT_MARKER_HALF_PX + MAP_MARKER_MIN_GAP_PX;
+
+/**
+ * Horizontal offset from the shared point for each marker so the gap between
+ * tap areas is at least {@link MAP_MARKER_MIN_GAP_PX}.
+ * Center distance = 2 * offset = userHalf + spotHalf + gap.
+ */
+export const MAP_MARKER_PAIR_OFFSET_PX = Math.ceil(
+  (MAP_LIVE_USER_MARKER_HALF_PX + MAP_SPOT_MARKER_HALF_PX + MAP_MARKER_MIN_GAP_PX) / 2
+);
+
+/** Vertical step when several users or Spots share one mixed cluster. */
+export const MAP_MARKER_PAIR_STACK_PX = 56;
 
 /** Zoom level at which overlapping mixed markers spiderfy instead of combining. */
 export const MAP_MARKER_SPIDERFY_MIN_ZOOM = 16;
@@ -254,4 +279,87 @@ export function buildSpiderfyLngLats(
 
 export function shouldSpiderfyOverlapClusters(zoom: number) {
   return zoom >= MAP_MARKER_SPIDERFY_MIN_ZOOM;
+}
+
+export function offsetLngLatByPixels(
+  map: MapLibreMap,
+  center: { longitude: number; latitude: number },
+  dxPx: number,
+  dyPx: number
+) {
+  const origin = map.project([center.longitude, center.latitude]);
+  const lngLat = map.unproject([origin.x + dxPx, origin.y + dyPx]);
+  return { longitude: lngLat.lng, latitude: lngLat.lat };
+}
+
+/**
+ * Screen-space separation for mixed user+Spot overlaps: users left, Spots right.
+ * Offsets are in pixels so the gap stays constant at every zoom level.
+ */
+export function buildSideBySideClusterLayout(
+  map: MapLibreMap,
+  cluster: MapOverlapCluster,
+  offsetPx: number = MAP_MARKER_PAIR_OFFSET_PX,
+  stackPx: number = MAP_MARKER_PAIR_STACK_PX
+): Array<
+  | {
+      key: string;
+      kind: "user";
+      user: LiveMapUser;
+      longitude: number;
+      latitude: number;
+    }
+  | {
+      key: string;
+      kind: "spot";
+      pin: MapSpotPin;
+      longitude: number;
+      latitude: number;
+    }
+> {
+  const center = { longitude: cluster.longitude, latitude: cluster.latitude };
+  const items: Array<
+    | {
+        key: string;
+        kind: "user";
+        user: LiveMapUser;
+        longitude: number;
+        latitude: number;
+      }
+    | {
+        key: string;
+        kind: "spot";
+        pin: MapSpotPin;
+        longitude: number;
+        latitude: number;
+      }
+  > = [];
+
+  const userCount = cluster.users.length;
+  cluster.users.forEach((user, index) => {
+    const dy = userCount <= 1 ? 0 : (index - (userCount - 1) / 2) * stackPx;
+    const position = offsetLngLatByPixels(map, center, -offsetPx, dy);
+    items.push({
+      key: `user:${user.user_id}`,
+      kind: "user",
+      user,
+      longitude: position.longitude,
+      latitude: position.latitude,
+    });
+  });
+
+  const spotCount = cluster.spots.length;
+  cluster.spots.forEach((pin, index) => {
+    const dy = spotCount <= 1 ? 0 : (index - (spotCount - 1) / 2) * stackPx;
+    const position = offsetLngLatByPixels(map, center, offsetPx, dy);
+    items.push({
+      key: `spot:${pin.id}`,
+      kind: "spot",
+      pin,
+      longitude: position.longitude,
+      latitude: position.latitude,
+    });
+  });
+
+  return items;
 }

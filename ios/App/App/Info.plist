@@ -26,18 +26,14 @@
 	<true/>
 	<key>NSCameraUsageDescription</key>
 	<string>SpotDrop uses your camera to take photos for Spots.</string>
-	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>SpotDrop uses your location to tag where your Spots were created.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
-	<string>SpotDrop uses your location to tag Spots and, when you choose to share your live location in a chat, to keep updating it while the app is in the background.</string>
+	<string>SpotDrop uses your location in the background only while you are actively sharing your live location, so selected people can continue seeing your position when the app is not open.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>SpotDrop uses your location to tag where your Spots were created and to share your location in a chat.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>SpotDrop uses your microphone for live voice in City Rooms and to record voice messages.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>SpotDrop needs access to your Photo Library to add photos to your Spots.</string>
-	<key>UIBackgroundModes</key>
-	<array>
-		<string>location</string>
-	</array>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>

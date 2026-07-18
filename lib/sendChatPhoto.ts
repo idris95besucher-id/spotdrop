@@ -7,7 +7,7 @@ import {
   type DirectMessageRow,
 } from "@/lib/directConversations";
 import { CITY_MESSAGE_SELECT, type CityMessageRawRow } from "@/lib/cityMessageRow";
-import type { GroupChatMessageRow } from "@/lib/groupChatMessages";
+import { MESSAGE_SELECT as GROUP_MESSAGE_SELECT, type GroupChatMessageRow } from "@/lib/groupChatMessages";
 import { uploadPostMedia } from "@/lib/postMedia";
 import { resolveCityRoomId } from "@/lib/roomExplore";
 import { upsertRoomMembershipOnMessage } from "@/lib/roomMemberships";
@@ -113,9 +113,7 @@ export async function sendGroupPhoto(input: {
       body: "📷 Photo",
       image_url: mediaUrl,
     })
-    .select(
-      "id, group_id, sender_id, message_type, body, post_id, created_at, audio_url, audio_duration_seconds, audio_waveform, image_url, live_location_lat, live_location_lng, live_location_updated_at, live_location_expires_at"
-    )
+    .select(GROUP_MESSAGE_SELECT)
     .single();
 
   if (error) {

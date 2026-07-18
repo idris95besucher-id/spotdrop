@@ -12,8 +12,11 @@ import { haversineKm, type SpotGeoLocation } from "@/lib/spotLocation";
 import { hasSpotPublishLocation, resolveSpotName, SPOT_LOCATION_REQUIRED_MESSAGE } from "@/lib/spotPublish";
 import { POST_AUTHOR_PROFILES_INNER } from "@/lib/posts";
 import { insertPostMediaCarouselItems } from "@/lib/postMediaItems";
-import { uploadPostMedia } from "@/lib/postMedia";
+import { uploadPostMedia, POST_MEDIA_BUCKET } from "@/lib/postMedia";
 import type { RetryAttemptInfo } from "@/lib/uploadRetry";
+import { uploadNativeSpotVideo } from "@/lib/spotDropCamera";
+import { SUPABASE_ANON_KEY, SUPABASE_URL } from "@/lib/supabaseClient";
+import { getFreshAccessToken } from "@/lib/storageUpload";
 import { postIdForQuery } from "@/lib/postIds";
 import {
   logSpotPublishPostMediaItemsInsertResult,
@@ -91,6 +94,9 @@ export type CreateSpotInput = {
     mediaType: "image" | "video";
     coverFile?: File | null;
     audioMuted?: boolean;
+    /** Absolute iOS path — video uploads via native URLSession (no JS File bytes). */
+    nativeFilePath?: string | null;
+    nativeFileSizeBytes?: number | null;
   }>;
   accessToken?: string;
   /** "My Spots" destination — private to the owner, independent of the collections system. */
@@ -327,6 +333,20 @@ export async function createGeoSpot(input: CreateSpotInput): Promise<CreateGeoSp
     return { postId: null, matchedPlace: null, error: SPOT_LOCATION_REQUIRED_MESSAGE };
   }
 
+  // My Spots is photos/images only — reject videos before any upload starts.
+  const hasVideoMedia =
+    input.mediaType === "video" ||
+    Boolean(input.carouselPreparedItems?.some((item) => item.mediaType === "video"));
+
+  if (input.publishToMySpots && hasVideoMedia) {
+    return {
+      postId: null,
+      matchedPlace: null,
+      error: "Videos can only be shared to Public Spot.",
+      errorKind: "validation",
+    };
+  }
+
   const uploadOptions = {
     accessToken: input.accessToken,
     skipVerification: true,
@@ -400,36 +420,79 @@ export async function createGeoSpot(input: CreateSpotInput): Promise<CreateGeoSp
     logSpotPublishStage("uploading_primary");
     input.onPublishStage?.("uploading_primary", 12);
 
-    if (primaryItem.mediaType === "video") {
-      const mediaUploadPromise = uploadPostMedia(input.userId, primaryItem.file, {
-        ...uploadOptions,
+    if (primaryItem.mediaType === "video" && primaryItem.nativeFilePath) {
+      // Physical iPhone path: stream from disk via URLSession. Never base64 / FileReader /
+      // ArrayBuffer the video into JS. Native side compresses once (1080p / ≤15s / <30 MB).
+      console.log("[SPOT-VIDEO-TIMING] upload_start — native disk URLSession", {
+        nativeFilePath: primaryItem.nativeFilePath,
+        originalSizeBytes: primaryItem.nativeFileSizeBytes ?? 0,
+        readIntoMemoryMs: 0,
+      });
+
+      const accessToken = (await getFreshAccessToken()) ?? input.accessToken;
+      if (!accessToken || !SUPABASE_URL || !SUPABASE_ANON_KEY) {
+        throw new Error("Please sign in to upload files.");
+      }
+
+      const nativeResult = await uploadNativeSpotVideo({
+        nativePath: primaryItem.nativeFilePath,
+        userId: input.userId,
+        accessToken,
+        apikey: SUPABASE_ANON_KEY,
+        supabaseUrl: SUPABASE_URL,
+        bucket: POST_MEDIA_BUCKET,
         onProgress: (percent) => {
           input.onMediaUploadProgress?.(percent);
           input.onPublishStage?.("uploading_primary", mapPublishPercent(percent, 12, 42));
         },
       });
 
-      const coverUploadPromise = (async () => {
-        let cover = primaryItem.coverFile ?? null;
+      input.onTiming?.("thumbnail", nativeResult.diagnostics.stagesMs.prepare ?? 0);
+      primaryUpload = {
+        mediaUrl: nativeResult.mediaUrl,
+        mediaType: "video",
+        videoCoverUrl: nativeResult.coverMediaUrl,
+        storagePath: nativeResult.storagePath,
+      };
+      uploadedMediaUrls.push(nativeResult.mediaUrl);
+      if (nativeResult.coverMediaUrl) {
+        uploadedMediaUrls.push(nativeResult.coverMediaUrl);
+      }
+    } else if (primaryItem.mediaType === "video") {
+      // Web / gallery path — single XHR upload of the prepared File (no auto-retries).
+      console.log("[SPOT-VIDEO-TIMING] upload_start — web XHR", {
+        fileName: primaryItem.file.name,
+        finalSizeBytes: primaryItem.file.size,
+        finalSizeMb: Math.round((primaryItem.file.size / (1024 * 1024)) * 100) / 100,
+      });
 
-        if (cover) {
-          input.onTiming?.("thumbnail", 0);
-        } else {
-          const finishThumbnail = timeUploadStep("[UPLOAD] Thumbnail");
-          cover = await resolveVideoCoverFile(primaryItem.file, null, 1);
-          input.onTiming?.("thumbnail", finishThumbnail());
-        }
+      const uploadResult = await uploadPostMedia(input.userId, primaryItem.file, {
+        ...uploadOptions,
+        onProgress: (percent) => {
+          input.onMediaUploadProgress?.(percent);
+          input.onPublishStage?.("uploading_primary", mapPublishPercent(percent, 12, 40));
+        },
+      });
 
-        return uploadPostMedia(input.userId, cover, {
-          ...uploadOptions,
-          onProgress: input.onCoverUploadProgress,
-        });
-      })();
+      let cover = primaryItem.coverFile ?? null;
 
-      const [uploadResult, coverUploadResult] = await Promise.all([
-        mediaUploadPromise,
-        coverUploadPromise,
-      ]);
+      if (cover) {
+        input.onTiming?.("thumbnail", 0);
+      } else {
+        const finishThumbnail = timeUploadStep("[UPLOAD] Thumbnail");
+        cover = await resolveVideoCoverFile(primaryItem.file, null, 1);
+        input.onTiming?.("thumbnail", finishThumbnail());
+      }
+
+      input.onPublishStage?.("uploading_primary", 40);
+
+      const coverUploadResult = await uploadPostMedia(input.userId, cover, {
+        ...uploadOptions,
+        onProgress: (percent) => {
+          input.onCoverUploadProgress?.(percent);
+          input.onPublishStage?.("uploading_primary", mapPublishPercent(percent, 40, 42));
+        },
+      });
 
       primaryUpload = {
         mediaUrl: uploadResult.mediaUrl,
@@ -596,6 +659,7 @@ export async function createGeoSpot(input: CreateSpotInput): Promise<CreateGeoSp
     // "My Spots" destination — private to the owner. No collections row is required or
     // created; this is just a visibility/published_to_spots flag on the post itself, which
     // is exactly the signal the My Spots profile tab (lib/mySpots.ts) queries for.
+    // Videos are rejected earlier (before upload) — My Spots is photos/images only.
     publishedToSpots = false;
     spotVisibility = "private";
   } else if (inCollection) {

@@ -205,20 +205,28 @@ export async function exportEditedGalleryPhoto(input: {
     return canvasToJpegFile(workingCanvas, fileName);
   }
 
-  const filteredCanvas = document.createElement("canvas");
-  filteredCanvas.width = exportWidth;
-  filteredCanvas.height = exportHeight;
+  // Safe fallback: `workingCanvas` already holds the fully cropped original. If applying the
+  // effect fails for any reason (2D context unavailable, `ctx.filter` unsupported, an export
+  // step throwing), fall back to the unfiltered crop instead of surfacing a black/empty photo.
+  try {
+    const filteredCanvas = document.createElement("canvas");
+    filteredCanvas.width = exportWidth;
+    filteredCanvas.height = exportHeight;
 
-  const filteredCtx = filteredCanvas.getContext("2d");
+    const filteredCtx = filteredCanvas.getContext("2d");
 
-  if (!filteredCtx) {
-    throw new Error("Unable to apply photo effect.");
+    if (!filteredCtx) {
+      throw new Error("Unable to apply photo effect.");
+    }
+
+    filteredCtx.filter = filter;
+    filteredCtx.drawImage(workingCanvas, 0, 0);
+
+    return await canvasToJpegFile(filteredCanvas, fileName);
+  } catch (error) {
+    console.error("[Gallery editor] effect render failed, falling back to original", error);
+    return canvasToJpegFile(workingCanvas, fileName);
   }
-
-  filteredCtx.filter = filter;
-  filteredCtx.drawImage(workingCanvas, 0, 0);
-
-  return canvasToJpegFile(filteredCanvas, fileName);
 }
 
 async function canvasToJpegFile(canvas: HTMLCanvasElement, fileName: string): Promise<File> {
@@ -269,8 +277,17 @@ export async function renderEffectPreviewDataUrl(
     return "";
   }
 
-  ctx.filter = getEffectCssFilter(effect);
-  ctx.drawImage(sourceCanvas, 0, 0, width, height);
+  try {
+    ctx.filter = getEffectCssFilter(effect);
+    ctx.drawImage(sourceCanvas, 0, 0, width, height);
+  } catch (error) {
+    // Safe fallback: an unfiltered swatch beats one effect thumbnail wedging the whole strip
+    // in its loading spinner forever (Promise.all above would otherwise reject on this alone).
+    console.error("[Gallery editor] effect thumbnail render failed, falling back to original", error);
+    ctx.filter = "none";
+    ctx.clearRect(0, 0, width, height);
+    ctx.drawImage(sourceCanvas, 0, 0, width, height);
+  }
 
   return previewCanvas.toDataURL("image/jpeg", 0.82);
 }

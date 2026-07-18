@@ -7,8 +7,8 @@ import { isCapacitorNative } from "@/lib/capacitorUtils";
 import { MAX_TRIM_CLIP_SECONDS } from "@/lib/videoTrim";
 import { logVideoQuality, probeVideoFile } from "@/lib/videoQualityDiagnostics";
 
-/** Desktop re-encode target — higher than in-camera recording to offset generation loss. */
-const EXPORT_VIDEO_BITS_PER_SECOND = 25_000_000;
+/** Desktop re-encode target — 1080p-friendly bitrate; kept below prior 25 Mbps for faster upload. */
+const EXPORT_VIDEO_BITS_PER_SECOND = 10_000_000;
 
 function isIosPlaybackTarget() {
   return isIosSafari() || isCapacitorNative();

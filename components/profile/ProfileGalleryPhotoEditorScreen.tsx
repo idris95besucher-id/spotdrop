@@ -75,6 +75,7 @@ export default function ProfileGalleryPhotoEditorScreen({
     {}
   );
   const [exporting, setExporting] = useState(false);
+  const [imageRenderFallback, setImageRenderFallback] = useState(false);
 
   useEffect(() => {
     setMounted(true);
@@ -89,11 +90,25 @@ export default function ProfileGalleryPhotoEditorScreen({
     };
   }, []);
 
+  // Keyed on `file` — every field here is state for *this* photo only. If this screen is ever
+  // reused for a different photo without unmounting, this reset is what stops a previous photo's
+  // crop/effect selection from leaking into the next one instead of each photo getting its own.
+  useEffect(() => {
+    setStep("crop");
+    setAspectRatio("portrait");
+    setTransform(DEFAULT_CROP_TRANSFORM);
+    setEffect("original");
+    setCaption("");
+    setEffectPreviews({});
+    setImageRenderFallback(false);
+  }, [file]);
+
   useEffect(() => {
     let cancelled = false;
     const previewUrl = URL.createObjectURL(file);
 
     setLoadingImage(true);
+    setImage(null);
 
     const element = new Image();
     element.onload = () => {
@@ -171,6 +186,23 @@ export default function ProfileGalleryPhotoEditorScreen({
 
     return getRotatedImageSize(image.naturalWidth, image.naturalHeight, transform.rotation);
   }, [image, transform.rotation]);
+
+  // Baked-in (not transform: scale()) on-screen size for previews that apply a CSS `filter`.
+  // WebKit has to rasterize a filtered layer at its *layout* box size before any transform is
+  // composited on top — laying the element out at the photo's full native resolution (a modern
+  // phone photo is easily 3000-4000px on a side) and shrinking it via `scale()` still forces an
+  // offscreen filter buffer that large. WebKit silently renders that as a black layer once it
+  // exceeds its backing-store limit, which is exactly the "picking any effect turns the preview
+  // black" bug — the unfiltered crop step never allocates that buffer, so it never shows it.
+  // Baking the scale into width/height instead keeps the filtered raster at the actual on-screen
+  // size (a few hundred px), the same trick browsers already do for non-filtered scaled images.
+  const filteredPreviewSize = useMemo(
+    () => ({
+      width: rotatedSize.width * displayScale,
+      height: rotatedSize.height * displayScale,
+    }),
+    [rotatedSize.height, rotatedSize.width, displayScale]
+  );
 
   const resetTransform = useCallback(() => {
     setTransform(DEFAULT_CROP_TRANSFORM);
@@ -570,12 +602,13 @@ export default function ProfileGalleryPhotoEditorScreen({
                   src={image.src}
                   alt=""
                   draggable={false}
+                  onError={() => setImageRenderFallback(true)}
                   className="pointer-events-none absolute left-1/2 top-1/2 max-w-none select-none"
                   style={{
-                    width: rotatedSize.width,
-                    height: rotatedSize.height,
-                    filter: getEffectCssFilter(effect),
-                    transform: `translate(calc(-50% + ${transform.offsetX}px), calc(-50% + ${transform.offsetY}px)) rotate(${transform.rotation}deg) scale(${displayScale})`,
+                    width: filteredPreviewSize.width,
+                    height: filteredPreviewSize.height,
+                    filter: imageRenderFallback ? "none" : getEffectCssFilter(effect),
+                    transform: `translate(calc(-50% + ${transform.offsetX}px), calc(-50% + ${transform.offsetY}px)) rotate(${transform.rotation}deg)`,
                     transformOrigin: "center center",
                   }}
                 />
@@ -626,12 +659,13 @@ export default function ProfileGalleryPhotoEditorScreen({
                   src={image.src}
                   alt=""
                   draggable={false}
+                  onError={() => setImageRenderFallback(true)}
                   className="pointer-events-none absolute left-1/2 top-1/2 max-w-none select-none"
                   style={{
-                    width: rotatedSize.width,
-                    height: rotatedSize.height,
-                    filter: getEffectCssFilter(effect),
-                    transform: `translate(calc(-50% + ${transform.offsetX}px), calc(-50% + ${transform.offsetY}px)) rotate(${transform.rotation}deg) scale(${displayScale})`,
+                    width: filteredPreviewSize.width,
+                    height: filteredPreviewSize.height,
+                    filter: imageRenderFallback ? "none" : getEffectCssFilter(effect),
+                    transform: `translate(calc(-50% + ${transform.offsetX}px), calc(-50% + ${transform.offsetY}px)) rotate(${transform.rotation}deg)`,
                     transformOrigin: "center center",
                   }}
                 />

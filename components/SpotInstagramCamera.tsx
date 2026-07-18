@@ -35,7 +35,11 @@ type SpotInstagramCameraProps = {
     mediaType: "image" | "video",
     location: SpotGeoLocation | null,
     /** Native camera video only: `Capacitor.convertFileSrc` path to the file still on disk. */
-    nativeWebPath?: string
+    nativeWebPath?: string,
+    /** Absolute iOS filesystem path — upload streams from disk (no base64). */
+    nativeFilePath?: string,
+    /** On-disk size from the native recorder (stub File.size is 0). */
+    nativeFileSizeBytes?: number
   ) => void;
   showCreateModes?: boolean;
   createMode?: SpotCreateCameraMode;
@@ -316,7 +320,14 @@ export default function SpotInstagramCamera({
         if (outcome.kind === "photo") {
           onCapture(outcome.file, "image", location);
         } else {
-          onCapture(outcome.file, "video", location, outcome.webPath);
+          onCapture(
+            outcome.file,
+            "video",
+            location,
+            outcome.webPath,
+            outcome.nativePath,
+            outcome.sizeBytes
+          );
         }
       } catch (caught) {
         if (cancelled) {

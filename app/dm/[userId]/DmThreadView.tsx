@@ -30,9 +30,15 @@ import Shell from "@/components/Shell";
 import { useI18n } from "@/components/I18nProvider";
 import { localizeCaughtError, localizeUserMessage } from "@/lib/i18n/localizeUserMessage";
 import { sendDmPhoto } from "@/lib/sendChatPhoto";
-import { sendDmLocation, updateDmLocation } from "@/lib/sendChatLocation";
-import { useLiveLocationSharing } from "@/lib/useLiveLocationSharing";
+import { pickChatPhotos } from "@/lib/pickMediaFromGallery";
+import { sendDmLocation } from "@/lib/sendChatLocation";
 import { requestCheckSpotGpsReading } from "@/lib/checkSpotGps";
+import { canEditMessage, canDeleteMessage } from "@/lib/messageEditWindow";
+import { editDmMessage, deleteDmMessageForEveryone, mapEditDeleteError } from "@/lib/messageEditDelete";
+import MessageActionSheet from "@/components/chat/MessageActionSheet";
+import MessageActionErrorToast from "@/components/chat/MessageActionErrorToast";
+import MessageLongPressZone from "@/components/chat/MessageLongPressZone";
+import DeletedMessageBubble from "@/components/chat/DeletedMessageBubble";
 import { markDirectMessagesReadInThread } from "@/lib/chatNotifications";
 import { markDmThreadOpened } from "@/lib/chatUnreadSync";
 import { shouldShowChatDateSeparator } from "@/lib/chatDates";
@@ -102,6 +108,8 @@ type DirectMessage = {
   live_location_lng: number | null;
   live_location_updated_at: string | null;
   live_location_expires_at: string | null;
+  edited_at: string | null;
+  deleted_at: string | null;
 };
 
 type DmThreadViewProps = {
@@ -630,12 +638,19 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
             message.id === updated.id
               ? {
                   ...message,
+                  body: updated.body,
                   delivered_at: updated.delivered_at,
                   read_at: updated.read_at,
+                  edited_at: updated.edited_at,
+                  deleted_at: updated.deleted_at,
                 }
               : message
           )
         );
+
+        if (updated.deleted_at) {
+          setEditingMessageId((current) => (current === updated.id ? null : current));
+        }
       },
       getLatestCreatedAt: () => {
         const list = messagesRef.current;
@@ -892,37 +907,48 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
     scrollOnSend();
   }, [currentUserId, partnerId, refreshUnreadCount, reloadSharesForMessages, scrollOnSend]);
 
-  const handlePhotoSend = async (file: File) => {
-    if (sending || !currentUserId || !partnerId || currentUserId === partnerId) {
+  const handlePhotoSend = async (files: File[]) => {
+    if (sending || !currentUserId || !partnerId || currentUserId === partnerId || files.length === 0) {
       return;
     }
 
     setSending(true);
     setSendError(null);
 
-    const { message: sent, error: sendErrorResult } = await sendDmPhoto({
-      senderId: currentUserId,
-      recipientId: partnerId,
-      file,
-    });
+    for (const file of files) {
+      const { message: sent, error: sendErrorResult } = await sendDmPhoto({
+        senderId: currentUserId,
+        recipientId: partnerId,
+        file,
+      });
+
+      if (sendErrorResult || !sent) {
+        setSendError(localizeCaughtError(t, sendErrorResult ?? "chatAttach.sendFailed", "chatAttach.sendFailed"));
+        continue;
+      }
+
+      seenMessageIdsRef.current.add(sent.id);
+      setMessages((current) => {
+        if (current.some((message) => message.id === sent.id)) {
+          return current;
+        }
+
+        return [...current, sent as DirectMessage];
+      });
+    }
 
     setSending(false);
+    scrollOnSend();
+  };
 
-    if (sendErrorResult || !sent) {
-      setSendError(localizeCaughtError(t, sendErrorResult ?? "chatAttach.sendFailed", "chatAttach.sendFailed"));
+  const handlePickAndSendPhotos = async () => {
+    const files = await pickChatPhotos();
+
+    if (files.length === 0) {
       return;
     }
 
-    seenMessageIdsRef.current.add(sent.id);
-    setMessages((current) => {
-      if (current.some((message) => message.id === sent.id)) {
-        return current;
-      }
-
-      return [...current, sent as DirectMessage];
-    });
-
-    scrollOnSend();
+    await handlePhotoSend(files);
   };
 
   const handleSendCurrentLocation = async () => {
@@ -946,7 +972,6 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
       recipientId: partnerId,
       latitude: reading.latitude,
       longitude: reading.longitude,
-      expiresAt: null,
     });
 
     setSending(false);
@@ -968,40 +993,112 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
     scrollOnSend();
   };
 
-  const liveLocation = useLiveLocationSharing({
-    sendInitial: async (latitude, longitude, expiresAt) => {
-      if (!currentUserId || !partnerId) {
-        return { messageId: null, error: null };
-      }
-
-      const { message: sent, error } = await sendDmLocation({
-        senderId: currentUserId,
-        recipientId: partnerId,
-        latitude,
-        longitude,
-        expiresAt,
-      });
-
-      if (sent) {
-        seenMessageIdsRef.current.add(sent.id);
-        setMessages((current) => (current.some((message) => message.id === sent.id) ? current : [...current, sent as DirectMessage]));
-        scrollOnSend();
-      }
-
-      return { messageId: sent?.id ?? null, error };
-    },
-    updateExisting: async (messageId, latitude, longitude, expiresAt) => {
-      if (!currentUserId) {
-        return { error: null };
-      }
-
-      return updateDmLocation({ messageId, senderId: currentUserId, latitude, longitude, expiresAt });
-    },
-  });
-
   const [attachmentMenuOpen, setAttachmentMenuOpen] = useState(false);
   const [checkSpotDialogOpen, setCheckSpotDialogOpen] = useState(false);
-  const photoInputRef = useRef<HTMLInputElement>(null);
+  const [actionSheetMessageId, setActionSheetMessageId] = useState<string | null>(null);
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState("");
+  const [editError, setEditError] = useState<string | null>(null);
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const deletingMessageIdsRef = useRef<Set<string>>(new Set());
+
+  const startEditingMessage = (message: DirectMessage) => {
+    if (!canEditMessage(message.created_at)) {
+      return;
+    }
+
+    setEditError(null);
+    setEditingMessageId(message.id);
+    setEditDraft(message.body ?? "");
+  };
+
+  const cancelEditingMessage = () => {
+    setEditError(null);
+    setEditingMessageId(null);
+    setEditDraft("");
+  };
+
+  const saveEditedMessage = async () => {
+    if (!currentUserId || !editingMessageId) {
+      return;
+    }
+
+    const trimmed = editDraft.trim();
+    if (!trimmed) {
+      setEditError("Message cannot be empty.");
+      return;
+    }
+
+    const targetMessage = messages.find((message) => message.id === editingMessageId);
+    if (!targetMessage || targetMessage.sender_id !== currentUserId) {
+      return;
+    }
+
+    if (trimmed === targetMessage.body) {
+      cancelEditingMessage();
+      return;
+    }
+
+    setSavingEdit(true);
+    setEditError(null);
+
+    const { message: updatedMessage, error: updateError } = await editDmMessage({
+      messageId: editingMessageId,
+      senderId: currentUserId,
+      body: trimmed,
+    });
+
+    if (updateError || !updatedMessage) {
+      setEditError(mapEditDeleteError("edit", updateError));
+      setSavingEdit(false);
+      return;
+    }
+
+    setMessages((current) =>
+      current.map((message) =>
+        message.id === updatedMessage.id
+          ? { ...message, body: updatedMessage.body, edited_at: updatedMessage.edited_at }
+          : message
+      )
+    );
+
+    cancelEditingMessage();
+    setSavingEdit(false);
+  };
+
+  const handleDeleteMessage = async (targetMessage: DirectMessage) => {
+    if (!currentUserId || targetMessage.sender_id !== currentUserId) {
+      return;
+    }
+
+    if (deletingMessageIdsRef.current.has(targetMessage.id)) {
+      return;
+    }
+
+    deletingMessageIdsRef.current.add(targetMessage.id);
+
+    try {
+      const { error: deleteErrorResult } = await deleteDmMessageForEveryone({
+        messageId: targetMessage.id,
+        senderId: currentUserId,
+      });
+
+      if (deleteErrorResult) {
+        console.error("Failed to delete DM message:", deleteErrorResult);
+        setActionError(localizeUserMessage(t, mapEditDeleteError("delete", deleteErrorResult)));
+        return;
+      }
+
+      setMessages((current) =>
+        current.map((message) =>
+          message.id === targetMessage.id ? { ...message, deleted_at: new Date().toISOString() } : message
+        )
+      );
+    } finally {
+      deletingMessageIdsRef.current.delete(targetMessage.id);
+    }
+  };
 
   const isSendDisabled =
     sending || !draft.trim() || !currentUserId || isSelfConversation || !canSendMessages;
@@ -1031,44 +1128,48 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
 
         {showIncomingRequestBanner ? (
           <section className="shrink-0 border-b border-primary/20 bg-primary/10 px-4 py-3">
-            <p className="text-sm font-semibold text-white">{t("dm.requestTitle")}</p>
-            <p className="mt-1 text-sm text-slate-300">
-              {t("dm.requestBody", {
-                user: partner ? publicProfileUsername(partner.username) : t("common.user"),
-              })}
-            </p>
-            <div className="mt-3 flex flex-wrap gap-2">
-              <button
-                type="button"
-                disabled={resolvingRequest}
-                onClick={() => void handleAcceptRequest()}
-                className="inline-flex rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-[#050816] transition hover:brightness-110 disabled:opacity-50"
-              >
-                {resolvingRequest ? "…" : t("common.accept")}
-              </button>
-              <button
-                type="button"
-                disabled={resolvingRequest}
-                onClick={() => void handleDeclineRequest()}
-                className="inline-flex rounded-xl border border-white/15 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-white/5 disabled:opacity-50"
-              >
-                {t("common.decline")}
-              </button>
+            <div className="mx-auto w-full max-w-2xl">
+              <p className="text-sm font-semibold text-white">{t("dm.requestTitle")}</p>
+              <p className="mt-1 text-sm text-slate-300">
+                {t("dm.requestBody", {
+                  user: partner ? publicProfileUsername(partner.username) : t("common.user"),
+                })}
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  disabled={resolvingRequest}
+                  onClick={() => void handleAcceptRequest()}
+                  className="inline-flex rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-[#050816] transition hover:brightness-110 disabled:opacity-50"
+                >
+                  {resolvingRequest ? "…" : t("common.accept")}
+                </button>
+                <button
+                  type="button"
+                  disabled={resolvingRequest}
+                  onClick={() => void handleDeclineRequest()}
+                  className="inline-flex rounded-xl border border-white/15 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-white/5 disabled:opacity-50"
+                >
+                  {t("common.decline")}
+                </button>
+              </div>
             </div>
           </section>
         ) : null}
 
         {conversation?.status === "pending" && conversation.requested_by === currentUserId ? (
           <section className="shrink-0 border-b border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
-            {t("dm.waitingAccept", {
-              user: partner ? publicProfileUsername(partner.username) : t("common.user"),
-            })}
+            <div className="mx-auto w-full max-w-2xl">
+              {t("dm.waitingAccept", {
+                user: partner ? publicProfileUsername(partner.username) : t("common.user"),
+              })}
+            </div>
           </section>
         ) : null}
 
         {conversation?.status === "declined" ? (
           <section className="shrink-0 border-b border-red-500/20 bg-red-500/5 px-4 py-3 text-sm text-red-200">
-            {t("dm.declined")}
+            <div className="mx-auto w-full max-w-2xl">{t("dm.declined")}</div>
           </section>
         ) : null}
 
@@ -1087,7 +1188,7 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
 
           <div
             ref={messagesContainerRef}
-            className={`relative z-10 min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-y-contain [overflow-anchor:none] px-4 pt-4 ${CHAT_MESSAGES_FLEX_PADDING} ${
+            className={`relative z-10 mx-auto min-h-0 w-full max-w-2xl flex-1 touch-pan-y space-y-3 overflow-y-auto overscroll-y-contain [overflow-anchor:none] px-4 pt-4 ${CHAT_MESSAGES_FLEX_PADDING} ${
               !initialBottomReady && messages.length > 0
                 ? "pointer-events-none invisible"
                 : ""
@@ -1126,12 +1227,68 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
                 const isLocationCardMessage = isLocationCardShareMessage(message.body);
                 const isPlaceMessage = isCityRoomPlaceMessage(message.body ?? "");
                 const isMapMarkMessage = isCityRoomMapMarkMessage(message.body ?? "");
+                const isDeletedMessage = Boolean(message.deleted_at);
+                const isEditingThis = editingMessageId === message.id;
+                const isStructuredMessage =
+                  Boolean(message.audio_url) ||
+                  Boolean(message.image_url) ||
+                  Boolean(message.live_location_lat != null && message.live_location_lng != null) ||
+                  isSpotPostMessage ||
+                  isSpotShareMessage ||
+                  isMapMarkMessage ||
+                  isPlaceMessage ||
+                  isLocationCardMessage;
+                const canEditThis = isOwnMessage && !isStructuredMessage && canEditMessage(message.created_at);
+                const canDeleteThis = isOwnMessage && canDeleteMessage(message.created_at);
+                const localizedEditError = editingMessageId === message.id ? localizeUserMessage(t, editError) : null;
 
                 return (
                   <Fragment key={message.id}>
                     {showDateSeparator ? <ChatDateSeparator createdAt={message.created_at} /> : null}
                     <div className={`flex ${isOwnMessage ? "justify-end" : "justify-start"}`}>
-                      {message.audio_url ? (
+                      {/* min-w-0 w-fit max-w-[80%] must live on this outermost box, not on the bubble
+                          div below — nesting two independent width:fit-content boxes (this one and
+                          the bubble's own w-fit) breaks Safari/WebKit's shrink-to-fit width
+                          computation for overflow-wrap:break-word text, causing normal short words to
+                          wrap mid-word (e.g. "Привет" -> "При"/"вет") even with plenty of room. The
+                          bubble below is max-w-full precisely so only this box supplies the cap. */}
+                      <div className="min-w-0 w-fit max-w-[80%]">
+                      <MessageLongPressZone
+                        enabled={isOwnMessage && !isDeletedMessage && !isEditingThis && (canEditThis || canDeleteThis)}
+                        onLongPress={() => setActionSheetMessageId(message.id)}
+                      >
+                      {isDeletedMessage ? (
+                        <DeletedMessageBubble isOwnMessage={isOwnMessage} />
+                      ) : isEditingThis ? (
+                        <div className="max-w-[85%] min-w-[220px] rounded-[22px] border border-cyan-400/35 bg-[#122033]/95 px-3 py-2.5 shadow-sm ring-1 ring-cyan-400/20">
+                          <textarea
+                            value={editDraft}
+                            onChange={(event) => setEditDraft(event.target.value)}
+                            disabled={savingEdit}
+                            rows={3}
+                            className="w-full resize-none rounded-xl border border-white/10 bg-slate-950/80 px-3 py-2 text-[15px] leading-6 text-white outline-none transition focus:border-cyan-400/50 disabled:opacity-60"
+                          />
+                          {localizedEditError ? <p className="mt-1.5 px-1 text-xs text-red-300">{localizedEditError}</p> : null}
+                          <div className="mt-2 flex flex-wrap gap-2 px-1">
+                            <button
+                              type="button"
+                              onClick={() => void saveEditedMessage()}
+                              disabled={savingEdit || !editDraft.trim()}
+                              className="rounded-full bg-cyan-500 px-3 py-1 text-xs font-semibold text-slate-950 transition hover:bg-cyan-400 disabled:opacity-60"
+                            >
+                              {savingEdit ? t("common.saving") : t("common.accept")}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={cancelEditingMessage}
+                              disabled={savingEdit}
+                              className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-medium text-slate-200 transition hover:bg-white/10 disabled:opacity-60"
+                            >
+                              {t("common.cancel")}
+                            </button>
+                          </div>
+                        </div>
+                      ) : message.audio_url ? (
                         <div className="max-w-[85%]">
                           <VoiceMessagePlayer
                             audioUrl={message.audio_url}
@@ -1167,8 +1324,6 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
                           <ChatLocationBubble
                             latitude={message.live_location_lat}
                             longitude={message.live_location_lng}
-                            updatedAt={message.live_location_updated_at ?? message.created_at}
-                            expiresAt={message.live_location_expires_at ?? null}
                             isOwnMessage={isOwnMessage}
                           />
                           {currentUserId ? (
@@ -1238,15 +1393,20 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
                         />
                       ) : (
                         <div
-                          className={`max-w-[85%] rounded-[22px] px-4 py-2.5 shadow-md shadow-black/20 ${
+                          className={`w-fit max-w-full rounded-[22px] px-4 py-2.5 shadow-md shadow-black/20 ${
                             isOwnMessage
                               ? "rounded-br-md bg-primary/20 text-cyan-50"
                               : "rounded-bl-md border border-white/10 bg-[#0B1026] text-slate-100"
                           }`}
                         >
-                          <p className="whitespace-pre-wrap break-words text-[15px] leading-6">
+                          <p className="whitespace-pre-wrap break-normal break-words text-[15px] leading-6">
                             {message.body}
                           </p>
+                          {message.edited_at ? (
+                            <span className="mt-0.5 block text-right text-[9.5px] uppercase tracking-wide text-slate-400/80">
+                              {t("messageActions.edited")}
+                            </span>
+                          ) : null}
                           {currentUserId ? (
                             <DmMessageStatus
                               message={message}
@@ -1256,7 +1416,15 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
                           ) : null}
                         </div>
                       )}
+                      </MessageLongPressZone>
+                      </div>
                     </div>
+                    <MessageActionSheet
+                      isOpen={actionSheetMessageId === message.id}
+                      onClose={() => setActionSheetMessageId(null)}
+                      onEdit={canEditThis ? () => startEditingMessage(message) : undefined}
+                      onDelete={canDeleteThis ? () => void handleDeleteMessage(message) : undefined}
+                    />
                   </Fragment>
                 );
               })
@@ -1265,7 +1433,7 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
           </div>
 
           <div
-            className="relative z-20 shrink-0"
+            className="relative z-20 mx-auto w-full max-w-2xl shrink-0"
             style={{
               ...composerStyle,
               paddingBottom: dmComposerBottomPadding(isDmKeyboardOpen),
@@ -1283,19 +1451,6 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
                 onSubmit={(event) => void handleSend(event)}
                 className="border-t border-white/10 bg-[#070b14]/95 px-3 pt-2.5 backdrop-blur-xl"
               >
-            <input
-              ref={photoInputRef}
-              type="file"
-              accept="image/*"
-              className="hidden"
-              onChange={(event) => {
-                const file = event.target.files?.[0];
-                event.target.value = "";
-                if (file) {
-                  void handlePhotoSend(file);
-                }
-              }}
-            />
             {currentUserId && partner && !isSelfConversation ? (
               <ShareSpotToUserButton
                 senderId={currentUserId}
@@ -1311,14 +1466,11 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
             <ChatAttachmentMenu
               isOpen={attachmentMenuOpen}
               onClose={() => setAttachmentMenuOpen(false)}
-              onSendPhoto={() => photoInputRef.current?.click()}
+              onSendPhoto={() => void handlePickAndSendPhotos()}
               onCheckSpot={
                 currentUserId && partner && !isSelfConversation ? () => setCheckSpotDialogOpen(true) : undefined
               }
               onSendCurrentLocation={() => void handleSendCurrentLocation()}
-              onShareLiveLocation={() => void liveLocation.start()}
-              isSharingLiveLocation={liveLocation.isSharing}
-              onStopLiveLocation={() => void liveLocation.stop()}
             />
             <div className="relative flex items-end gap-2">
               <button
@@ -1359,13 +1511,12 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
             </div>
             {sendError ? (
               <p className="mt-2 text-xs text-red-300">{localizeUserMessage(t, sendError) ?? sendError}</p>
-            ) : liveLocation.error ? (
-              <p className="mt-2 text-xs text-red-300">{localizeUserMessage(t, liveLocation.error) ?? liveLocation.error}</p>
             ) : null}
             </form>
           </div>
         </section>
       </DmChatThreadShell>
+      <MessageActionErrorToast message={actionError} onDismiss={() => setActionError(null)} />
     </Shell>
   );
 }

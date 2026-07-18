@@ -14,22 +14,30 @@ export function createMediaEditorItem(
     /**
      * Native-captured video only: the `Capacitor.convertFileSrc` webPath for
      * the file still on disk. When present, this becomes `previewUrl` (the
-     * WKWebView media pipeline streams it directly, with proper byte-range
-     * support, instead of the app holding the whole decoded file as a
-     * `blob:` URL in memory) and a `blob:` URL built from `file` is kept as
-     * `fallbackPreviewUrl` in case the native source fails to load.
+     * WKWebView media pipeline streams it directly).
      */
     nativeWebPath?: string;
+    /** Absolute filesystem path — enables native URLSession upload (no JS File bytes). */
+    nativeFilePath?: string;
+    /** On-disk byte size from the native recorder. */
+    nativeFileSizeBytes?: number;
   }
 ): MediaEditorItem {
   const nativeWebPath = options?.nativeWebPath;
+  const nativeFilePath = options?.nativeFilePath ?? null;
+  const nativeFileSizeBytes = options?.nativeFileSizeBytes ?? null;
+  // Native video stubs have file.size === 0 — never build a blob: fallback from them.
+  const canBuildBlobFallback = !nativeFilePath && file.size > 0;
 
   return {
     id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
     file,
     mediaType,
+    nativeFilePath,
+    nativeFileSizeBytes,
     previewUrl: nativeWebPath || URL.createObjectURL(file),
-    fallbackPreviewUrl: nativeWebPath ? URL.createObjectURL(file) : null,
+    fallbackPreviewUrl:
+      nativeWebPath && canBuildBlobFallback ? URL.createObjectURL(file) : null,
     keepSound: mediaType === "video",
     sourceDuration: 0,
     trimStart: 0,
@@ -81,10 +89,18 @@ export async function withMeasuredVideoDuration(item: MediaEditorItem): Promise<
     return item;
   }
 
-  const duration = normalizeVideoDurationSeconds(await getVideoDurationSeconds(item.file).catch(() => 0));
+  // Native disk videos use a zero-byte stub File — probe the streaming webPath instead,
+  // never createObjectURL on an empty stub / never FileReader the mov into memory.
+  const durationSource =
+    item.nativeFilePath && item.previewUrl ? item.previewUrl : item.file.size > 0 ? item.file : item.previewUrl;
+
+  const duration = normalizeVideoDurationSeconds(
+    await getVideoDurationSeconds(durationSource).catch(() => 0)
+  );
 
   console.log("[Video duration] media item", {
     fileName: item.file.name,
+    nativeFilePath: item.nativeFilePath ?? null,
     detectedDurationSeconds: duration,
     maxAllowedSeconds: MAX_TRIM_CLIP_SECONDS,
   });

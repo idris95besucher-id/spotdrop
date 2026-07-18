@@ -245,7 +245,8 @@ create table if not exists post_comments (
   post_id uuid not null references posts(id) on delete cascade,
   user_id uuid not null references profiles(id) on delete cascade,
   content text not null,
-  created_at timestamp with time zone default now()
+  created_at timestamp with time zone default now(),
+  edited_at timestamp with time zone
 );
 
 create index if not exists idx_post_comments_post_id_created_at on post_comments(post_id, created_at asc);
@@ -256,8 +257,7 @@ create table if not exists post_reactions (
   post_id uuid not null references posts(id) on delete cascade,
   user_id uuid not null references profiles(id) on delete cascade,
   reaction_type text not null check (reaction_type in ('like', 'useful')),
-  created_at timestamp with time zone default now(),
-  unique (post_id, user_id, reaction_type)
+  created_at timestamp with time zone default now()
 );
 
 -- Older databases may have created this column as "type"; the app uses reaction_type everywhere.
@@ -305,17 +305,36 @@ alter table if exists post_reactions drop constraint if exists post_reactions_re
 alter table if exists post_reactions
   add constraint post_reactions_reaction_type_check
   check (reaction_type in ('like', 'useful'));
+
+-- Drop any uniqueness enforcer a previous run may have left behind (table constraint or plain
+-- index, current or older pre-rename name) so the dedup + index creation below is re-run safe.
 alter table if exists post_reactions drop constraint if exists post_reactions_post_id_user_id_type_key;
 alter table if exists post_reactions drop constraint if exists post_reactions_post_id_user_id_reaction_type_key;
-delete from post_reactions a
-using post_reactions b
-where a.id > b.id
-  and a.post_id = b.post_id
-  and a.user_id = b.user_id
-  and a.reaction_type = b.reaction_type;
-alter table if exists post_reactions
-  add constraint post_reactions_post_id_user_id_reaction_type_key
-  unique (post_id, user_id, reaction_type);
+drop index if exists post_reactions_post_id_user_id_type_key;
+drop index if exists post_reactions_post_id_user_id_reaction_type_key;
+drop index if exists idx_post_reactions_unique_post_user_reaction;
+
+-- Deduplicate (post_id, user_id, reaction_type) before enforcing uniqueness: keep only the
+-- oldest row per group (by created_at, then id as a stable tie-breaker), never across different
+-- users or posts — see database/add-post-reactions.sql for the full explanation.
+with ranked_reactions as (
+  select
+    id,
+    row_number() over (
+      partition by post_id, user_id, reaction_type
+      order by created_at asc, id asc
+    ) as row_number
+  from post_reactions
+)
+delete from post_reactions
+where id in (
+  select id
+  from ranked_reactions
+  where row_number > 1
+);
+
+create unique index if not exists idx_post_reactions_unique_post_user_reaction
+  on post_reactions (post_id, user_id, reaction_type);
 
 create index if not exists idx_post_reactions_post_id on post_reactions(post_id);
 
@@ -1003,6 +1022,7 @@ with check (
 alter table if exists post_comments enable row level security;
 drop policy if exists "Post comments readable" on post_comments;
 drop policy if exists "Users can create own comments" on post_comments;
+drop policy if exists "Users can update own comments" on post_comments;
 drop policy if exists "Users can delete own comments" on post_comments;
 create policy "Post comments readable"
 on post_comments
@@ -1043,6 +1063,12 @@ with check (
       )
   )
 );
+create policy "Users can update own comments"
+on post_comments
+for update
+to authenticated
+using (auth.uid() = user_id)
+with check (auth.uid() = user_id);
 create policy "Users can delete own comments"
 on post_comments
 for delete
@@ -1142,10 +1168,16 @@ to authenticated
 using (auth.uid() = user_id);
 
 -- Profile + post media storage buckets (public URLs).
-insert into storage.buckets (id, name, public)
+-- post-media gets an explicit file_size_limit: Spot videos are compressed client-side before
+-- upload (see lib/videoCompress.ts), but this raises the bucket's own ceiling well above that
+-- so an already-reasonable file is never rejected. See database/increase-post-media-size-limit.sql
+-- for the migration that raises this on an existing project (this insert only sets it on a
+-- brand-new one — `on conflict` below intentionally does not touch file_size_limit so it does
+-- not fight a value someone has customized in the dashboard).
+insert into storage.buckets (id, name, public, file_size_limit)
 values
-  ('avatars', 'avatars', true),
-  ('post-media', 'post-media', true)
+  ('avatars', 'avatars', true, null),
+  ('post-media', 'post-media', true, 209715200) -- 200 MB
 on conflict (id) do update
 set public = excluded.public;
 

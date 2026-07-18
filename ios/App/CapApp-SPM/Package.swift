@@ -19,7 +19,6 @@ let package = Package(
         .package(name: "CapacitorKeyboard", path: "../../../node_modules/@capacitor/keyboard"),
         .package(name: "CapacitorPushNotifications", path: "../../../node_modules/@capacitor/push-notifications"),
         .package(name: "SpotDropCamera", path: "../../../packages/spotdrop-camera"),
-        .package(name: "SpotDropLocation", path: "../../../packages/spotdrop-location"),
         .package(name: "CapacitorShare", path: "../../../node_modules/@capacitor/share")
     ],
     targets: [
@@ -35,7 +34,6 @@ let package = Package(
                 .product(name: "CapacitorKeyboard", package: "CapacitorKeyboard"),
                 .product(name: "CapacitorPushNotifications", package: "CapacitorPushNotifications"),
                 .product(name: "SpotDropCamera", package: "SpotDropCamera"),
-                .product(name: "SpotDropLocation", package: "SpotDropLocation"),
                 .product(name: "CapacitorShare", package: "CapacitorShare")
             ]
         )

@@ -5,7 +5,7 @@ import {
 } from "@/lib/videoQualityDiagnostics";
 import { diagnoseVideoBlob } from "@/lib/videoIntegrityDiagnostics";
 
-export const CAMERA_MAX_VIDEO_SECONDS = 30;
+export const CAMERA_MAX_VIDEO_SECONDS = 15;
 
 export const CAMERA_PERMISSION_MESSAGE = "Camera access is required to record a Spot.";
 export const CAMERA_UNAVAILABLE_MESSAGE = "Unable to open the camera. Please try again.";
@@ -33,19 +33,23 @@ export const RECORDING_BROWSER_UNSAVED_MESSAGE =
 
 export const RECORDING_CANCELLED_MESSAGE = "recording-cancelled";
 
-/** Target recording bitrate (bits per second) — high for sharp 1080p/4K output. */
-export const CAMERA_VIDEO_BITS_PER_SECOND = 22_000_000;
+/**
+ * Target recording bitrate (bits per second) — capped at 1080p (never higher-res), tuned down
+ * from the previous 22/16 Mbps so a max-length (15s) Spot clip uploads quickly without visibly
+ * softening 1080p footage.
+ */
+export const CAMERA_VIDEO_BITS_PER_SECOND = 12_000_000;
 
-export const CAMERA_VIDEO_BITS_PER_SECOND_FALLBACK = 16_000_000;
+export const CAMERA_VIDEO_BITS_PER_SECOND_FALLBACK = 8_000_000;
 
 /**
  * iPhone / WKWebView recording bitrates.
  * Keep high enough for sharp 1080p30, but low enough for progressive HTTP playback
  * after upload (28 Mbps @ up-to-4K caused post-upload underrun stutter on remote URLs).
  */
-export const IOS_CAMERA_VIDEO_BITS_PER_SECOND = 12_000_000;
+export const IOS_CAMERA_VIDEO_BITS_PER_SECOND = 8_000_000;
 
-export const IOS_CAMERA_VIDEO_BITS_PER_SECOND_FALLBACK = 8_000_000;
+export const IOS_CAMERA_VIDEO_BITS_PER_SECOND_FALLBACK = 5_000_000;
 
 export const IOS_CAMERA_AUDIO_BITS_PER_SECOND = 256_000;
 

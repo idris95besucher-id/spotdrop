@@ -9,8 +9,6 @@ import {
 } from "@/lib/spotStreetName";
 import { spotUploadTime } from "@/lib/spotUploadLog";
 
-export const SPOT_MAX_VIDEO_SECONDS = 15;
-
 export type SpotGeoLocation = {
   latitude: number;
   longitude: number;
