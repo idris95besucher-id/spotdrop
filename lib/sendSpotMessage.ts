@@ -1,6 +1,7 @@
 import { CHATS_INBOX_REFRESH_EVENT } from "@/lib/chatsInbox";
 import { ensureConversationForOutgoingMessage, touchConversationUpdatedAt } from "@/lib/directConversations";
 import { normalizePostId, postIdForQuery } from "@/lib/postIds";
+import { requestMessagePush } from "@/lib/requestMessagePush";
 import { supabase } from "@/lib/supabaseClient";
 
 const DM_INSERT_SELECT =
@@ -119,14 +120,18 @@ export async function sendSpotToRecipient(input: {
     return { error: MISSING_SPOT_POST_ID_ERROR };
   }
 
-  const { error: insertError } = await supabase.from("direct_messages").insert({
-    sender_id: input.senderId,
-    recipient_id: input.recipientId,
-    message_type: "spot",
-    post_id: postIdForInsert,
-    body: null,
-    created_at: createdAt,
-  });
+  const { data: inserted, error: insertError } = await supabase
+    .from("direct_messages")
+    .insert({
+      sender_id: input.senderId,
+      recipient_id: input.recipientId,
+      message_type: "spot",
+      post_id: postIdForInsert,
+      body: null,
+      created_at: createdAt,
+    })
+    .select("id")
+    .single();
 
   if (insertError) {
     return { error: insertError.message || "Unable to send Spot." };
@@ -136,6 +141,10 @@ export async function sendSpotToRecipient(input: {
 
   if (typeof window !== "undefined") {
     window.dispatchEvent(new Event(CHATS_INBOX_REFRESH_EVENT));
+  }
+
+  if (inserted?.id) {
+    requestMessagePush({ messageId: String(inserted.id), type: "direct_message" });
   }
 
   return { error: null };

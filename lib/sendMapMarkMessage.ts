@@ -5,6 +5,7 @@ import {
 } from "@/lib/cityRoomMapMarkMessage";
 import { ensureConversationForOutgoingMessage, touchConversationUpdatedAt } from "@/lib/directConversations";
 import { resolveCityRoomId } from "@/lib/roomExplore";
+import { requestMessagePush } from "@/lib/requestMessagePush";
 import { upsertRoomMembershipOnMessage } from "@/lib/roomMemberships";
 import { supabase } from "@/lib/supabaseClient";
 
@@ -63,12 +64,16 @@ export async function sendMapMarkToCityRoom(input: {
 
   const content = encodeCityRoomMapMarkMessage(input.mark);
 
-  const { error } = await supabase.from("city_messages").insert({
-    city_id: cityId,
-    user_id: input.userId,
-    content,
-    map_mark_id: input.mark.mapMarkId,
-  });
+  const { data: inserted, error } = await supabase
+    .from("city_messages")
+    .insert({
+      city_id: cityId,
+      user_id: input.userId,
+      content,
+      map_mark_id: input.mark.mapMarkId,
+    })
+    .select("id")
+    .single();
 
   if (error) {
     return { error: error.message || "Unable to send to City Room." };
@@ -78,6 +83,10 @@ export async function sendMapMarkToCityRoom(input: {
 
   if (typeof window !== "undefined") {
     window.dispatchEvent(new Event(CHATS_INBOX_REFRESH_EVENT));
+  }
+
+  if (inserted?.id) {
+    requestMessagePush({ messageId: String(inserted.id), type: "room_message" });
   }
 
   return { error: null };
@@ -104,13 +113,17 @@ export async function sendMapMarkToRecipient(input: {
 
   const content = encodeCityRoomMapMarkMessage(input.mark);
 
-  const { error } = await supabase.from("direct_messages").insert({
-    sender_id: input.senderId,
-    recipient_id: input.recipientId,
-    message_type: "text",
-    body: content,
-    created_at: new Date().toISOString(),
-  });
+  const { data: inserted, error } = await supabase
+    .from("direct_messages")
+    .insert({
+      sender_id: input.senderId,
+      recipient_id: input.recipientId,
+      message_type: "text",
+      body: content,
+      created_at: new Date().toISOString(),
+    })
+    .select("id")
+    .single();
 
   if (error) {
     return { error: error.message || "Unable to send Mark." };
@@ -120,6 +133,10 @@ export async function sendMapMarkToRecipient(input: {
 
   if (typeof window !== "undefined") {
     window.dispatchEvent(new Event(CHATS_INBOX_REFRESH_EVENT));
+  }
+
+  if (inserted?.id) {
+    requestMessagePush({ messageId: String(inserted.id), type: "direct_message" });
   }
 
   return { error: null };
@@ -177,12 +194,16 @@ export async function sendMapMarkToGroup(input: {
 }): Promise<{ error: string | null }> {
   const content = encodeCityRoomMapMarkMessage(input.mark);
 
-  const { error } = await supabase.from("group_chat_messages").insert({
-    group_id: input.groupId,
-    sender_id: input.senderId,
-    message_type: "text",
-    body: content,
-  });
+  const { data: inserted, error } = await supabase
+    .from("group_chat_messages")
+    .insert({
+      group_id: input.groupId,
+      sender_id: input.senderId,
+      message_type: "text",
+      body: content,
+    })
+    .select("id")
+    .single();
 
   if (error) {
     return { error: error.message || "Unable to send Mark to group." };
@@ -190,6 +211,10 @@ export async function sendMapMarkToGroup(input: {
 
   if (typeof window !== "undefined") {
     window.dispatchEvent(new Event(CHATS_INBOX_REFRESH_EVENT));
+  }
+
+  if (inserted?.id) {
+    requestMessagePush({ messageId: String(inserted.id), type: "group_message" });
   }
 
   return { error: null };

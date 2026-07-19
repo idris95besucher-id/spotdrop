@@ -1,11 +1,18 @@
 /**
  * Ensure CapApp-SPM and capacitor.config.json include SpotDropPano after `cap sync`.
  * Cap CLI rewrites CapApp-SPM/Package.swift — this script re-applies our local plugin.
+ *
+ * No-ops on Vercel / when the local iOS Cap tree is missing (safe for npm install).
  */
 import fs from "node:fs";
 import path from "node:path";
+import { getRepoRoot, shouldSkipIosCapacitorScript } from "./iosCapacitorEnv.mjs";
 
-const root = path.resolve(import.meta.dirname, "..");
+if (shouldSkipIosCapacitorScript("[spotdrop-pano]")) {
+  process.exit(0);
+}
+
+const root = getRepoRoot();
 const packageSwiftPath = path.join(root, "ios/App/CapApp-SPM/Package.swift");
 const configPath = path.join(root, "ios/App/App/capacitor.config.json");
 const panoPackagePath = "../../../packages/spotdrop-pano";

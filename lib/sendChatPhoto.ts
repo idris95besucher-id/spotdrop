@@ -10,6 +10,7 @@ import { CITY_MESSAGE_SELECT, type CityMessageRawRow } from "@/lib/cityMessageRo
 import { MESSAGE_SELECT as GROUP_MESSAGE_SELECT, type GroupChatMessageRow } from "@/lib/groupChatMessages";
 import { uploadPostMedia } from "@/lib/postMedia";
 import { resolveCityRoomId } from "@/lib/roomExplore";
+import { requestMessagePush } from "@/lib/requestMessagePush";
 import { upsertRoomMembershipOnMessage } from "@/lib/roomMemberships";
 import { supabase } from "@/lib/supabaseClient";
 
@@ -81,7 +82,10 @@ export async function sendDmPhoto(input: {
     window.dispatchEvent(new Event(CHATS_INBOX_REFRESH_EVENT));
   }
 
-  return { message: normalizeDirectMessageRow(data), error: null };
+  const message = normalizeDirectMessageRow(data);
+  requestMessagePush({ messageId: message.id, type: "direct_message" });
+
+  return { message, error: null };
 }
 
 export async function sendGroupPhoto(input: {
@@ -124,7 +128,10 @@ export async function sendGroupPhoto(input: {
     window.dispatchEvent(new Event(CHATS_INBOX_REFRESH_EVENT));
   }
 
-  return { message: data as GroupChatMessageRow, error: null };
+  const message = data as GroupChatMessageRow;
+  requestMessagePush({ messageId: message.id, type: "group_message" });
+
+  return { message, error: null };
 }
 
 export async function sendCityRoomPhoto(input: {
@@ -175,5 +182,8 @@ export async function sendCityRoomPhoto(input: {
     window.dispatchEvent(new Event(CHATS_INBOX_REFRESH_EVENT));
   }
 
-  return { message: data as CityMessageRawRow, error: null };
+  const message = data as CityMessageRawRow;
+  requestMessagePush({ messageId: message.id, type: "room_message" });
+
+  return { message, error: null };
 }

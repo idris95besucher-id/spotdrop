@@ -9,10 +9,17 @@ import {
 export type { MessagePrivacy };
 
 export type NotificationPreferences = {
+  /** Master switch for alert categories (not sound/vibration). */
+  all: boolean;
   likes: boolean;
   comments: boolean;
   newFollowers: boolean;
+  /** Direct messages — kept as `messages` for existing readers. */
   messages: boolean;
+  groupMessages: boolean;
+  roomMessages: boolean;
+  sound: boolean;
+  vibration: boolean;
 };
 
 export type UserSettingsPreferences = {
@@ -26,10 +33,15 @@ export type UserSettingsPreferences = {
 const STORAGE_KEY = "spotdrop_user_settings";
 
 export const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = {
+  all: true,
   likes: true,
   comments: true,
   newFollowers: true,
   messages: true,
+  groupMessages: true,
+  roomMessages: true,
+  sound: true,
+  vibration: true,
 };
 
 export const DEFAULT_USER_SETTINGS: UserSettingsPreferences = {
@@ -46,6 +58,31 @@ export const MESSAGE_PRIVACY_OPTIONS: { value: MessagePrivacy; label: string; de
   { value: "friends", label: "Friends only", description: "Only mutual friends can message you." },
   { value: "nobody", label: "Nobody", description: "Direct messages are turned off." },
 ];
+
+function asBoolean(value: unknown, fallback: boolean) {
+  return typeof value === "boolean" ? value : fallback;
+}
+
+function normalizeNotificationPreferences(
+  raw: Partial<NotificationPreferences> | undefined
+): NotificationPreferences {
+  const merged = {
+    ...DEFAULT_NOTIFICATION_PREFERENCES,
+    ...(raw ?? {}),
+  };
+
+  return {
+    all: asBoolean(merged.all, DEFAULT_NOTIFICATION_PREFERENCES.all),
+    likes: asBoolean(merged.likes, DEFAULT_NOTIFICATION_PREFERENCES.likes),
+    comments: asBoolean(merged.comments, DEFAULT_NOTIFICATION_PREFERENCES.comments),
+    newFollowers: asBoolean(merged.newFollowers, DEFAULT_NOTIFICATION_PREFERENCES.newFollowers),
+    messages: asBoolean(merged.messages, DEFAULT_NOTIFICATION_PREFERENCES.messages),
+    groupMessages: asBoolean(merged.groupMessages, DEFAULT_NOTIFICATION_PREFERENCES.groupMessages),
+    roomMessages: asBoolean(merged.roomMessages, DEFAULT_NOTIFICATION_PREFERENCES.roomMessages),
+    sound: asBoolean(merged.sound, DEFAULT_NOTIFICATION_PREFERENCES.sound),
+    vibration: asBoolean(merged.vibration, DEFAULT_NOTIFICATION_PREFERENCES.vibration),
+  };
+}
 
 function readStorage(): UserSettingsPreferences {
   if (typeof window === "undefined") {
@@ -69,10 +106,7 @@ function readStorage(): UserSettingsPreferences {
           ? parsed.accentColor
           : DEFAULT_USER_SETTINGS.accentColor,
       messagePrivacy: normalizeMessagePrivacy(parsed.messagePrivacy),
-      notifications: {
-        ...DEFAULT_NOTIFICATION_PREFERENCES,
-        ...parsed.notifications,
-      },
+      notifications: normalizeNotificationPreferences(parsed.notifications),
       blockedUserIds: Array.isArray(parsed.blockedUserIds) ? parsed.blockedUserIds : [],
     };
   } catch {
@@ -104,10 +138,10 @@ export function updateUserSettingsPreferences(
     messagePrivacy: patch.messagePrivacy
       ? normalizeMessagePrivacy(patch.messagePrivacy)
       : current.messagePrivacy,
-    notifications: {
+    notifications: normalizeNotificationPreferences({
       ...current.notifications,
       ...patch.notifications,
-    },
+    }),
   };
 
   saveUserSettingsPreferences(next);

@@ -20,6 +20,7 @@ import ChatImageBubble from "@/components/chat/ChatImageBubble";
 import ChatLocationBubble from "@/components/chat/ChatLocationBubble";
 import VoiceMessageRecorder from "@/components/voice/VoiceMessageRecorder";
 import { sendDmVoiceMessage } from "@/lib/sendVoiceMessage";
+import { requestMessagePush } from "@/lib/requestMessagePush";
 import { uploadVoiceMessage } from "@/lib/voiceMessages/uploadVoiceMessage";
 import type { VoiceRecordingResult } from "@/lib/voiceMessages/useVoiceRecorder";
 import { useAuthSession } from "@/components/AuthSessionProvider";
@@ -829,6 +830,7 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
 
         return [...current, normalizeDirectMessageRow(inserted) as DirectMessage];
       });
+      requestMessagePush({ messageId: inserted.id, type: "direct_message" });
     }
 
     setDraft("");

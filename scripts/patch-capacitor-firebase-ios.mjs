@@ -1,10 +1,18 @@
 /**
  * Guards @capacitor-firebase/messaging against missing GoogleService-Info.plist.
  * Re-applied on npm install so `FirebaseApp.configure()` never fatalErrors at launch.
+ *
+ * Skipped on Vercel — Swift patches are only needed for local/Xcode iOS builds.
  */
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { isVercelEnvironment } from "./iosCapacitorEnv.mjs";
+
+if (isVercelEnvironment()) {
+  console.log("[patch-capacitor-firebase-ios] Skipping on Vercel.");
+  process.exit(0);
+}
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const messagingSwift = path.join(

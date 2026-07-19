@@ -9,6 +9,7 @@ import {
 import { CITY_MESSAGE_SELECT, type CityMessageRawRow } from "@/lib/cityMessageRow";
 import { MESSAGE_SELECT as GROUP_MESSAGE_SELECT, type GroupChatMessageRow } from "@/lib/groupChatMessages";
 import { resolveCityRoomId } from "@/lib/roomExplore";
+import { requestMessagePush } from "@/lib/requestMessagePush";
 import { upsertRoomMembershipOnMessage } from "@/lib/roomMemberships";
 import { supabase } from "@/lib/supabaseClient";
 
@@ -63,7 +64,10 @@ export async function sendDmLocation(input: {
     window.dispatchEvent(new Event(CHATS_INBOX_REFRESH_EVENT));
   }
 
-  return { message: normalizeDirectMessageRow(data), error: null };
+  const message = normalizeDirectMessageRow(data);
+  requestMessagePush({ messageId: message.id, type: "direct_message" });
+
+  return { message, error: null };
 }
 
 export async function sendGroupLocation(input: {
@@ -92,7 +96,10 @@ export async function sendGroupLocation(input: {
     window.dispatchEvent(new Event(CHATS_INBOX_REFRESH_EVENT));
   }
 
-  return { message: data as GroupChatMessageRow, error: null };
+  const message = data as GroupChatMessageRow;
+  requestMessagePush({ messageId: message.id, type: "group_message" });
+
+  return { message, error: null };
 }
 
 export async function sendCityRoomLocation(input: {
@@ -129,5 +136,8 @@ export async function sendCityRoomLocation(input: {
     window.dispatchEvent(new Event(CHATS_INBOX_REFRESH_EVENT));
   }
 
-  return { message: data as CityMessageRawRow, error: null };
+  const message = data as CityMessageRawRow;
+  requestMessagePush({ messageId: message.id, type: "room_message" });
+
+  return { message, error: null };
 }

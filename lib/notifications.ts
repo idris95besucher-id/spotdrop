@@ -7,7 +7,8 @@ export type NotificationType =
   | "new_follower"
   | "post_comment"
   | "room_message"
-  | "room_mention";
+  | "room_mention"
+  | "group_message";
 
 export type NotificationRow = {
   id: string;
@@ -93,6 +94,17 @@ export function buildNotificationCopy(
           : t("notifications.mentionedIn", { name, city }),
       };
     }
+    case "group_message": {
+      const name = publicProfileUsername(metadataString(metadata, "senderUsername") || "Someone");
+      const groupName = metadataString(metadata, "groupName") || t("group.chatInfo");
+      const preview = metadataString(metadata, "preview");
+      return {
+        title: t("notifications.newMessage"),
+        body: preview
+          ? `${name} · ${groupName}: ${preview}`
+          : t("chats.toast.message", { name: `${name} · ${groupName}` }),
+      };
+    }
     default:
       return {
         title: t("notifications.title"),
@@ -152,6 +164,15 @@ export function buildNotificationPushPayload(notification: Pick<NotificationRow,
       return {
         title: city,
         body: preview ? `${name}: ${preview}` : `${name} mentioned you`,
+      };
+    }
+    case "group_message": {
+      const name = publicProfileUsername(metadataString(metadata, "senderUsername") || "Someone");
+      const groupName = metadataString(metadata, "groupName") || "Group";
+      const preview = metadataString(metadata, "preview");
+      return {
+        title: groupName,
+        body: preview ? `${name}: ${preview}` : `${name} sent a message`,
       };
     }
     default:

@@ -12,7 +12,8 @@ const config: CapacitorConfig = {
   },
   plugins: {
     FirebaseMessaging: {
-      presentationOptions: ['alert', 'badge', 'sound'],
+      // Foreground: in-app banner + WAV via JS. Background/killed: APNs alert+sound.
+      presentationOptions: ['badge'],
     },
     Keyboard: {
       // Native WebView resize: absolute/flex shells (100dvh / inset-0) shrink with the

@@ -9,7 +9,7 @@
     "ios:firebase-plist": "node scripts/sync-google-service-info-ios.mjs",
     "ios:firebase-verify": "node scripts/sync-google-service-info-ios.mjs --verify",
     "cap:sync:ios": "node scripts/sync-google-service-info-ios.mjs && npm run build:capacitor && npx cap sync ios && node scripts/ensure-spotdrop-camera-spm.mjs && node scripts/sync-google-service-info-ios.mjs",
-    "postinstall": "node scripts/patch-capacitor-firebase-ios.mjs && node scripts/ensure-spotdrop-camera-spm.mjs",
+    "postinstall": "node scripts/postinstall.mjs",
     "start": "next start",
     "seed:bern-discovery": "node scripts/seed-bern-discovery.mjs",
     "db:delete-guide-accounts": "node scripts/delete-guide-accounts.mjs",

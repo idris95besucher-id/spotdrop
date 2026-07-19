@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Session } from "@supabase/supabase-js";
 import {
+  Bell,
   CircleHelp,
   Eye,
   KeyRound,
@@ -15,7 +16,6 @@ import {
 } from "lucide-react";
 import SettingsScreenLayout from "@/components/settings/SettingsScreenLayout";
 import SignOutButton from "@/components/SignOutButton";
-import { useNotifications } from "@/components/NotificationsProvider";
 import { useI18n } from "@/components/I18nProvider";
 import { saveProfileLanguage } from "@/lib/i18n/profileLanguage";
 import { resolveI18nLocale } from "@/lib/i18n/locales";
@@ -71,6 +71,7 @@ import {
 import { supabase } from "@/lib/supabaseClient";
 import GalleryAllowedUsersPicker from "@/components/settings/GalleryAllowedUsersPicker";
 
+
 const MESSAGE_PRIVACY_LABEL_KEYS: Record<MessagePrivacy, TranslationKey> = {
   everyone: "settings.messagePrivacy.everyone",
   followers: "settings.messagePrivacy.followers",
@@ -111,13 +112,6 @@ export default function SettingsPage() {
   const [galleryVisibility, setGalleryVisibility] = useState<ProfileGalleryVisibility>("everyone");
   const [galleryAllowedViewers, setGalleryAllowedViewers] = useState<GalleryAllowedViewer[]>([]);
   const [savingGalleryPrivacy, setSavingGalleryPrivacy] = useState(false);
-  const [notifyLikes, setNotifyLikes] = useState(true);
-  const [notifyComments, setNotifyComments] = useState(true);
-  const [notifyFollowers, setNotifyFollowers] = useState(true);
-  const [notifyMessages, setNotifyMessages] = useState(true);
-  const [pushStatus, setPushStatus] = useState<string | null>(null);
-  const [enablingPush, setEnablingPush] = useState(false);
-  const { requestPushPermission, pushSupported } = useNotifications();
   const [language, setLanguage] = useState<AppLanguageCode>("en");
   const [draftLanguage, setDraftLanguage] = useState<AppLanguageCode>("en");
   const [savingLanguage, setSavingLanguage] = useState(false);
@@ -216,10 +210,6 @@ export default function SettingsPage() {
       }
 
       setMessagePrivacy(prefs.messagePrivacy);
-      setNotifyLikes(prefs.notifications.likes);
-      setNotifyComments(prefs.notifications.comments);
-      setNotifyFollowers(prefs.notifications.newFollowers);
-      setNotifyMessages(prefs.notifications.messages);
 
       const privacyResult = await loadProfilePrivacySettings(nextSession.user.id);
 
@@ -280,15 +270,6 @@ export default function SettingsPage() {
     }
 
     setSavingPrivacy(false);
-  };
-
-  const persistNotifications = (patch: Partial<{
-    likes: boolean;
-    comments: boolean;
-    newFollowers: boolean;
-    messages: boolean;
-  }>) => {
-    updateUserSettingsPreferences({ notifications: patch });
   };
 
   const handleMessagePrivacyChange = (value: string) => {
@@ -501,80 +482,12 @@ export default function SettingsPage() {
         ) : null}
 
         <SettingsSection title={t("settings.notifications")}>
-          <SettingsToggleRow
-            label={t("settings.notifyLikes")}
-            checked={notifyLikes}
-            onChange={(checked) => {
-              setNotifyLikes(checked);
-              persistNotifications({ likes: checked });
-            }}
+          <SettingsRow
+            href="/settings/notifications"
+            label={t("settings.notificationsSounds")}
+            description={t("settings.notificationsLocalHint")}
+            icon={Bell}
           />
-          <SettingsToggleRow
-            label={t("settings.notifyComments")}
-            checked={notifyComments}
-            onChange={(checked) => {
-              setNotifyComments(checked);
-              persistNotifications({ comments: checked });
-            }}
-          />
-          <SettingsToggleRow
-            label={t("settings.notifyFollowers")}
-            checked={notifyFollowers}
-            onChange={(checked) => {
-              setNotifyFollowers(checked);
-              persistNotifications({ newFollowers: checked });
-            }}
-          />
-          <SettingsToggleRow
-            label={t("settings.notifyMessages")}
-            checked={notifyMessages}
-            onChange={(checked) => {
-              setNotifyMessages(checked);
-              persistNotifications({ messages: checked });
-            }}
-          />
-          {pushSupported ? (
-            <div className="space-y-2 border-t border-white/10 px-4 py-3.5">
-              <button
-                type="button"
-                disabled={enablingPush}
-                onClick={() => {
-                  setEnablingPush(true);
-                  setPushStatus(null);
-                  void requestPushPermission().then((result) => {
-                    setEnablingPush(false);
-
-                    if (!result) {
-                      setPushStatus(t("notifications.pushEnabled"));
-                      return;
-                    }
-
-                    if (result === "denied") {
-                      setPushStatus(t("notifications.pushDenied"));
-                      return;
-                    }
-
-                    if (result === "unsupported") {
-                      setPushStatus(t("notifications.pushUnsupported"));
-                      return;
-                    }
-
-                    if (result === "missing_vapid") {
-                      setPushStatus(t("notifications.pushMissingVapid"));
-                      return;
-                    }
-
-                    setPushStatus(result);
-                  });
-                }}
-                className={settingsPrimaryButtonClass}
-              >
-                {enablingPush ? t("common.saving") : t("notifications.enablePush")}
-              </button>
-              <p className="text-xs text-muted">{t("notifications.enablePushDesc")}</p>
-              {pushStatus ? <p className={settingsSuccessMessageClass}>{pushStatus}</p> : null}
-            </div>
-          ) : null}
         </SettingsSection>
 
         <SettingsSection title={t("settings.security")}>

@@ -13,6 +13,8 @@ import {
 } from "@/lib/nativePush";
 import { saveUserPushToken } from "@/lib/userPushTokens";
 import { countUnreadNotifications } from "@/lib/notifications";
+import { loadUserSettingsPreferences } from "@/lib/settingsPreferences";
+import { syncUserNotificationPreferences } from "@/lib/userNotificationPreferences";
 
 type PushNotificationsBootstrapProps = {
   userId: string | null;
@@ -30,6 +32,15 @@ export default function PushNotificationsBootstrap({ userId }: PushNotifications
       native: isNativePushSupported(),
       platform: isNativePushSupported() ? nativePlatform() : "web",
     });
+  }, [userId]);
+
+  useEffect(() => {
+    if (!userId) {
+      return;
+    }
+
+    // Keep server prefs in sync so APNs can honor Sound / category toggles.
+    void syncUserNotificationPreferences(userId, loadUserSettingsPreferences().notifications);
   }, [userId]);
 
   useEffect(() => {
@@ -74,6 +85,14 @@ export default function PushNotificationsBootstrap({ userId }: PushNotifications
             platform: nativePlatform(),
             deviceId: await resolveNativeDeviceIdForPush(),
           });
+        });
+
+        // Foreground: Realtime already shows in-app banner + WAV. Do not also play FCM sound
+        // here (that duplicated audio, and could fire again when resuming with a queued push).
+        await FirebaseMessaging.addListener("notificationReceived", (event) => {
+          const data = (event.notification?.data as Record<string, unknown> | undefined) ?? {};
+          const payload = parseNativePushData(data);
+          console.info("[Push] notification received (foreground) — realtime handles banner", payload);
         });
 
         await FirebaseMessaging.addListener("notificationActionPerformed", (event) => {
@@ -137,7 +156,7 @@ export default function PushNotificationsBootstrap({ userId }: PushNotifications
 
       listenersAttachedRef.current = false;
     };
-  }, [userId]);
+  }, [userId, router]);
 
   useEffect(() => {
     if (userId || !isNativePushSupported()) {

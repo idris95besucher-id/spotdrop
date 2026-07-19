@@ -45,12 +45,17 @@ import { groupThreadHref, isViewingGroupThread } from "@/lib/groupChatRoutes";
 import { markGroupThreadRead } from "@/lib/groupChats";
 import { isGroupSystemEventMessage } from "@/lib/groupChatSystemEvents";
 import {
-  playMessageNotificationSound,
+  isStaleRealtimeNotification,
+  playNotificationSound,
   skipMessageNotificationSound,
 } from "@/lib/messageNotificationSound";
 import { buildRoomHref, fetchRoomMembershipForCity } from "@/lib/roomMemberships";
 import { loadUserSettingsPreferences } from "@/lib/settingsPreferences";
 import { isCapacitorNative } from "@/lib/capacitorUtils";
+import {
+  CHAT_PUSH_BANNER_EVENT,
+  type ChatPushBannerDetail,
+} from "@/lib/chatPushBanner";
 import { supabase } from "@/lib/supabaseClient";
 
 type ChatToast = {
@@ -157,6 +162,33 @@ export default function ChatNotificationsProvider({ children }: { children: Reac
   );
 
   showToastRef.current = showToast;
+
+  // Foreground FCM → in-app banner + sound (PushNotificationsBootstrap dispatches this).
+  useEffect(() => {
+    const onPushBanner = (event: Event) => {
+      const detail = (event as CustomEvent<ChatPushBannerDetail>).detail;
+
+      if (!detail?.message || !detail.href) {
+        return;
+      }
+
+      showToastRef.current({
+        id: `push-${Date.now()}`,
+        message: detail.message,
+        href: detail.href,
+      });
+
+      if (detail.sound) {
+        void playNotificationSound(detail.sound);
+      }
+    };
+
+    window.addEventListener(CHAT_PUSH_BANNER_EVENT, onPushBanner);
+
+    return () => {
+      window.removeEventListener(CHAT_PUSH_BANNER_EVENT, onPushBanner);
+    };
+  }, []);
 
   const adjustDmUnreadTotal = useCallback((delta: number) => {
     setUnreadCount((current) => {
@@ -329,7 +361,10 @@ export default function ChatNotificationsProvider({ children }: { children: Reac
 
     console.log("[DM global] subscribe start", { userId });
 
-    const messagesEnabled = () => loadUserSettingsPreferences().notifications.messages;
+    const directMessagesEnabled = () => {
+      const prefs = loadUserSettingsPreferences().notifications;
+      return prefs.all && prefs.messages;
+    };
 
     const channel = supabase
       .channel(`dm_global_${userId}`)
@@ -386,13 +421,19 @@ export default function ChatNotificationsProvider({ children }: { children: Reac
           void (async () => {
             await markDirectMessagesDeliveredFromSender(userId, row.sender_id);
 
-            if (!messagesEnabled()) {
+            if (!directMessagesEnabled()) {
               skipMessageNotificationSound("messages_disabled");
               return;
             }
 
             if (await isDmMuted(userId, row.sender_id)) {
               skipMessageNotificationSound("muted");
+              return;
+            }
+
+            // Background/closed delivery is APNs. Do not replay WAV/toast for catch-up on resume.
+            if (isStaleRealtimeNotification(row.created_at)) {
+              skipMessageNotificationSound("stale_catchup");
               return;
             }
 
@@ -406,7 +447,7 @@ export default function ChatNotificationsProvider({ children }: { children: Reac
               tRef.current
             );
 
-            void playMessageNotificationSound();
+            void playNotificationSound("direct_message");
 
             showToastRef.current({
               id: `${row.sender_id}-${Date.now()}`,
@@ -440,7 +481,10 @@ export default function ChatNotificationsProvider({ children }: { children: Reac
 
     console.log("[Room global] subscribe start", { userId });
 
-    const messagesEnabled = () => loadUserSettingsPreferences().notifications.messages;
+    const roomMessagesEnabled = () => {
+      const prefs = loadUserSettingsPreferences().notifications;
+      return prefs.all && prefs.roomMessages;
+    };
 
     const channel = supabase
       .channel(`room_global_${userId}`)
@@ -527,8 +571,13 @@ export default function ChatNotificationsProvider({ children }: { children: Reac
               return;
             }
 
-            if (!messagesEnabled()) {
+            if (!roomMessagesEnabled()) {
               skipMessageNotificationSound("messages_disabled");
+              return;
+            }
+
+            if (isStaleRealtimeNotification(row.created_at)) {
+              skipMessageNotificationSound("stale_catchup");
               return;
             }
 
@@ -547,7 +596,7 @@ export default function ChatNotificationsProvider({ children }: { children: Reac
               tRef.current
             );
 
-            void playMessageNotificationSound();
+            void playNotificationSound("room_message");
 
             showToastRef.current({
               id: `${membership.citySlug}-${Date.now()}`,
@@ -581,7 +630,10 @@ export default function ChatNotificationsProvider({ children }: { children: Reac
 
     console.log("[Group global] subscribe start", { userId });
 
-    const messagesEnabled = () => loadUserSettingsPreferences().notifications.messages;
+    const groupMessagesEnabled = () => {
+      const prefs = loadUserSettingsPreferences().notifications;
+      return prefs.all && prefs.groupMessages;
+    };
 
     // RLS on group_chat_messages restricts SELECT (and therefore Realtime delivery)
     // to members of the group, so no client-side "is my group" filter is needed here.
@@ -625,8 +677,13 @@ export default function ChatNotificationsProvider({ children }: { children: Reac
           }
 
           void (async () => {
-            if (!messagesEnabled()) {
+            if (!groupMessagesEnabled()) {
               skipMessageNotificationSound("messages_disabled");
+              return;
+            }
+
+            if (isStaleRealtimeNotification(row.created_at)) {
+              skipMessageNotificationSound("stale_catchup");
               return;
             }
 
@@ -641,7 +698,7 @@ export default function ChatNotificationsProvider({ children }: { children: Reac
             const groupName = (groupRow?.name as string | null) ?? tRef.current("group.chatInfo");
             const message = tRef.current("chats.toast.message", { name: `${senderName} · ${groupName}` });
 
-            void playMessageNotificationSound();
+            void playNotificationSound("group_message");
 
             showToastRef.current({
               id: `${row.group_id}-${Date.now()}`,

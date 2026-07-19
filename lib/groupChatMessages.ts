@@ -1,3 +1,4 @@
+import { requestMessagePush } from "@/lib/requestMessagePush";
 import { supabase } from "@/lib/supabaseClient";
 
 export type GroupChatMessageType = "text" | "system";
@@ -109,7 +110,10 @@ export async function sendGroupTextMessage(
     return { message: null, error: error.message };
   }
 
-  return { message: data as GroupChatMessageRow, error: null };
+  const message = data as GroupChatMessageRow;
+  requestMessagePush({ messageId: message.id, type: "group_message" });
+
+  return { message, error: null };
 }
 
 /**
@@ -145,5 +149,8 @@ export async function sendGroupVoiceMessage(
     return { message: null, error: error.message };
   }
 
-  return { message: data as GroupChatMessageRow, error: null };
+  const message = data as GroupChatMessageRow;
+  requestMessagePush({ messageId: message.id, type: "group_message" });
+
+  return { message, error: null };
 }

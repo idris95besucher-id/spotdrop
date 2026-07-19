@@ -40,13 +40,25 @@ function buildPushPayload(notification: Pick<NotificationRow, "type" | "metadata
       const name = metadataString(metadata, "followerUsername") || "Someone";
       return { title: "New follower", body: `${name} started following you` };
     }
+    case "group_message": {
+      const name = metadataString(metadata, "senderUsername") || "Someone";
+      const groupName = metadataString(metadata, "groupName") || "Group";
+      const preview = metadataString(metadata, "preview");
+      return { title: groupName, body: preview ? `${name}: ${preview}` : `${name} sent a message` };
+    }
     default:
       return { title: "SpotDrop", body: "You have a new notification" };
   }
 }
 
 function shouldSendPush(type: string) {
-  return type === "direct_message" || type === "room_message" || type === "room_mention" || type === "new_follower";
+  return (
+    type === "direct_message" ||
+    type === "room_message" ||
+    type === "room_mention" ||
+    type === "group_message" ||
+    type === "new_follower"
+  );
 }
 
 async function getGoogleAccessToken(serviceAccount: {
@@ -180,8 +192,11 @@ serve(async (request) => {
 
   let fcmSent = 0;
 
+  const errors: Array<{ tokenPreview: string; status: number; body: string }> = [];
+
   await Promise.all(
     tokens.map(async (token) => {
+      const tokenPreview = `${token.slice(0, 12)}…`;
       const response = await fetch(`https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`, {
         method: "POST",
         headers: {
@@ -196,10 +211,17 @@ serve(async (request) => {
               href: notification.href,
               type: notification.type,
               notificationId: notification.id,
+              title: payload.title,
+              body: payload.body,
             },
             apns: {
+              headers: {
+                "apns-push-type": "alert",
+                "apns-priority": "10",
+              },
               payload: {
                 aps: {
+                  alert: { title: payload.title, body: payload.body },
                   sound: PUSH_SOUND,
                   badge: badgeCount ?? 0,
                 },
@@ -209,13 +231,38 @@ serve(async (request) => {
         }),
       });
 
+      const responseText = await response.text();
+
       if (response.ok) {
         fcmSent += 1;
+        console.log("[Push] FCM/APNs accepted", { tokenPreview, body: responseText.slice(0, 200) });
+      } else {
+        console.error("[Push] FCM/APNs rejected", {
+          tokenPreview,
+          status: response.status,
+          body: responseText.slice(0, 500),
+        });
+        errors.push({ tokenPreview, status: response.status, body: responseText.slice(0, 300) });
       }
     })
   );
 
-  return new Response(JSON.stringify({ sent: fcmSent, fcmSent, badge: badgeCount ?? 0 }), {
-    headers: { "Content-Type": "application/json" },
+  console.log("[Push] send-push done", {
+    notificationId,
+    tokenCount: tokens.length,
+    fcmSent,
+    errorCount: errors.length,
   });
+
+  return new Response(
+    JSON.stringify({
+      sent: fcmSent,
+      fcmSent,
+      badge: badgeCount ?? 0,
+      tokenCount: tokens.length,
+      errors,
+      chainStage: fcmSent > 0 ? "fcm→apns_accepted" : errors.length ? "fcm→apns_rejected" : "no_tokens",
+    }),
+    { headers: { "Content-Type": "application/json" } }
+  );
 });

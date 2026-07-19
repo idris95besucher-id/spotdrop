@@ -24,6 +24,7 @@ import {
 } from "@/lib/notifications";
 import { isCapacitorNative } from "@/lib/capacitorUtils";
 import { enablePush, isBrowserNotificationAvailable, isPushSupported, showLocalPushNotification } from "@/lib/pushNotifications";
+import { playNotificationSound } from "@/lib/messageNotificationSound";
 import { loadUserSettingsPreferences, type NotificationPreferences } from "@/lib/settingsPreferences";
 import { supabase } from "@/lib/supabaseClient";
 
@@ -46,13 +47,18 @@ export function useNotifications() {
 }
 
 function shouldDeliverNotification(type: NotificationType, prefs: NotificationPreferences) {
+  if (!prefs.all) {
+    return false;
+  }
+
   switch (type) {
     case "direct_message":
       return prefs.messages;
+    case "group_message":
+      return prefs.groupMessages;
     case "room_message":
-      return prefs.messages;
     case "room_mention":
-      return prefs.messages;
+      return prefs.roomMessages;
     case "new_follower":
       return prefs.newFollowers;
     case "post_comment":
@@ -178,8 +184,9 @@ export default function NotificationsProvider({ children }: { children: ReactNod
         },
         (payload) => {
           const row = payload.new as NotificationRow;
+          const prefs = loadUserSettingsPreferences().notifications;
 
-          if (!shouldDeliverNotification(row.type, loadUserSettingsPreferences().notifications)) {
+          if (!shouldDeliverNotification(row.type, prefs)) {
             void refreshUnreadCount();
             dispatchNotificationsRefresh();
             return;
@@ -196,6 +203,11 @@ export default function NotificationsProvider({ children }: { children: ReactNod
           void refreshUnreadCount();
           dispatchNotificationsRefresh();
 
+          // Message sounds are handled by ChatNotificationsProvider to avoid doubles.
+          if (row.type === "post_comment") {
+            void playNotificationSound("comment");
+          }
+
           void showLocalPushNotification({
             title: copy.title,
             body: copy.body,
@@ -209,6 +221,58 @@ export default function NotificationsProvider({ children }: { children: ReactNod
       void supabase.removeChannel(channel);
     };
   }, [refreshUnreadCount, t, userId]);
+
+  // In-app like sounds while the app is open (no push).
+  useEffect(() => {
+    if (!userId) {
+      return;
+    }
+
+    const channel = supabase
+      .channel(`post_likes_sound_${userId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "post_reactions",
+        },
+        (payload) => {
+          const row = payload.new as {
+            post_id?: string;
+            user_id?: string;
+            reaction_type?: string;
+          };
+
+          if (!row.post_id || !row.user_id || row.user_id === userId) {
+            return;
+          }
+
+          if (row.reaction_type !== "like") {
+            return;
+          }
+
+          void (async () => {
+            const { data: post } = await supabase
+              .from("posts")
+              .select("id, user_id")
+              .eq("id", row.post_id!)
+              .maybeSingle();
+
+            if (!post || post.user_id !== userId) {
+              return;
+            }
+
+            void playNotificationSound("like");
+          })();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [userId]);
 
   const value = useMemo(
     () => ({

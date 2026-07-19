@@ -5,19 +5,21 @@ SpotDrop uses **Firebase Cloud Messaging (FCM)** for native push. On iOS, FCM de
 ## Architecture
 
 1. **Client (Capacitor iOS)** — `@capacitor-firebase/messaging` requests permission, registers FCM token → saved to Supabase `user_push_tokens`.
-2. **Database** — Message inserts create `notifications` rows; trigger `dispatch_push_for_notification()` calls the push webhook (pg_net).
-3. **Server** — `POST /api/push/send` (Next.js) or Supabase Edge Function `send-push` sends via **firebase-admin** (FCM/APNs). In-app toasts still use realtime (`ChatNotificationsProvider`).
+2. **Database** — Message inserts create `notifications` rows; trigger `dispatch_push_for_notification()` queues `pg_net` → webhook (see `push_dispatch_log`).
+3. **Sender client (immediate)** — After a successful DM/group/room insert, the sender calls `POST /api/push/notify-message` on the hosted API so FCM/APNs fires even if the recipient app is killed and even if DB GUCs are unset.
+4. **Server** — `POST /api/push/send` (webhook) or `POST /api/push/notify-message` (sender JWT) → **firebase-admin** → FCM → APNs. In-app toasts use realtime while the app is open.
 
 ### Push types enabled
 
 | Event | Notification type | Title | Body | Deep link |
 |-------|-------------------|-------|------|-----------|
 | Direct message | `direct_message` | Sender username | Message preview | `/dm?id={senderId}` |
+| Group message | `group_message` | Group name | Sender + preview | `/group?id={groupId}` |
 | City room message | `room_message` | City name | Message preview | `/rooms/{country}/{city}` |
 | Room @mention | `room_mention` | City name | `@user: preview` | `/rooms/{country}/{city}` |
 | New follower | `new_follower` | New follower | Username followed you | profile URL |
 
-Sound: **default** · Badge: **unread notification count**
+Sound: **default** (omitted when user Sound switch is off) · Badge: **unread notification count**
 
 ### Mute rules
 
@@ -29,19 +31,15 @@ Sound: **default** · Badge: **unread notification count**
 
 ## Personal Team (free Apple ID)
 
-Push Notifications capability is **disabled** for local builds on a free Personal Team (not supported by Apple).
+Free Personal Teams cannot enable Push. Use a paid Apple Developer Program team.
 
-- `App.entitlements` is empty — no `aps-environment`
-- `Info.plist` has no `remote-notification` background mode
-- Firebase push **code remains**; registration fails gracefully at runtime
-- **In-app realtime** (`ChatNotificationsProvider`) is unchanged
+This repo enables push by default:
 
-When you join the **Apple Developer Program**, re-enable push:
+- `App.entitlements` → `aps-environment = development`
+- `Info.plist` → `UIBackgroundModes` / `remote-notification`
+- `CODE_SIGN_ENTITLEMENTS = App/App.entitlements`
 
-1. `cp ios/App/App/App.entitlements.with-push ios/App/App/App.entitlements`
-2. Add `UIBackgroundModes` → `remote-notification` back to `Info.plist`
-3. Set `CODE_SIGN_ENTITLEMENTS = App/App.entitlements` in `project.pbxproj` (Debug + Release)
-4. Xcode → Signing & Capabilities → **Push Notifications**
+In Xcode → Signing & Capabilities, confirm **Push Notifications** is present for the App target.
 
 ---
 
@@ -107,18 +105,42 @@ Run in order (SQL editor):
 database/add-user-push-tokens.sql
 database/add-fcm-push.sql          -- if not already applied (legacy fcm_device_tokens + room mentions)
 database/enable-ios-message-push.sql
+database/enable-message-push-prefs-and-groups.sql  -- group push + user_notification_preferences
+database/fix-push-dispatch-reliability.sql       -- config table + push_dispatch_log
 ```
 
-Enable **pg_net** (Dashboard → Database → Extensions) and set webhook:
+Enable **pg_net** (Dashboard → Database → Extensions) and set webhook via config table (preferred):
+
+```sql
+insert into public.push_webhook_config (id, url, secret)
+values (1, 'https://YOUR_PRODUCTION_DOMAIN/api/push/send', 'YOUR_PUSH_WEBHOOK_SECRET')
+on conflict (id) do update
+set url = excluded.url, secret = excluded.secret, updated_at = now();
+```
+
+Or legacy GUCs:
 
 ```sql
 alter database postgres set app.push_webhook_url = 'https://YOUR_PRODUCTION_DOMAIN/api/push/send';
 alter database postgres set app.push_webhook_secret = 'YOUR_PUSH_WEBHOOK_SECRET';
 ```
 
+**Diagnose chain:**
+
+```sql
+select stage, detail, created_at
+from public.push_dispatch_log
+order by created_at desc
+limit 20;
+```
+
+- `skipped_no_webhook_config` → config/GUCs missing (sender `/api/push/notify-message` still works after deploy)
+- `http_post_queued` → pg_net accepted; check Vercel logs for `[Push] webhook received` / `FCM/APNs`
+- `http_post_error` → pg_net/extension problem
+
 **Alternative:** Database Webhook on `notifications` INSERT → `POST /api/push/send` with `Authorization: Bearer YOUR_PUSH_WEBHOOK_SECRET` and body `{ "notificationId": "{{ record.id }}" }`.
 
-**Edge Function alternative:** deploy `supabase/functions/send-push` and point `app.push_webhook_url` at the function URL instead of Vercel.
+**Edge Function alternative:** deploy `supabase/functions/send-push` and point `push_webhook_config.url` at the function URL instead of Vercel.
 
 ---
 

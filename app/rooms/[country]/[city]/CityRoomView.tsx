@@ -33,6 +33,7 @@ import { toUserFacingError } from "@/lib/userFacingError";
 import { localizeCountryName, localizeCityName } from "@/lib/i18n/localizeGeo";
 import { CHATS_INBOX_REFRESH_EVENT } from "@/lib/chatsInbox";
 import { markRoomThreadOpened } from "@/lib/chatUnreadSync";
+import { requestMessagePush } from "@/lib/requestMessagePush";
 import {
   markRoomAsRead,
   clearRoomReturnNavigation,
@@ -797,6 +798,10 @@ export default function RoomChatPage() {
     setNewMessage("");
     setSending(false);
     markForceScroll();
+
+    if (insertedMessage?.id) {
+      requestMessagePush({ messageId: String(insertedMessage.id), type: "room_message" });
+    }
 
     const membershipCountrySlug = country?.slug ?? countrySlug;
     const membershipCitySlug = city?.slug ?? citySlug;
