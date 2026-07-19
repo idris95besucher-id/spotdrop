@@ -74,7 +74,10 @@ export async function loadNotificationsForMessage(
         type,
         attempt: attempt + 1,
         count: data.length,
+        sender_user_id: actorId,
         recipientUserIds: data.map((row) => row.user_id),
+        actorIds: data.map((row) => row.actor_id),
+        sourceIds: data.map((row) => row.source_id),
       });
       return data.map(mapNotificationRow);
     }

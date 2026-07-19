@@ -77,7 +77,20 @@ export function requestMessagePush(input: { messageId: string | number; type: Me
         skipped?: string;
         chainStage?: string;
         error?: string;
-        results?: unknown;
+        results?: Array<{
+          skipped?: string;
+          userId?: string;
+          notificationUserId?: string;
+          recipientResolution?: {
+            senderUserId?: string | null;
+            recipientUserId?: string | null;
+            conversationParticipants?: string[];
+            tokenQueryUserId?: string;
+            tokenQueryMatchesIphoneTokenOwner?: boolean;
+            iphoneTokenOwnerUserIds?: string[];
+            tokenQueryIsSender?: boolean;
+          };
+        }>;
         recipients?: number;
       } | null;
 
@@ -104,6 +117,23 @@ export function requestMessagePush(input: { messageId: string | number; type: Me
         recipients: payload?.recipients ?? null,
         results: payload?.results ?? null,
       });
+
+      for (const row of payload?.results ?? []) {
+        const resolution = row.recipientResolution;
+        if (!resolution) continue;
+        console.info("[Push][step 3] DM recipient resolution", {
+          messageId,
+          sender_user_id: resolution.senderUserId,
+          recipient_user_id: resolution.recipientUserId,
+          conversation_participants: resolution.conversationParticipants,
+          token_query_user_id: resolution.tokenQueryUserId,
+          notification_user_id: row.notificationUserId,
+          token_query_is_sender: resolution.tokenQueryIsSender,
+          token_query_matches_iphone_token_owner: resolution.tokenQueryMatchesIphoneTokenOwner,
+          iphone_token_owner_user_ids: resolution.iphoneTokenOwnerUserIds,
+          skipped: row.skipped ?? null,
+        });
+      }
     } catch (error) {
       console.error("[Push][step 2] FAIL requestMessagePush network error", {
         messageId,

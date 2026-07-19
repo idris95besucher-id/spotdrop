@@ -10,6 +10,7 @@ import {
   MESSAGE_PUSH_TYPES,
   resolveAuthenticatedUserId,
 } from "@/lib/pushNotifyMessage";
+import { resolveAndLogDmPushRecipient } from "@/lib/pushRecipientResolve";
 import { logInvalidMessageId, parseOptionalPushIdField } from "@/lib/pushRequestParse";
 import { pushServerError, pushServerLog } from "@/lib/pushServerLog";
 import {
@@ -144,30 +145,56 @@ async function handleSenderMessagePush(
   const results = [];
 
   for (const notification of notifications) {
+    let tokenQueryUserId = notification.user_id;
+    let recipientResolution: Awaited<ReturnType<typeof resolveAndLogDmPushRecipient>> | null = null;
+
+    if (type === "direct_message") {
+      recipientResolution = await resolveAndLogDmPushRecipient({
+        admin,
+        messageId,
+        senderUserId: actorId,
+        notification,
+      });
+      tokenQueryUserId = recipientResolution.tokenQueryUserId;
+    }
+
     pushServerLog("2", "Entering deliverNotificationPush from /api/push/send", {
       notificationId: notification.id,
-      recipientUserId: notification.user_id,
+      notificationUserId: notification.user_id,
+      tokenQueryUserId,
       type: notification.type,
     });
-    pushServerLog("3", "Recipient user_id", { recipientUserId: notification.user_id });
+    pushServerLog("3", "Recipient user_id for token query", {
+      sender_user_id: recipientResolution?.senderUserId ?? actorId,
+      recipient_user_id: recipientResolution?.recipientUserId ?? notification.user_id,
+      messageId,
+      conversation_participants: recipientResolution?.conversationParticipants ?? null,
+      token_query_user_id: tokenQueryUserId,
+      token_query_matches_iphone_token_owner:
+        recipientResolution?.tokenQueryMatchesIphoneTokenOwner ?? null,
+    });
 
     try {
-      const result = await deliverNotificationPush(admin, notification);
+      const result = await deliverNotificationPush(admin, notification, { tokenQueryUserId });
       results.push({
         notificationId: notification.id,
-        userId: notification.user_id,
+        userId: tokenQueryUserId,
+        notificationUserId: notification.user_id,
+        recipientResolution,
         ...result,
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       pushServerError("7", "deliverNotificationPush threw", {
         notificationId: notification.id,
+        tokenQueryUserId,
         recipientUserId: notification.user_id,
         message,
       });
       results.push({
         notificationId: notification.id,
-        userId: notification.user_id,
+        userId: tokenQueryUserId,
+        notificationUserId: notification.user_id,
         sent: 0,
         fcmSent: 0,
         successCount: 0,

@@ -45,13 +45,16 @@ function isMissingPushTokensTable(error: { code?: string; message?: string }) {
 }
 
 export async function loadUserPushTokens(admin: AdminClient, userId: string) {
-  pushServerLog("4", "Loading tokens from public.user_push_tokens", { recipientUserId: userId });
+  pushServerLog("4", "Loading tokens from public.user_push_tokens", {
+    tokenQueryUserId: userId,
+    recipientUserId: userId,
+  });
 
   const tokens = new Set<string>();
 
   const { data: primaryRows, error: primaryError } = await admin
     .from("user_push_tokens")
-    .select("token, platform, device_id, updated_at")
+    .select("token, platform, device_id, updated_at, user_id")
     .eq("user_id", userId);
 
   if (primaryError && !isMissingPushTokensTable(primaryError)) {
@@ -75,9 +78,11 @@ export async function loadUserPushTokens(admin: AdminClient, userId: string) {
   }
 
   pushServerLog("4", "user_push_tokens rows", {
+    tokenQueryUserId: userId,
     recipientUserId: userId,
     rowCount: primaryRows?.length ?? 0,
     rows: (primaryRows ?? []).map((row) => ({
+      userId: row.user_id ? String(row.user_id) : null,
       tokenPreview: tokenPreview(String(row.token)),
       platform: row.platform,
       deviceId: row.device_id,
@@ -288,10 +293,30 @@ export async function sendFcmToUser(input: {
   });
 
   if (tokens.length === 0) {
+    const { data: otherOwners } = await admin
+      .from("user_push_tokens")
+      .select("user_id, platform")
+      .order("updated_at", { ascending: false })
+      .limit(20);
+
+    const owners = [...new Set((otherOwners ?? []).map((row) => String(row.user_id)))];
+    const iosOwners = [
+      ...new Set(
+        (otherOwners ?? [])
+          .filter((row) => String(row.platform ?? "").toLowerCase() === "ios")
+          .map((row) => String(row.user_id))
+      ),
+    ];
+
     pushServerError("4", "No recipient tokens found — cannot send", {
+      tokenQueryUserId: userId,
       recipientUserId: userId,
       type,
       notificationId: notification?.id ?? null,
+      otherTokenOwnerUserIds: owners,
+      iosTokenOwnerUserIds: iosOwners,
+      tokenQueryMatchesIphoneOwner: iosOwners.includes(userId),
+      queriedWrongUser: iosOwners.length > 0 && !iosOwners.includes(userId),
     });
     return {
       sent: 0,
@@ -483,24 +508,29 @@ export async function sendFcmToUser(input: {
 
 export async function deliverNotificationPush(
   admin: AdminClient,
-  notification: NotificationRow
+  notification: NotificationRow,
+  options?: { tokenQueryUserId?: string }
 ): Promise<PushSendResult> {
+  const tokenQueryUserId = options?.tokenQueryUserId ?? notification.user_id;
+
   pushServerLog("2", "deliverNotificationPush", {
     notificationId: notification.id,
-    recipientUserId: notification.user_id,
+    notificationUserId: notification.user_id,
+    tokenQueryUserId,
     type: notification.type,
     actorId: notification.actor_id,
     href: notification.href,
     sourceId: notification.source_id,
   });
 
-  const prefs = await loadServerNotificationPreferences(admin, notification.user_id);
+  const prefs = await loadServerNotificationPreferences(admin, tokenQueryUserId);
 
   if (!shouldAllowPushForType(notification.type, prefs)) {
     pushServerError("prefs", "User prefs disabled push for type", {
       notificationId: notification.id,
       type: notification.type,
-      recipientUserId: notification.user_id,
+      recipientUserId: tokenQueryUserId,
+      notificationUserId: notification.user_id,
       prefs,
     });
     return {
@@ -543,7 +573,7 @@ export async function deliverNotificationPush(
 
   return sendFcmToUser({
     admin,
-    userId: notification.user_id,
+    userId: tokenQueryUserId,
     notification,
     title: payload.title,
     body: payload.body,
