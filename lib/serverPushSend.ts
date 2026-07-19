@@ -159,15 +159,15 @@ export async function loadServerNotificationPreferences(
   }
 
   return {
-    all_enabled: Boolean(data.all_enabled),
-    direct_messages: Boolean(data.direct_messages),
-    group_messages: Boolean(data.group_messages),
-    room_messages: Boolean(data.room_messages),
-    likes: Boolean(data.likes),
-    comments: Boolean(data.comments),
-    new_followers: Boolean(data.new_followers),
-    sound: Boolean(data.sound),
-    vibration: Boolean(data.vibration),
+    all_enabled: data.all_enabled ?? defaults.all_enabled,
+    direct_messages: data.direct_messages ?? defaults.direct_messages,
+    group_messages: data.group_messages ?? defaults.group_messages,
+    room_messages: data.room_messages ?? defaults.room_messages,
+    likes: data.likes ?? defaults.likes,
+    comments: data.comments ?? defaults.comments,
+    new_followers: data.new_followers ?? defaults.new_followers,
+    sound: data.sound ?? defaults.sound,
+    vibration: data.vibration ?? defaults.vibration,
   };
 }
 
@@ -356,7 +356,7 @@ export async function sendFcmToUser(input: {
             title,
             body,
           },
-          ...(apnsSound ? { sound: apnsSound } : {}),
+          ...(apnsSound ? { sound: apnsSound } : { sound: PUSH_SOUND }),
           badge: badgeCount,
         },
       },
@@ -364,7 +364,7 @@ export async function sendFcmToUser(input: {
     android: {
       priority: "high" as const,
       notification: {
-        ...(apnsSound ? { sound: apnsSound } : {}),
+        sound: apnsSound ?? PUSH_SOUND,
         notificationCount: badgeCount,
       },
     },
