@@ -8,6 +8,7 @@ export type MessagePushType = "direct_message" | "group_message" | "room_message
 /**
  * Immediately ask the hosted API to deliver FCM/APNs for a just-inserted message.
  * Works while the recipient app is backgrounded or killed (does not use realtime).
+ * Uses /api/push/send (same route as the DB webhook) with the sender JWT.
  */
 export function requestMessagePush(input: { messageId: string; type: MessagePushType }) {
   if (!input.messageId) {
@@ -15,7 +16,7 @@ export function requestMessagePush(input: { messageId: string; type: MessagePush
     return;
   }
 
-  console.info("[Push][step 1] DM/message created — calling hosted notify-message", {
+  console.info("[Push][step 1] DM/message created — calling hosted /api/push/send", {
     messageId: input.messageId,
     type: input.type,
   });
@@ -32,8 +33,8 @@ export function requestMessagePush(input: { messageId: string; type: MessagePush
       }
 
       const base = getHostedApiBaseUrl();
-      const url = `${base}/api/push/notify-message`;
-      console.info("[Push][step 2] POST /api/push/notify-message", {
+      const url = `${base}/api/push/send`;
+      console.info("[Push][step 2] POST /api/push/send", {
         url,
         messageId: input.messageId,
         type: input.type,
@@ -54,6 +55,8 @@ export function requestMessagePush(input: { messageId: string; type: MessagePush
 
       const payload = (await response.json().catch(() => null)) as {
         fcmSent?: number;
+        successCount?: number;
+        failureCount?: number;
         skipped?: string;
         chainStage?: string;
         error?: string;
@@ -62,7 +65,7 @@ export function requestMessagePush(input: { messageId: string; type: MessagePush
       } | null;
 
       if (!response.ok) {
-        console.error("[Push][step 2] FAIL notify-message HTTP error", {
+        console.error("[Push][step 2] FAIL /api/push/send HTTP error", {
           ...input,
           status: response.status,
           error: payload?.error ?? null,
@@ -72,9 +75,11 @@ export function requestMessagePush(input: { messageId: string; type: MessagePush
         return;
       }
 
-      console.info("[Push][step 2] notify-message response", {
+      console.info("[Push][step 2] /api/push/send response", {
         ...input,
         fcmSent: payload?.fcmSent ?? 0,
+        successCount: payload?.successCount ?? null,
+        failureCount: payload?.failureCount ?? null,
         skipped: payload?.skipped ?? null,
         chainStage: payload?.chainStage ?? null,
         recipients: payload?.recipients ?? null,

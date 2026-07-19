@@ -6,8 +6,8 @@ SpotDrop uses **Firebase Cloud Messaging (FCM)** for native push. On iOS, FCM de
 
 1. **Client (Capacitor iOS)** — `@capacitor-firebase/messaging` requests permission, registers FCM token → saved to Supabase `user_push_tokens`.
 2. **Database** — Message inserts create `notifications` rows; trigger `dispatch_push_for_notification()` queues `pg_net` → webhook (see `push_dispatch_log`).
-3. **Sender client (immediate)** — After a successful DM/group/room insert, the sender calls `POST /api/push/notify-message` on the hosted API so FCM/APNs fires even if the recipient app is killed and even if DB GUCs are unset.
-4. **Server** — `POST /api/push/send` (webhook) or `POST /api/push/notify-message` (sender JWT) → **firebase-admin** → FCM → APNs. In-app toasts use realtime while the app is open.
+3. **Sender client (immediate)** — After a successful DM/group/room insert, the sender calls `POST /api/push/send` with `{ messageId, type }` + user JWT so FCM/APNs fires even if the recipient app is killed and even if DB GUCs are unset.
+4. **Server** — `POST /api/push/send` (webhook with `notificationId`, or sender JWT with `messageId`) → **firebase-admin** `sendEachForMulticast` → FCM → APNs. In-app toasts use realtime while the app is open.
 
 ### Push types enabled
 
@@ -134,7 +134,7 @@ order by created_at desc
 limit 20;
 ```
 
-- `skipped_no_webhook_config` → config/GUCs missing (sender `/api/push/notify-message` still works after deploy)
+- `skipped_no_webhook_config` → config/GUCs missing (sender `/api/push/send` with `messageId` still works after deploy)
 - `http_post_queued` → pg_net accepted; check Vercel logs for `[Push] webhook received` / `FCM/APNs`
 - `http_post_error` → pg_net/extension problem
 

@@ -1,4 +1,3 @@
-import type { Messaging } from "firebase-admin/messaging";
 import { getFirebaseAdminInitError, getFirebaseAdminMessaging, isFcmConfigured } from "@/lib/firebaseAdmin";
 import {
   buildNotificationPushPayload,
@@ -28,6 +27,8 @@ export type PushSendResult = {
   badge: number;
   staleFcm: number;
   tokenCount: number;
+  successCount: number;
+  failureCount: number;
   errors: Array<{ tokenPreview: string; code: string; message: string }>;
   messageIds: string[];
 };
@@ -234,6 +235,8 @@ export async function sendFcmToUser(input: {
       badge: badgeCount,
       staleFcm: 0,
       tokenCount: 0,
+      successCount: 0,
+      failureCount: 0,
       errors: [{ tokenPreview: "", code: "config", message: "FIREBASE_SERVICE_ACCOUNT_JSON missing" }],
       messageIds: [],
     };
@@ -252,6 +255,8 @@ export async function sendFcmToUser(input: {
       badge: badgeCount,
       staleFcm: 0,
       tokenCount: 0,
+      successCount: 0,
+      failureCount: 0,
       errors: [
         {
           tokenPreview: "",
@@ -295,70 +300,130 @@ export async function sendFcmToUser(input: {
       badge: badgeCount,
       staleFcm: 0,
       tokenCount: 0,
+      successCount: 0,
+      failureCount: 0,
       errors: [],
       messageIds: [],
     };
   }
 
-  pushServerLog("5", "Calling Firebase Admin messaging.send per token", {
+  const multicastMessage = {
+    tokens,
+    notification: {
+      title,
+      body,
+    },
+    data: {
+      href,
+      type,
+      notificationId: notification?.id ?? "",
+      title,
+      body,
+    },
+    apns: {
+      headers: {
+        "apns-push-type": "alert",
+        "apns-priority": "10",
+      },
+      payload: {
+        aps: {
+          alert: {
+            title,
+            body,
+          },
+          ...(apnsSound ? { sound: apnsSound } : {}),
+          badge: badgeCount,
+        },
+      },
+    },
+    android: {
+      priority: "high" as const,
+      notification: {
+        ...(apnsSound ? { sound: apnsSound } : {}),
+        notificationCount: badgeCount,
+      },
+    },
+  };
+
+  pushServerLog("5", "Firebase Admin sendEachForMulticast REQUEST", {
     recipientUserId: userId,
     tokenCount: tokens.length,
+    tokenPreviews: tokens.map((t) => tokenPreview(t)),
+    notification: multicastMessage.notification,
+    data: multicastMessage.data,
+    apns: multicastMessage.apns,
+    android: {
+      priority: multicastMessage.android.priority,
+      notification: multicastMessage.android.notification,
+    },
   });
 
-  await Promise.all(
-    tokens.map(async (token, index) => {
-      const preview = tokenPreview(token) ?? "";
+  const batchResponse = await messaging.sendEachForMulticast(multicastMessage);
 
-      try {
-        const messageId = await sendOneFcm(messaging, {
-          token,
-          title,
-          body,
-          href,
-          type,
-          notificationId: notification?.id ?? "",
-          badgeCount,
-          apnsSound,
-        });
-
-        fcmSent += 1;
-        messageIds.push(messageId);
-        pushServerLog("6", "FCM/APNs SUCCESS for token", {
+  pushServerLog("6", "Firebase Admin sendEachForMulticast RESPONSE", {
+    recipientUserId: userId,
+    successCount: batchResponse.successCount,
+    failureCount: batchResponse.failureCount,
+    responses: batchResponse.responses.map((response, index) => {
+      if (response.success) {
+        return {
           index,
-          tokenPreview: preview,
-          messageId,
-          type,
-        });
-      } catch (error) {
-        const formatted = formatFcmError(error);
-        pushServerError("6", "FCM/APNs REJECTED for token", {
-          index,
-          tokenPreview: preview,
-          type,
-          ...formatted,
-        });
-        errors.push({
-          tokenPreview: preview,
-          code: formatted.code,
-          message: formatted.message,
-        });
-
-        const code = formatted.code.toLowerCase();
-        if (
-          code.includes("registration-token-not-registered") ||
-          code.includes("invalid-registration-token") ||
-          code.includes("messaging/registration-token-not-registered") ||
-          code.includes("messaging/invalid-registration-token")
-        ) {
-          staleFcmTokens.push(token);
-          pushServerLog("8", "Marked token stale for deletion", {
-            tokenPreview: preview,
-            code: formatted.code,
-          });
-        }
+          success: true,
+          messageId: response.messageId ?? null,
+          tokenPreview: tokenPreview(tokens[index]),
+        };
       }
-    })
-  );
+
+      const formatted = formatFcmError(response.error);
+      return {
+        index,
+        success: false,
+        tokenPreview: tokenPreview(tokens[index]),
+        code: formatted.code,
+        message: formatted.message,
+        errorInfoCode: formatted.errorInfoCode,
+        errorInfoMessage: formatted.errorInfoMessage,
+      };
+    }),
+  });
+
+  batchResponse.responses.forEach((response, index) => {
+    const preview = tokenPreview(tokens[index]) ?? "";
+
+    if (response.success) {
+      fcmSent += 1;
+      if (response.messageId) {
+        messageIds.push(response.messageId);
+      }
+      return;
+    }
+
+    const formatted = formatFcmError(response.error);
+    pushServerError("6", "Per-token FCM/APNs error", {
+      index,
+      tokenPreview: preview,
+      ...formatted,
+    });
+    errors.push({
+      tokenPreview: preview,
+      code: formatted.code,
+      message: formatted.message,
+    });
+
+    const code = formatted.code.toLowerCase();
+    if (
+      code.includes("registration-token-not-registered") ||
+      code.includes("invalid-registration-token") ||
+      code.includes("messaging/registration-token-not-registered") ||
+      code.includes("messaging/invalid-registration-token")
+    ) {
+      staleFcmTokens.push(tokens[index]);
+      pushServerLog("8", "Marked token stale for deletion", {
+        tokenPreview: preview,
+        code: formatted.code,
+      });
+    }
+  });
 
   if (staleFcmTokens.length) {
     pushServerLog("8", "Deleting invalid tokens from Supabase", {
@@ -393,6 +458,8 @@ export async function sendFcmToUser(input: {
   pushServerLog("7", "FCM send batch complete", {
     recipientUserId: userId,
     type,
+    successCount: batchResponse.successCount,
+    failureCount: batchResponse.failureCount,
     fcmSent,
     tokenCount: tokens.length,
     staleFcm: staleFcmTokens.length,
@@ -407,73 +474,11 @@ export async function sendFcmToUser(input: {
     badge: badgeCount,
     staleFcm: staleFcmTokens.length,
     tokenCount: tokens.length,
+    successCount: batchResponse.successCount,
+    failureCount: batchResponse.failureCount,
     errors,
     messageIds,
   };
-}
-
-async function sendOneFcm(
-  messaging: Messaging,
-  input: {
-    token: string;
-    title: string;
-    body: string;
-    href: string;
-    type: string;
-    notificationId: string;
-    badgeCount: number;
-    apnsSound?: string;
-  }
-) {
-  pushServerLog("5", "messaging.send payload", {
-    tokenPreview: tokenPreview(input.token),
-    title: input.title,
-    bodyPreview: input.body.slice(0, 80),
-    type: input.type,
-    notificationId: input.notificationId,
-    badge: input.badgeCount,
-    apnsSound: input.apnsSound ?? null,
-    apnsPushType: "alert",
-    apnsPriority: "10",
-  });
-
-  return messaging.send({
-    token: input.token,
-    notification: {
-      title: input.title,
-      body: input.body,
-    },
-    data: {
-      href: input.href,
-      type: input.type,
-      notificationId: input.notificationId,
-      title: input.title,
-      body: input.body,
-    },
-    apns: {
-      headers: {
-        "apns-push-type": "alert",
-        "apns-priority": "10",
-      },
-      payload: {
-        aps: {
-          alert: {
-            title: input.title,
-            body: input.body,
-          },
-          ...(input.apnsSound ? { sound: input.apnsSound } : {}),
-          badge: input.badgeCount,
-        },
-      },
-    },
-    android: {
-      priority: "high",
-      notification: {
-        ...(input.apnsSound ? { sound: input.apnsSound } : {}),
-        notificationCount: input.badgeCount,
-      },
-    },
-  });
 }
 
 export async function deliverNotificationPush(
@@ -505,6 +510,8 @@ export async function deliverNotificationPush(
       badge: 0,
       staleFcm: 0,
       tokenCount: 0,
+      successCount: 0,
+      failureCount: 0,
       errors: [],
       messageIds: [],
     };
@@ -521,6 +528,8 @@ export async function deliverNotificationPush(
       badge: 0,
       staleFcm: 0,
       tokenCount: 0,
+      successCount: 0,
+      failureCount: 0,
       errors: [],
       messageIds: [],
     };

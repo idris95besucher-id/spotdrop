@@ -1,99 +1,22 @@
-import { createClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
-import { createSupabaseAdminClient } from "@/lib/supabaseAdmin";
-import { deliverNotificationPush, mapNotificationRow } from "@/lib/serverPushSend";
-import type { NotificationRow } from "@/lib/notifications";
+import {
+  loadNotificationsForMessage,
+  MESSAGE_PUSH_TYPES,
+  resolveAuthenticatedUserId,
+} from "@/lib/pushNotifyMessage";
 import { pushServerError, pushServerLog } from "@/lib/pushServerLog";
+import { createSupabaseAdminClient } from "@/lib/supabaseAdmin";
+import { deliverNotificationPush } from "@/lib/serverPushSend";
+import type { NotificationRow } from "@/lib/notifications";
 
 type NotifyBody = {
   messageId?: string;
   type?: "direct_message" | "group_message" | "room_message" | "room_mention";
 };
 
-const PUSH_TYPES = new Set(["direct_message", "group_message", "room_message", "room_mention"]);
-
-async function resolveAuthenticatedUserId(request: Request) {
-  const authHeader = request.headers.get("authorization") ?? "";
-  const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
-
-  if (!token) {
-    return null;
-  }
-
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
-
-  if (!supabaseUrl || !anonKey) {
-    return null;
-  }
-
-  const client = createClient(supabaseUrl, anonKey, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-
-  const { data, error } = await client.auth.getUser(token);
-
-  if (error || !data.user?.id) {
-    return null;
-  }
-
-  return data.user.id;
-}
-
-function sleep(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-async function loadNotificationsForMessage(
-  admin: NonNullable<ReturnType<typeof createSupabaseAdminClient>>,
-  messageId: string,
-  type: string,
-  actorId: string
-) {
-  for (let attempt = 0; attempt < 8; attempt += 1) {
-    let query = admin
-      .from("notifications")
-      .select("id, user_id, type, actor_id, href, source_id, metadata, read_at, created_at")
-      .eq("type", type)
-      .eq("actor_id", actorId);
-
-    if (type === "direct_message") {
-      query = query.eq("source_id", messageId);
-    } else {
-      query = query.like("source_id", `${messageId}:%`);
-    }
-
-    const { data, error } = await query;
-
-    if (error) {
-      throw new Error(error.message);
-    }
-
-    if (data && data.length > 0) {
-      pushServerLog("1", "Notification rows found for message", {
-        messageId,
-        type,
-        attempt: attempt + 1,
-        count: data.length,
-        recipientUserIds: data.map((row) => row.user_id),
-      });
-      return data.map(mapNotificationRow);
-    }
-
-    pushServerLog("1", "Notification rows not ready yet — retry", {
-      messageId,
-      type,
-      attempt: attempt + 1,
-    });
-    await sleep(150);
-  }
-
-  return [] as NotificationRow[];
-}
-
 /**
- * Sender-triggered push: fires immediately after a message insert so delivery
- * does not depend on the recipient's app being open or on pg_net GUCs alone.
+ * Sender-triggered push (legacy path). Prefer POST /api/push/send with
+ * { messageId, type } + user JWT — that route is what production already hosts.
  */
 export async function POST(request: Request) {
   pushServerLog("1", "/api/push/notify-message CALLED (sender-triggered after DM/message insert)");
@@ -130,7 +53,7 @@ export async function POST(request: Request) {
     type,
   });
 
-  if (!messageId || !PUSH_TYPES.has(type)) {
+  if (!messageId || !MESSAGE_PUSH_TYPES.has(type)) {
     pushServerError("1", "messageId and valid type required", { messageId, type });
     return NextResponse.json({ error: "messageId and valid type are required." }, { status: 400 });
   }
@@ -163,11 +86,12 @@ export async function POST(request: Request) {
   const results = [];
 
   for (const notification of notifications) {
-    pushServerLog("3", "Delivering to recipient", {
+    pushServerLog("2", "Entering deliverNotificationPush from /api/push/notify-message", {
       notificationId: notification.id,
       recipientUserId: notification.user_id,
       type: notification.type,
     });
+    pushServerLog("3", "Recipient user_id", { recipientUserId: notification.user_id });
 
     try {
       const result = await deliverNotificationPush(admin, notification);
@@ -188,12 +112,22 @@ export async function POST(request: Request) {
         userId: notification.user_id,
         sent: 0,
         fcmSent: 0,
+        successCount: 0,
+        failureCount: 0,
         error: message,
       });
     }
   }
 
   const fcmSent = results.reduce((sum, row) => sum + (row.fcmSent ?? 0), 0);
+  const successCount = results.reduce(
+    (sum, row) => sum + ("successCount" in row && typeof row.successCount === "number" ? row.successCount : 0),
+    0
+  );
+  const failureCount = results.reduce(
+    (sum, row) => sum + ("failureCount" in row && typeof row.failureCount === "number" ? row.failureCount : 0),
+    0
+  );
   const chainStage =
     fcmSent > 0
       ? "fcm→apns_accepted"
@@ -209,6 +143,8 @@ export async function POST(request: Request) {
     recipients: notifications.length,
     recipientUserIds: notifications.map((n) => n.user_id),
     fcmSent,
+    successCount,
+    failureCount,
     results,
     chainStage,
   });
@@ -216,6 +152,8 @@ export async function POST(request: Request) {
   return NextResponse.json({
     sent: fcmSent,
     fcmSent,
+    successCount,
+    failureCount,
     recipients: notifications.length,
     results,
     chainStage,
