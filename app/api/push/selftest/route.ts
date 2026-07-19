@@ -26,13 +26,29 @@ export async function POST(request: Request) {
   }
 
   let firebaseProjectId: string | null = null;
+  let serviceAccountEmail: string | null = null;
+  let googleAccessTokenOk = false;
+  let googleAccessTokenError: string | null = null;
   try {
     const sa = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON || "{}") as {
       project_id?: string;
+      client_email?: string;
+      private_key?: string;
     };
     firebaseProjectId = sa.project_id ?? null;
-  } catch {
-    firebaseProjectId = null;
+    serviceAccountEmail = sa.client_email ?? null;
+
+    // Verify the service account can mint a Google OAuth access token.
+    const { GoogleAuth } = await import("google-auth-library");
+    const auth = new GoogleAuth({
+      credentials: sa,
+      scopes: ["https://www.googleapis.com/auth/firebase.messaging"],
+    });
+    const client = await auth.getClient();
+    const tokenResponse = await client.getAccessToken();
+    googleAccessTokenOk = Boolean(tokenResponse.token);
+  } catch (error) {
+    googleAccessTokenError = error instanceof Error ? error.message : String(error);
   }
 
   const { data: tokens, error: tokenError } = await admin
@@ -70,7 +86,11 @@ export async function POST(request: Request) {
       targetUserId,
       iosTokenCount: ios.length,
       firebaseProjectId,
+      serviceAccountEmail,
+      googleAccessTokenOk,
+      googleAccessTokenError,
       expectedIosProjectId: "spotdrop-87acb",
+      projectIdMatchesIosPlist: firebaseProjectId === "spotdrop-87acb",
       ...result,
     });
   }
