@@ -4,14 +4,19 @@ import {
   MESSAGE_PUSH_TYPES,
   resolveAuthenticatedUserId,
 } from "@/lib/pushNotifyMessage";
+import { logInvalidMessageId, parsePushIdField } from "@/lib/pushRequestParse";
 import { pushServerError, pushServerLog } from "@/lib/pushServerLog";
-import { createSupabaseAdminClient } from "@/lib/supabaseAdmin";
+import {
+  createSupabaseAdminClient,
+  getSupabaseAdminConfig,
+  getSupabaseAdminMissingEnvMessage,
+} from "@/lib/supabaseAdmin";
 import { deliverNotificationPush } from "@/lib/serverPushSend";
 import type { NotificationRow } from "@/lib/notifications";
 
 type NotifyBody = {
-  messageId?: string;
-  type?: "direct_message" | "group_message" | "room_message" | "room_mention";
+  messageId?: unknown;
+  type?: unknown;
 };
 
 /**
@@ -28,11 +33,23 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   }
 
+  const adminConfig = getSupabaseAdminConfig();
   const admin = createSupabaseAdminClient();
 
   if (!admin) {
-    pushServerError("1", "admin client missing");
-    return NextResponse.json({ error: "Push temporarily unavailable." }, { status: 503 });
+    const message = getSupabaseAdminMissingEnvMessage(adminConfig) ?? "Push temporarily unavailable.";
+    pushServerError("1", "admin client missing", {
+      missing: adminConfig.missing,
+      hasUrl: adminConfig.hasUrl,
+      hasServiceRoleKey: adminConfig.hasServiceRoleKey,
+    });
+    return NextResponse.json(
+      {
+        error: message,
+        missing: adminConfig.missing,
+      },
+      { status: 503 }
+    );
   }
 
   let body: NotifyBody;
@@ -44,16 +61,32 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
   }
 
-  const messageId = body.messageId?.trim() ?? "";
-  const type = body.type?.trim() ?? "";
+  const messageIdParse = parsePushIdField(body.messageId, "messageId");
+  const type = typeof body.type === "string" ? body.type.trim() : "";
 
   pushServerLog("1", "DM/message creation → notify-message", {
     actorId,
-    messageId,
+    typeofMessageId:
+      body.messageId === null ? "null" : Array.isArray(body.messageId) ? "array" : typeof body.messageId,
+    messageIdPreview: messageIdParse.ok ? messageIdParse.value : messageIdParse.preview,
     type,
   });
 
-  if (!messageId || !MESSAGE_PUSH_TYPES.has(type)) {
+  if (!messageIdParse.ok) {
+    logInvalidMessageId(body.messageId, messageIdParse);
+    return NextResponse.json(
+      {
+        error: "Invalid messageId.",
+        reason: messageIdParse.reason,
+        typeofMessageId: messageIdParse.typeofValue,
+      },
+      { status: 400 }
+    );
+  }
+
+  const messageId = messageIdParse.value;
+
+  if (!MESSAGE_PUSH_TYPES.has(type)) {
     pushServerError("1", "messageId and valid type required", { messageId, type });
     return NextResponse.json({ error: "messageId and valid type are required." }, { status: 400 });
   }

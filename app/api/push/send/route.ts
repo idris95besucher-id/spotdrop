@@ -10,8 +10,13 @@ import {
   MESSAGE_PUSH_TYPES,
   resolveAuthenticatedUserId,
 } from "@/lib/pushNotifyMessage";
+import { logInvalidMessageId, parseOptionalPushIdField } from "@/lib/pushRequestParse";
 import { pushServerError, pushServerLog } from "@/lib/pushServerLog";
-import { createSupabaseAdminClient } from "@/lib/supabaseAdmin";
+import {
+  createSupabaseAdminClient,
+  getSupabaseAdminConfig,
+  getSupabaseAdminMissingEnvMessage,
+} from "@/lib/supabaseAdmin";
 import {
   deliverNotificationPush,
   loadServerNotificationPreferences,
@@ -23,11 +28,18 @@ import {
 import { shouldAllowPushForType } from "@/lib/userNotificationPreferences";
 
 type PushSendBody = {
-  notificationId?: string;
-  userId?: string;
-  messageId?: string;
-  type?: string;
+  notificationId?: unknown;
+  userId?: unknown;
+  messageId?: unknown;
+  type?: unknown;
 };
+
+function parsePushType(value: unknown): string {
+  if (typeof value !== "string") {
+    return "";
+  }
+  return value.trim();
+}
 
 function emptyFcmResult(skipped?: string): PushSendResult {
   return {
@@ -82,7 +94,8 @@ function shouldSendPushForType(type: NotificationRow["type"]) {
 
 async function handleSenderMessagePush(
   request: Request,
-  body: PushSendBody,
+  messageId: string,
+  type: string,
   admin: NonNullable<ReturnType<typeof createSupabaseAdminClient>>
 ) {
   const actorId = await resolveAuthenticatedUserId(request);
@@ -92,17 +105,14 @@ async function handleSenderMessagePush(
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   }
 
-  const messageId = body.messageId?.trim() ?? "";
-  const type = body.type?.trim() ?? "";
-
   pushServerLog("1", "DM/message creation → /api/push/send (sender JWT)", {
     actorId,
     messageId,
     type,
   });
 
-  if (!messageId || !MESSAGE_PUSH_TYPES.has(type)) {
-    pushServerError("1", "messageId and valid type required", { messageId, type });
+  if (!MESSAGE_PUSH_TYPES.has(type)) {
+    pushServerError("1", "valid type required", { messageId, type });
     return NextResponse.json({ error: "messageId and valid type are required." }, { status: 400 });
   }
 
@@ -208,11 +218,23 @@ export async function POST(request: Request) {
     fcmConfigured: isFcmConfigured(),
   });
 
+  const adminConfig = getSupabaseAdminConfig();
   const admin = createSupabaseAdminClient();
 
   if (!admin) {
-    pushServerError("2", "Supabase admin client not configured");
-    return NextResponse.json({ error: "Supabase admin client is not configured." }, { status: 503 });
+    const message = getSupabaseAdminMissingEnvMessage(adminConfig) ?? "Supabase admin client is not configured.";
+    pushServerError("2", "Supabase admin client not configured", {
+      missing: adminConfig.missing,
+      hasUrl: adminConfig.hasUrl,
+      hasServiceRoleKey: adminConfig.hasServiceRoleKey,
+    });
+    return NextResponse.json(
+      {
+        error: message,
+        missing: adminConfig.missing,
+      },
+      { status: 503 }
+    );
   }
 
   let body: PushSendBody;
@@ -224,27 +246,71 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
   }
 
-  const messageId = body.messageId?.trim() ?? "";
-  const notificationId = body.notificationId?.trim() ?? "";
-  const userId = body.userId?.trim() ?? "";
+  const rawMessageId = body.messageId;
+  const messageIdParse = parseOptionalPushIdField(rawMessageId, "messageId");
 
   pushServerLog("2", "/api/push/send body", {
-    notificationId: notificationId || null,
-    userId: userId || null,
-    messageId: messageId || null,
-    type: body.type ?? null,
+    typeofMessageId: rawMessageId === null ? "null" : Array.isArray(rawMessageId) ? "array" : typeof rawMessageId,
+    messageIdPreview:
+      typeof rawMessageId === "string" || typeof rawMessageId === "number"
+        ? String(rawMessageId).slice(0, 64)
+        : rawMessageId == null
+          ? null
+          : Array.isArray(rawMessageId)
+            ? `Array(len=${rawMessageId.length})`
+            : typeof rawMessageId,
+    typeofNotificationId: typeof body.notificationId,
+    typeofUserId: typeof body.userId,
+    type: typeof body.type === "string" ? body.type : body.type == null ? null : typeof body.type,
   });
 
   // Sender-triggered path (user JWT + messageId). Deployed on the same route as
   // the webhook so production does not depend on a separate notify-message deploy.
-  if (messageId) {
-    return handleSenderMessagePush(request, body, admin);
+  if ("ok" in messageIdParse) {
+    if (!messageIdParse.ok) {
+      logInvalidMessageId(rawMessageId, messageIdParse);
+      return NextResponse.json(
+        {
+          error: "Invalid messageId.",
+          reason: messageIdParse.reason,
+          typeofMessageId: messageIdParse.typeofValue,
+        },
+        { status: 400 }
+      );
+    }
+
+    const type = parsePushType(body.type);
+    return handleSenderMessagePush(request, messageIdParse.value, type, admin);
   }
 
   if (!isWebhookAuthorized(request)) {
     pushServerError("2", "/api/push/send unauthorized (webhook/service role required)");
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   }
+
+  const notificationIdParse = parseOptionalPushIdField(body.notificationId, "notificationId");
+  const userIdParse = parseOptionalPushIdField(body.userId, "userId");
+
+  if ("ok" in notificationIdParse && !notificationIdParse.ok) {
+    pushServerError("2", "invalid notificationId", {
+      typeofNotificationId: notificationIdParse.typeofValue,
+      preview: notificationIdParse.preview,
+      reason: notificationIdParse.reason,
+    });
+    return NextResponse.json({ error: "Invalid notificationId." }, { status: 400 });
+  }
+
+  if ("ok" in userIdParse && !userIdParse.ok) {
+    pushServerError("2", "invalid userId", {
+      typeofUserId: userIdParse.typeofValue,
+      preview: userIdParse.preview,
+      reason: userIdParse.reason,
+    });
+    return NextResponse.json({ error: "Invalid userId." }, { status: 400 });
+  }
+
+  const notificationId = "ok" in notificationIdParse && notificationIdParse.ok ? notificationIdParse.value : "";
+  const userId = "ok" in userIdParse && userIdParse.ok ? userIdParse.value : "";
 
   if (!notificationId && !userId) {
     pushServerError("2", "notificationId or userId required");

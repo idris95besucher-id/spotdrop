@@ -146,13 +146,28 @@ limit 20;
 
 ## 5. Server environment variables
 
-| Variable | Description |
-|----------|-------------|
-| `FIREBASE_SERVICE_ACCOUNT_JSON` | Full Firebase service account JSON (single line) |
-| `PUSH_WEBHOOK_SECRET` | Secret for `/api/push/send` authorization |
-| `SUPABASE_SERVICE_ROLE_KEY` | Admin client for token lookup |
-| `NEXT_PUBLIC_VAPID_PUBLIC_KEY` | Web push (browser, optional) |
-| `VAPID_PRIVATE_KEY` | Web push (browser, optional) |
+`createSupabaseAdminClient()` (`lib/supabaseAdmin.ts`) requires **exact** names:
+
+| Variable | Required for admin client | Description |
+|----------|---------------------------|-------------|
+| `NEXT_PUBLIC_SUPABASE_URL` | **Yes** | Supabase project URL |
+| `SUPABASE_SERVICE_ROLE_KEY` | **Yes** | Service-role key (server only; never `NEXT_PUBLIC_`) |
+
+There is no alternate name — not `SUPABASE_URL`, not the anon key.
+
+### Required Vercel **Production** env (push pipeline)
+
+| Variable | Purpose |
+|----------|---------|
+| `NEXT_PUBLIC_SUPABASE_URL` | Admin + public clients |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Sender JWT validation (`auth.getUser`) |
+| `SUPABASE_SERVICE_ROLE_KEY` | Load `user_push_tokens` / notifications as admin |
+| `FIREBASE_SERVICE_ACCOUNT_JSON` | FCM/APNs via firebase-admin |
+| `PUSH_WEBHOOK_SECRET` | Authorize DB webhook → `/api/push/send` |
+
+Optional (browser web push only): `NEXT_PUBLIC_VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`.
+
+If admin init fails, logs/API include `missing: ["SUPABASE_SERVICE_ROLE_KEY"]` (names only, never values).
 
 For Edge Function `send-push`, set secrets: `FIREBASE_SERVICE_ACCOUNT_JSON`, `PUSH_WEBHOOK_SECRET`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`.
 

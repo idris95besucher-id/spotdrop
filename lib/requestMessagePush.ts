@@ -9,15 +9,27 @@ export type MessagePushType = "direct_message" | "group_message" | "room_message
  * Immediately ask the hosted API to deliver FCM/APNs for a just-inserted message.
  * Works while the recipient app is backgrounded or killed (does not use realtime).
  * Uses /api/push/send (same route as the DB webhook) with the sender JWT.
+ *
+ * Payload shape: `{ messageId: string, type: MessagePushType }`
+ * Call sites may pass numeric DB ids; we coerce with String() before JSON.stringify.
  */
-export function requestMessagePush(input: { messageId: string; type: MessagePushType }) {
-  if (!input.messageId) {
-    console.error("[Push][step 1] FAIL requestMessagePush — missing messageId");
+export function requestMessagePush(input: { messageId: string | number; type: MessagePushType }) {
+  const messageId =
+    typeof input.messageId === "string" || typeof input.messageId === "number"
+      ? String(input.messageId).trim()
+      : "";
+
+  if (!messageId) {
+    console.error("[Push][step 1] FAIL requestMessagePush — missing messageId", {
+      typeofMessageId: typeof input.messageId,
+      messageId: input.messageId,
+    });
     return;
   }
 
   console.info("[Push][step 1] DM/message created — calling hosted /api/push/send", {
-    messageId: input.messageId,
+    messageId,
+    typeofMessageId: typeof input.messageId,
     type: input.type,
   });
 
@@ -28,16 +40,24 @@ export function requestMessagePush(input: { messageId: string; type: MessagePush
       } = await supabase.auth.getSession();
 
       if (!session?.access_token) {
-        console.error("[Push][step 1] FAIL requestMessagePush skipped — no session", input);
+        console.error("[Push][step 1] FAIL requestMessagePush skipped — no session", {
+          messageId,
+          type: input.type,
+        });
         return;
       }
 
       const base = getHostedApiBaseUrl();
       const url = `${base}/api/push/send`;
+      const body = {
+        messageId,
+        type: input.type,
+      };
+
       console.info("[Push][step 2] POST /api/push/send", {
         url,
-        messageId: input.messageId,
-        type: input.type,
+        body,
+        typeofMessageId: typeof body.messageId,
         senderUserId: session.user.id,
       });
 
@@ -47,10 +67,7 @@ export function requestMessagePush(input: { messageId: string; type: MessagePush
           Authorization: `Bearer ${session.access_token}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          messageId: input.messageId,
-          type: input.type,
-        }),
+        body: JSON.stringify(body),
       });
 
       const payload = (await response.json().catch(() => null)) as {
@@ -66,7 +83,8 @@ export function requestMessagePush(input: { messageId: string; type: MessagePush
 
       if (!response.ok) {
         console.error("[Push][step 2] FAIL /api/push/send HTTP error", {
-          ...input,
+          messageId,
+          type: input.type,
           status: response.status,
           error: payload?.error ?? null,
           chainStage: payload?.chainStage ?? "api_error",
@@ -76,7 +94,8 @@ export function requestMessagePush(input: { messageId: string; type: MessagePush
       }
 
       console.info("[Push][step 2] /api/push/send response", {
-        ...input,
+        messageId,
+        type: input.type,
         fcmSent: payload?.fcmSent ?? 0,
         successCount: payload?.successCount ?? null,
         failureCount: payload?.failureCount ?? null,
@@ -87,7 +106,8 @@ export function requestMessagePush(input: { messageId: string; type: MessagePush
       });
     } catch (error) {
       console.error("[Push][step 2] FAIL requestMessagePush network error", {
-        ...input,
+        messageId,
+        type: input.type,
         error: error instanceof Error ? error.message : String(error),
       });
     }
