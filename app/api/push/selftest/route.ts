@@ -25,6 +25,16 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "FCM not configured." }, { status: 503 });
   }
 
+  let firebaseProjectId: string | null = null;
+  try {
+    const sa = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON || "{}") as {
+      project_id?: string;
+    };
+    firebaseProjectId = sa.project_id ?? null;
+  } catch {
+    firebaseProjectId = null;
+  }
+
   const { data: tokens, error: tokenError } = await admin
     .from("user_push_tokens")
     .select("user_id, platform, token, updated_at")
@@ -59,6 +69,8 @@ export async function POST(request: Request) {
       mode,
       targetUserId,
       iosTokenCount: ios.length,
+      firebaseProjectId,
+      expectedIosProjectId: "spotdrop-87acb",
       ...result,
     });
   }
