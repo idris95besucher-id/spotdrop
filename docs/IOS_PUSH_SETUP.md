@@ -172,9 +172,24 @@ For Edge Function `send-push`, set secrets: `FIREBASE_SERVICE_ACCOUNT_JSON`, `PU
 
 ### Debug logs
 
-- Client: `[Push] FCM token registered`
-- Client: `[Push] notification opened { href: ... }`
-- Server: `{ sent, fcmSent, badge }`
+On device (Xcode console / Safari Web Inspector):
+
+1. `[SpotDrop] APNs device token registered` — native APNs OK  
+2. `[SpotDrop] Messaging.apnsToken set for FCM` — Firebase has APNs token  
+3. `[Push] permission granted`  
+4. `[Push] APNs token received` (JS)  
+5. `[Push] FCM token abcd…`  
+6. `[Push] token saved` / `[Push] registration complete` — row in `user_push_tokens`
+
+If the table stays empty, the first missing log above is the failing stage.
+
+| Missing log | Likely cause |
+|-------------|--------------|
+| APNs device token | Push capability / Personal Team / Simulator |
+| Messaging.apnsToken | Firebase not configured / plist |
+| permission granted | User denied notifications |
+| FCM token | APNs→FCM race (fixed in `lib/nativePush.ts`) or APNs key in Firebase |
+| token saved | Auth/RLS/`profiles` FK — check `[Push] save token failed` |
 
 ---
 

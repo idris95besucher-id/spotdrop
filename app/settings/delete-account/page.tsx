@@ -14,6 +14,7 @@ import { markIntentionalSignOut } from "@/lib/authMessages";
 import { getSafeAuthSession, setAuthNotice } from "@/lib/authSession";
 import { deleteCurrentAccount } from "@/lib/deleteAccount";
 import { localizeCaughtError } from "@/lib/i18n/localizeUserMessage";
+import { unregisterPushBeforeSignOut } from "@/lib/nativePush";
 import { publicProfileUsername } from "@/lib/publicProfile";
 import { supabase } from "@/lib/supabaseClient";
 
@@ -66,6 +67,14 @@ export default function DeleteAccountPage() {
       }
 
       markIntentionalSignOut();
+
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (session?.user?.id) {
+        await unregisterPushBeforeSignOut(session.user.id);
+      }
+
       await supabase.auth.signOut({ scope: "global" });
       setAuthNotice(t("settings.delete.success"));
       router.replace("/auth/login");

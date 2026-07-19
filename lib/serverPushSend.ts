@@ -1,9 +1,15 @@
 import type { Messaging } from "firebase-admin/messaging";
-import { getFirebaseAdminMessaging, isFcmConfigured } from "@/lib/firebaseAdmin";
+import { getFirebaseAdminInitError, getFirebaseAdminMessaging, isFcmConfigured } from "@/lib/firebaseAdmin";
 import {
   buildNotificationPushPayload,
   type NotificationRow,
 } from "@/lib/notifications";
+import {
+  formatFcmError,
+  pushServerError,
+  pushServerLog,
+  tokenPreview,
+} from "@/lib/pushServerLog";
 import { createSupabaseAdminClient } from "@/lib/supabaseAdmin";
 import {
   defaultServerNotificationPreferences,
@@ -38,20 +44,45 @@ function isMissingPushTokensTable(error: { code?: string; message?: string }) {
 }
 
 export async function loadUserPushTokens(admin: AdminClient, userId: string) {
+  pushServerLog("4", "Loading tokens from public.user_push_tokens", { recipientUserId: userId });
+
   const tokens = new Set<string>();
 
   const { data: primaryRows, error: primaryError } = await admin
     .from("user_push_tokens")
-    .select("token, platform")
+    .select("token, platform, device_id, updated_at")
     .eq("user_id", userId);
 
   if (primaryError && !isMissingPushTokensTable(primaryError)) {
+    pushServerError("4", "user_push_tokens query failed", {
+      recipientUserId: userId,
+      code: primaryError.code,
+      message: primaryError.message,
+    });
     throw new Error(primaryError.message);
+  }
+
+  if (primaryError && isMissingPushTokensTable(primaryError)) {
+    pushServerError("4", "user_push_tokens table missing", {
+      code: primaryError.code,
+      message: primaryError.message,
+    });
   }
 
   for (const row of primaryRows ?? []) {
     tokens.add(String(row.token));
   }
+
+  pushServerLog("4", "user_push_tokens rows", {
+    recipientUserId: userId,
+    rowCount: primaryRows?.length ?? 0,
+    rows: (primaryRows ?? []).map((row) => ({
+      tokenPreview: tokenPreview(String(row.token)),
+      platform: row.platform,
+      deviceId: row.device_id,
+      updatedAt: row.updated_at,
+    })),
+  });
 
   const { data: legacyRows, error: legacyError } = await admin
     .from("fcm_device_tokens")
@@ -59,6 +90,9 @@ export async function loadUserPushTokens(admin: AdminClient, userId: string) {
     .eq("user_id", userId);
 
   if (legacyError && !isMissingPushTokensTable(legacyError)) {
+    pushServerError("4", "fcm_device_tokens query failed", {
+      message: legacyError.message,
+    });
     throw new Error(legacyError.message);
   }
 
@@ -66,10 +100,16 @@ export async function loadUserPushTokens(admin: AdminClient, userId: string) {
     tokens.add(String(row.fcm_token));
   }
 
+  if ((legacyRows?.length ?? 0) > 0) {
+    pushServerLog("4", "Also loaded legacy fcm_device_tokens", {
+      legacyCount: legacyRows?.length ?? 0,
+    });
+  }
+
   return {
     tokens: [...tokens],
     platforms: (primaryRows ?? []).map((row) => ({
-      tokenPreview: `${String(row.token).slice(0, 12)}…`,
+      tokenPreview: tokenPreview(String(row.token)) ?? "",
       platform: String(row.platform ?? "unknown"),
     })),
   };
@@ -104,6 +144,11 @@ export async function loadServerNotificationPreferences(
     .maybeSingle();
 
   if (error || !data) {
+    pushServerLog("prefs", "Using default notification prefs", {
+      userId,
+      error: error?.message ?? null,
+      hasRow: Boolean(data),
+    });
     return defaults;
   }
 
@@ -129,19 +174,24 @@ export async function claimPushSend(admin: AdminClient, notificationId: string) 
     .maybeSingle();
 
   if (error) {
-    // Table missing or conflict — treat unique violation as already sent.
     if (error.code === "23505") {
+      pushServerLog("dedupe", "Already claimed — skip duplicate send", { notificationId });
       return false;
     }
 
     if (error.code === "42P01" || error.code === "PGRST205") {
+      pushServerLog("dedupe", "push_send_dedupe table missing — continuing without dedupe");
       return true;
     }
 
-    console.warn("[Push] dedupe claim failed — continuing", error.message);
+    pushServerError("dedupe", "claim failed — continuing", { message: error.message, notificationId });
     return true;
   }
 
+  pushServerLog("dedupe", "Claimed notification for send", {
+    notificationId,
+    claimed: Boolean(data?.notification_id),
+  });
   return Boolean(data?.notification_id);
 }
 
@@ -162,8 +212,21 @@ export async function sendFcmToUser(input: {
   const staleFcmTokens: string[] = [];
   let fcmSent = 0;
 
+  pushServerLog("3", "sendFcmToUser start", {
+    recipientUserId: userId,
+    type,
+    notificationId: notification?.id ?? null,
+    title,
+    bodyPreview: body.slice(0, 80),
+    href,
+    apnsSound: apnsSound ?? null,
+    badgeCount,
+    fcmConfigured: isFcmConfigured(),
+    initError: getFirebaseAdminInitError(),
+  });
+
   if (!isFcmConfigured()) {
-    console.error("[Push] FCM not configured — FIREBASE_SERVICE_ACCOUNT_JSON missing");
+    pushServerError("fcm-init", "FIREBASE_SERVICE_ACCOUNT_JSON not configured");
     return {
       sent: 0,
       fcmSent: 0,
@@ -179,7 +242,9 @@ export async function sendFcmToUser(input: {
   const messaging = getFirebaseAdminMessaging();
 
   if (!messaging) {
-    console.error("[Push] Firebase messaging client unavailable");
+    pushServerError("fcm-init", "Firebase Admin messaging client unavailable", {
+      initError: getFirebaseAdminInitError(),
+    });
     return {
       sent: 0,
       fcmSent: 0,
@@ -187,7 +252,13 @@ export async function sendFcmToUser(input: {
       badge: badgeCount,
       staleFcm: 0,
       tokenCount: 0,
-      errors: [],
+      errors: [
+        {
+          tokenPreview: "",
+          code: "fcm_client_unavailable",
+          message: getFirebaseAdminInitError() ?? "getMessaging() returned null",
+        },
+      ],
       messageIds: [],
     };
   }
@@ -201,23 +272,22 @@ export async function sendFcmToUser(input: {
     platforms = loaded.platforms;
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to load push tokens.";
-    console.error("[Push] token load failed", { userId, message });
+    pushServerError("4", "Token load threw", { recipientUserId: userId, message });
     throw error;
   }
 
-  console.info("[Push] FCM send start", {
-    userId,
-    type,
-    notificationId: notification?.id ?? null,
+  pushServerLog("4", "Tokens ready for FCM", {
+    recipientUserId: userId,
     tokenCount: tokens.length,
     platforms,
-    sound: apnsSound ?? null,
-    badge: badgeCount,
-    title,
   });
 
   if (tokens.length === 0) {
-    console.warn("[Push] no tokens in user_push_tokens for recipient", { userId, type });
+    pushServerError("4", "No recipient tokens found — cannot send", {
+      recipientUserId: userId,
+      type,
+      notificationId: notification?.id ?? null,
+    });
     return {
       sent: 0,
       fcmSent: 0,
@@ -230,9 +300,14 @@ export async function sendFcmToUser(input: {
     };
   }
 
+  pushServerLog("5", "Calling Firebase Admin messaging.send per token", {
+    recipientUserId: userId,
+    tokenCount: tokens.length,
+  });
+
   await Promise.all(
-    tokens.map(async (token) => {
-      const tokenPreview = `${token.slice(0, 12)}…`;
+    tokens.map(async (token, index) => {
+      const preview = tokenPreview(token) ?? "";
 
       try {
         const messageId = await sendOneFcm(messaging, {
@@ -248,41 +323,82 @@ export async function sendFcmToUser(input: {
 
         fcmSent += 1;
         messageIds.push(messageId);
-        console.info("[Push] FCM/APNs accepted", { tokenPreview, messageId, type });
+        pushServerLog("6", "FCM/APNs SUCCESS for token", {
+          index,
+          tokenPreview: preview,
+          messageId,
+          type,
+        });
       } catch (error) {
-        const code =
-          error && typeof error === "object" && "code" in error
-            ? String((error as { code?: string }).code)
-            : "unknown";
-        const message = error instanceof Error ? error.message : String(error);
+        const formatted = formatFcmError(error);
+        pushServerError("6", "FCM/APNs REJECTED for token", {
+          index,
+          tokenPreview: preview,
+          type,
+          ...formatted,
+        });
+        errors.push({
+          tokenPreview: preview,
+          code: formatted.code,
+          message: formatted.message,
+        });
 
-        console.error("[Push] FCM/APNs rejected", { tokenPreview, code, message, type });
-        errors.push({ tokenPreview, code, message });
-
+        const code = formatted.code.toLowerCase();
         if (
           code.includes("registration-token-not-registered") ||
-          code.includes("invalid-registration-token")
+          code.includes("invalid-registration-token") ||
+          code.includes("messaging/registration-token-not-registered") ||
+          code.includes("messaging/invalid-registration-token")
         ) {
           staleFcmTokens.push(token);
+          pushServerLog("8", "Marked token stale for deletion", {
+            tokenPreview: preview,
+            code: formatted.code,
+          });
         }
       }
     })
   );
 
   if (staleFcmTokens.length) {
-    await admin.from("user_push_tokens").delete().in("token", staleFcmTokens);
-    await admin.from("fcm_device_tokens").delete().in("fcm_token", staleFcmTokens);
-    console.warn("[Push] removed stale FCM tokens", { count: staleFcmTokens.length });
+    pushServerLog("8", "Deleting invalid tokens from Supabase", {
+      count: staleFcmTokens.length,
+      previews: staleFcmTokens.map((t) => tokenPreview(t)),
+    });
+
+    const { error: delPrimary } = await admin
+      .from("user_push_tokens")
+      .delete()
+      .in("token", staleFcmTokens);
+    const { error: delLegacy } = await admin
+      .from("fcm_device_tokens")
+      .delete()
+      .in("fcm_token", staleFcmTokens);
+
+    if (delPrimary) {
+      pushServerError("8", "Failed deleting stale user_push_tokens", { message: delPrimary.message });
+    }
+    if (delLegacy && !isMissingPushTokensTable(delLegacy)) {
+      pushServerError("8", "Failed deleting stale fcm_device_tokens", { message: delLegacy.message });
+    }
+    if (!delPrimary) {
+      pushServerLog("8", "Stale tokens deleted from user_push_tokens", {
+        count: staleFcmTokens.length,
+      });
+    }
+  } else {
+    pushServerLog("8", "No invalid tokens to delete");
   }
 
-  console.info("[Push] FCM send done", {
-    userId,
+  pushServerLog("7", "FCM send batch complete", {
+    recipientUserId: userId,
     type,
     fcmSent,
     tokenCount: tokens.length,
     staleFcm: staleFcmTokens.length,
     errorCount: errors.length,
     messageIds,
+    errors,
   });
 
   return {
@@ -309,6 +425,18 @@ async function sendOneFcm(
     apnsSound?: string;
   }
 ) {
+  pushServerLog("5", "messaging.send payload", {
+    tokenPreview: tokenPreview(input.token),
+    title: input.title,
+    bodyPreview: input.body.slice(0, 80),
+    type: input.type,
+    notificationId: input.notificationId,
+    badge: input.badgeCount,
+    apnsSound: input.apnsSound ?? null,
+    apnsPushType: "alert",
+    apnsPriority: "10",
+  });
+
   return messaging.send({
     token: input.token,
     notification: {
@@ -352,13 +480,23 @@ export async function deliverNotificationPush(
   admin: AdminClient,
   notification: NotificationRow
 ): Promise<PushSendResult> {
+  pushServerLog("2", "deliverNotificationPush", {
+    notificationId: notification.id,
+    recipientUserId: notification.user_id,
+    type: notification.type,
+    actorId: notification.actor_id,
+    href: notification.href,
+    sourceId: notification.source_id,
+  });
+
   const prefs = await loadServerNotificationPreferences(admin, notification.user_id);
 
   if (!shouldAllowPushForType(notification.type, prefs)) {
-    console.info("[Push] skipped — user prefs disabled", {
+    pushServerError("prefs", "User prefs disabled push for type", {
       notificationId: notification.id,
       type: notification.type,
-      userId: notification.user_id,
+      recipientUserId: notification.user_id,
+      prefs,
     });
     return {
       sent: 0,
@@ -375,7 +513,7 @@ export async function deliverNotificationPush(
   const claimed = await claimPushSend(admin, notification.id);
 
   if (!claimed) {
-    console.info("[Push] skipped — already delivered", { notificationId: notification.id });
+    pushServerLog("dedupe", "Skip — already_sent", { notificationId: notification.id });
     return {
       sent: 0,
       fcmSent: 0,
@@ -389,6 +527,10 @@ export async function deliverNotificationPush(
   }
 
   const payload = buildNotificationPushPayload(notification);
+  pushServerLog("2", "Built push payload", {
+    title: payload.title,
+    bodyPreview: payload.body.slice(0, 80),
+  });
 
   return sendFcmToUser({
     admin,

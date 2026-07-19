@@ -8,6 +8,7 @@ import type { Session } from "@supabase/supabase-js";
 import { useRouter } from "next/navigation";
 import { getSafeAuthSession } from "@/lib/authSession";
 import { markIntentionalSignOut } from "@/lib/authMessages";
+import { unregisterPushBeforeSignOut } from "@/lib/nativePush";
 import type { FollowProfile } from "@/lib/follows";
 import { loadFollowConnections } from "@/lib/follows";
 import { publicProfileUsername } from "@/lib/publicProfile";
@@ -399,6 +400,16 @@ export default function ProfilePage() {
 
   const handleSignOut = useCallback(async () => {
     markIntentionalSignOut();
+
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    const userId = session?.user?.id;
+
+    if (userId) {
+      await unregisterPushBeforeSignOut(userId);
+    }
+
     await supabase.auth.signOut();
     router.replace("/auth/login");
   }, [router]);

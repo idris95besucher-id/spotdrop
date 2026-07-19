@@ -5,6 +5,7 @@ import {
   buildNotificationPushPayload,
   type NotificationRow,
 } from "@/lib/notifications";
+import { pushServerError, pushServerLog } from "@/lib/pushServerLog";
 import { createSupabaseAdminClient } from "@/lib/supabaseAdmin";
 import {
   deliverNotificationPush,
@@ -57,15 +58,20 @@ function shouldSendPushForType(type: NotificationRow["type"]) {
 }
 
 export async function POST(request: Request) {
+  pushServerLog("2", "/api/push/send CALLED", {
+    hasAuthHeader: Boolean(request.headers.get("authorization")),
+    fcmConfigured: isFcmConfigured(),
+  });
+
   if (!isAuthorized(request)) {
-    console.warn("[Push] /api/push/send unauthorized");
+    pushServerError("2", "/api/push/send unauthorized");
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   }
 
   const admin = createSupabaseAdminClient();
 
   if (!admin) {
-    console.error("[Push] /api/push/send — Supabase admin not configured");
+    pushServerError("2", "Supabase admin client not configured");
     return NextResponse.json({ error: "Supabase admin client is not configured." }, { status: 503 });
   }
 
@@ -74,21 +80,22 @@ export async function POST(request: Request) {
   try {
     body = (await request.json()) as PushSendBody;
   } catch {
+    pushServerError("2", "Invalid JSON body");
     return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
   }
 
   const notificationId = body.notificationId?.trim() ?? "";
   const userId = body.userId?.trim() ?? "";
 
-  if (!notificationId && !userId) {
-    return NextResponse.json({ error: "notificationId or userId is required." }, { status: 400 });
-  }
-
-  console.info("[Push] webhook received", {
+  pushServerLog("2", "/api/push/send body", {
     notificationId: notificationId || null,
     userId: userId || null,
-    fcmConfigured: isFcmConfigured(),
   });
+
+  if (!notificationId && !userId) {
+    pushServerError("2", "notificationId or userId required");
+    return NextResponse.json({ error: "notificationId or userId is required." }, { status: 400 });
+  }
 
   let notification: NotificationRow | null = null;
 
@@ -100,28 +107,42 @@ export async function POST(request: Request) {
       .maybeSingle();
 
     if (error) {
-      console.error("[Push] notification load failed", { notificationId, error: error.message });
+      pushServerError("2", "notification load failed", { notificationId, error: error.message });
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
     if (!data) {
-      console.warn("[Push] notification not found", { notificationId, chainStage: "webhook→notification" });
+      pushServerError("2", "notification not found", { notificationId });
       return NextResponse.json({ error: "Notification not found." }, { status: 404 });
     }
 
     notification = mapNotificationRow(data);
+    pushServerLog("3", "Notification loaded", {
+      notificationId: notification.id,
+      recipientUserId: notification.user_id,
+      type: notification.type,
+      actorId: notification.actor_id,
+      href: notification.href,
+      sourceId: notification.source_id,
+    });
 
     if (!shouldSendPushForType(notification.type)) {
-      console.info("[Push] skipped type", { type: notification.type, notificationId });
+      pushServerLog("2", "skipped type_not_push_enabled", { type: notification.type });
       return NextResponse.json({ sent: 0, skipped: "type_not_push_enabled" });
     }
   }
 
   const targetUserId = notification?.user_id ?? userId;
+  pushServerLog("3", "Recipient user_id", { recipientUserId: targetUserId });
+
   const userPrefs = await loadServerNotificationPreferences(admin, targetUserId);
 
   if (notification && !shouldAllowPushForType(notification.type, userPrefs)) {
-    console.info("[Push] skipped prefs", { notificationId, userId: targetUserId });
+    pushServerError("prefs", "user_prefs_disabled", {
+      notificationId,
+      recipientUserId: targetUserId,
+      prefs: userPrefs,
+    });
     return NextResponse.json({ sent: 0, skipped: "user_prefs_disabled" });
   }
 
@@ -209,12 +230,14 @@ export async function POST(request: Request) {
       type,
       apnsSound,
     });
+  } else {
+    pushServerError("fcm-init", "No notification row and FCM not configured");
   }
 
   const sent = webSent + fcmResult.fcmSent;
 
   if (sent === 0 && !webConfigured && !isFcmConfigured()) {
-    console.error("[Push] not configured — missing VAPID and FIREBASE_SERVICE_ACCOUNT_JSON");
+    pushServerError("fcm-init", "Push not configured — missing VAPID and FIREBASE_SERVICE_ACCOUNT_JSON");
     return NextResponse.json(
       { error: "Push is not configured. Set VAPID keys and/or FIREBASE_SERVICE_ACCOUNT_JSON." },
       { status: 503 }
@@ -224,21 +247,24 @@ export async function POST(request: Request) {
   const chainStage =
     fcmResult.skipped === "no_tokens"
       ? "fcm→no_tokens"
-      : fcmResult.fcmSent > 0
-        ? "fcm→apns_accepted"
-        : fcmResult.errors.length
-          ? "fcm→apns_rejected"
-          : fcmResult.skipped ?? "webhook→fcm";
+      : fcmResult.skipped === "fcm_not_configured" || fcmResult.skipped === "fcm_client_unavailable"
+        ? "fcm→init_failed"
+        : fcmResult.fcmSent > 0
+          ? "fcm→apns_accepted"
+          : fcmResult.errors.length
+            ? "fcm→apns_rejected"
+            : fcmResult.skipped ?? "webhook→fcm";
 
-  console.info("[Push] webhook done", {
+  pushServerLog("7", "/api/push/send DONE", {
     notificationId: notification?.id ?? null,
-    userId: targetUserId,
+    recipientUserId: targetUserId,
     webSent,
     fcmSent: fcmResult.fcmSent,
     tokenCount: fcmResult.tokenCount,
     skipped: fcmResult.skipped ?? null,
     errors: fcmResult.errors,
     messageIds: fcmResult.messageIds,
+    staleFcm: fcmResult.staleFcm,
     chainStage,
   });
 

@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { createSupabaseAdminClient } from "@/lib/supabaseAdmin";
 import { deliverNotificationPush, mapNotificationRow } from "@/lib/serverPushSend";
 import type { NotificationRow } from "@/lib/notifications";
+import { pushServerError, pushServerLog } from "@/lib/pushServerLog";
 
 type NotifyBody = {
   messageId?: string;
@@ -49,7 +50,6 @@ async function loadNotificationsForMessage(
   type: string,
   actorId: string
 ) {
-  // Trigger insert is same-transaction as the message; short retry covers replica lag.
   for (let attempt = 0; attempt < 8; attempt += 1) {
     let query = admin
       .from("notifications")
@@ -70,9 +70,21 @@ async function loadNotificationsForMessage(
     }
 
     if (data && data.length > 0) {
+      pushServerLog("1", "Notification rows found for message", {
+        messageId,
+        type,
+        attempt: attempt + 1,
+        count: data.length,
+        recipientUserIds: data.map((row) => row.user_id),
+      });
       return data.map(mapNotificationRow);
     }
 
+    pushServerLog("1", "Notification rows not ready yet — retry", {
+      messageId,
+      type,
+      attempt: attempt + 1,
+    });
     await sleep(150);
   }
 
@@ -84,17 +96,19 @@ async function loadNotificationsForMessage(
  * does not depend on the recipient's app being open or on pg_net GUCs alone.
  */
 export async function POST(request: Request) {
+  pushServerLog("1", "/api/push/notify-message CALLED (sender-triggered after DM/message insert)");
+
   const actorId = await resolveAuthenticatedUserId(request);
 
   if (!actorId) {
-    console.warn("[Push] notify-message unauthorized");
+    pushServerError("1", "notify-message unauthorized");
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   }
 
   const admin = createSupabaseAdminClient();
 
   if (!admin) {
-    console.error("[Push] notify-message — admin client missing");
+    pushServerError("1", "admin client missing");
     return NextResponse.json({ error: "Push temporarily unavailable." }, { status: 503 });
   }
 
@@ -103,17 +117,23 @@ export async function POST(request: Request) {
   try {
     body = (await request.json()) as NotifyBody;
   } catch {
+    pushServerError("1", "Invalid JSON body");
     return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
   }
 
   const messageId = body.messageId?.trim() ?? "";
   const type = body.type?.trim() ?? "";
 
+  pushServerLog("1", "DM/message creation → notify-message", {
+    actorId,
+    messageId,
+    type,
+  });
+
   if (!messageId || !PUSH_TYPES.has(type)) {
+    pushServerError("1", "messageId and valid type required", { messageId, type });
     return NextResponse.json({ error: "messageId and valid type are required." }, { status: 400 });
   }
-
-  console.info("[Push] notify-message start", { actorId, messageId, type });
 
   let notifications: NotificationRow[];
 
@@ -121,12 +141,12 @@ export async function POST(request: Request) {
     notifications = await loadNotificationsForMessage(admin, messageId, type, actorId);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Failed to load notifications.";
-    console.error("[Push] notify-message notification lookup failed", { messageId, type, message });
+    pushServerError("1", "notification lookup failed", { messageId, type, message });
     return NextResponse.json({ error: message }, { status: 500 });
   }
 
   if (notifications.length === 0) {
-    console.warn("[Push] notify-message — no notification rows (muted, trigger missing, or lag)", {
+    pushServerError("1", "No notification rows (muted, trigger missing, or lag)", {
       actorId,
       messageId,
       type,
@@ -143,6 +163,12 @@ export async function POST(request: Request) {
   const results = [];
 
   for (const notification of notifications) {
+    pushServerLog("3", "Delivering to recipient", {
+      notificationId: notification.id,
+      recipientUserId: notification.user_id,
+      type: notification.type,
+    });
+
     try {
       const result = await deliverNotificationPush(admin, notification);
       results.push({
@@ -152,8 +178,9 @@ export async function POST(request: Request) {
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      console.error("[Push] notify-message deliver failed", {
+      pushServerError("7", "deliverNotificationPush threw", {
         notificationId: notification.id,
+        recipientUserId: notification.user_id,
         message,
       });
       results.push({
@@ -167,13 +194,23 @@ export async function POST(request: Request) {
   }
 
   const fcmSent = results.reduce((sum, row) => sum + (row.fcmSent ?? 0), 0);
+  const chainStage =
+    fcmSent > 0
+      ? "fcm→apns_accepted"
+      : results.some((row) => "skipped" in row && row.skipped === "no_tokens")
+        ? "fcm→no_tokens"
+        : results.some((row) => "errors" in row && Array.isArray(row.errors) && row.errors.length > 0)
+          ? "fcm→apns_rejected"
+          : "check_results";
 
-  console.info("[Push] notify-message done", {
+  pushServerLog("7", "notify-message DONE", {
     messageId,
     type,
     recipients: notifications.length,
+    recipientUserIds: notifications.map((n) => n.user_id),
     fcmSent,
-    chainStage: fcmSent > 0 ? "fcm→apns_accepted" : "fcm_or_tokens_failed",
+    results,
+    chainStage,
   });
 
   return NextResponse.json({
@@ -181,6 +218,6 @@ export async function POST(request: Request) {
     fcmSent,
     recipients: notifications.length,
     results,
-    chainStage: fcmSent > 0 ? "fcm→apns_accepted" : "check_results",
+    chainStage,
   });
 }

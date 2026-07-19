@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { LogOut } from "lucide-react";
 import { useI18n } from "@/components/I18nProvider";
 import { markIntentionalSignOut } from "@/lib/authMessages";
+import { unregisterPushBeforeSignOut } from "@/lib/nativePush";
 import { supabase } from "@/lib/supabaseClient";
 
 type SignOutButtonProps = {
@@ -16,6 +17,16 @@ export default function SignOutButton({ className = "" }: SignOutButtonProps) {
 
   const handleSignOut = async () => {
     markIntentionalSignOut();
+
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    const userId = session?.user?.id;
+
+    if (userId) {
+      await unregisterPushBeforeSignOut(userId);
+    }
+
     await supabase.auth.signOut();
     router.replace("/auth/login");
   };

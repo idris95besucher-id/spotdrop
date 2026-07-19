@@ -163,14 +163,20 @@ if (!messaging.includes("isGoogleServiceInfoAvailable()")) {
 
 let plugin = fs.readFileSync(pluginSwift, "utf8");
 
-if (!plugin.includes("guard FirebaseApp.app() != nil else")) {
-  plugin = plugin.replace(
-    `    @objc private func didRegisterForRemoteNotifications(notification: NSNotification) {
+const pluginAlreadySafe =
+  plugin.includes("Always assign APNs token when Firebase is up") &&
+  plugin.includes("[Push][step 4] Cap plugin Messaging.apnsToken assigned");
+
+if (pluginAlreadySafe) {
+  console.log("[patch-capacitor-firebase-ios] FirebaseMessagingPlugin.swift already patched.");
+} else {
+  const upstream = `    @objc private func didRegisterForRemoteNotifications(notification: NSNotification) {
         guard let deviceToken = notification.object as? Data else {
             return
         }
-        Messaging.messaging().apnsToken = deviceToken`,
-    `    @objc private func didRegisterForRemoteNotifications(notification: NSNotification) {
+        Messaging.messaging().apnsToken = deviceToken`;
+
+  const oldGuardPatch = `    @objc private func didRegisterForRemoteNotifications(notification: NSNotification) {
         guard FirebaseApp.app() != nil else {
             return
         }
@@ -178,11 +184,48 @@ if (!plugin.includes("guard FirebaseApp.app() != nil else")) {
         guard let deviceToken = notification.object as? Data else {
             return
         }
-        Messaging.messaging().apnsToken = deviceToken`
-  );
+        Messaging.messaging().apnsToken = deviceToken`;
 
-  fs.writeFileSync(pluginSwift, plugin);
-  console.log("[patch-capacitor-firebase-ios] Patched FirebaseMessagingPlugin.swift");
-} else {
-  console.log("[patch-capacitor-firebase-ios] FirebaseMessagingPlugin.swift already patched.");
+  const safePatch = `    @objc private func didRegisterForRemoteNotifications(notification: NSNotification) {
+        guard let deviceToken = notification.object as? Data else {
+            CAPLog.print("[Push][step 2] FAIL Cap plugin didRegister — object is not Data")
+            return
+        }
+
+        let preview = deviceToken.prefix(16).map { String(format: "%02.2hhx", $0) }.joined()
+        CAPLog.print("[Push][step 2] Cap plugin received capacitorDidRegisterForRemoteNotifications bytes=\\(deviceToken.count) preview=\\(preview)…")
+
+        // Always assign APNs token when Firebase is up; do not drop the callback.
+        if FirebaseApp.app() != nil {
+            Messaging.messaging().apnsToken = deviceToken
+            CAPLog.print("[Push][step 4] Cap plugin Messaging.apnsToken assigned preview=\\(preview)…")
+        } else {
+            CAPLog.print("[Push][step 4] FAIL Cap plugin FirebaseApp.app() nil — apnsToken not assigned")
+        }`;
+
+  const midPatch = `    @objc private func didRegisterForRemoteNotifications(notification: NSNotification) {
+        guard let deviceToken = notification.object as? Data else {
+            return
+        }
+
+        // Always assign APNs token when Firebase is up; do not drop the callback.
+        if FirebaseApp.app() != nil {
+            Messaging.messaging().apnsToken = deviceToken
+        }`;
+
+  if (plugin.includes(oldGuardPatch)) {
+    plugin = plugin.replace(oldGuardPatch, safePatch);
+    fs.writeFileSync(pluginSwift, plugin);
+    console.log("[patch-capacitor-firebase-ios] Patched FirebaseMessagingPlugin.swift (replaced early-return guard).");
+  } else if (plugin.includes(midPatch)) {
+    plugin = plugin.replace(midPatch, safePatch);
+    fs.writeFileSync(pluginSwift, plugin);
+    console.log("[patch-capacitor-firebase-ios] Patched FirebaseMessagingPlugin.swift (added step logs).");
+  } else if (plugin.includes(upstream)) {
+    plugin = plugin.replace(upstream, safePatch);
+    fs.writeFileSync(pluginSwift, plugin);
+    console.log("[patch-capacitor-firebase-ios] Patched FirebaseMessagingPlugin.swift");
+  } else {
+    console.warn("[patch-capacitor-firebase-ios] FirebaseMessagingPlugin.swift pattern not recognized — left unchanged.");
+  }
 }

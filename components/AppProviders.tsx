@@ -65,7 +65,7 @@ export default function AppProviders({ children }: { children: ReactNode }) {
             <NotificationsProvider>
             <CapacitorLaunchGuard />
             <KeyboardVisibilityBootstrap />
-            <PushNotificationsBootstrap userId={sessionUserId} />
+            <PushNotificationsBootstrap userId={sessionUserId} authReady={authReady} />
             <OnlinePresenceBootstrap userId={sessionUserId} authReady={authReady} />
             <SpotLocationModalProvider>
               <PostViewerProvider>
