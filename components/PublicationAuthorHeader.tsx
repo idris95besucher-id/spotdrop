@@ -1,5 +1,6 @@
 "use client";
 
+import type { MouseEvent } from "react";
 import Link from "next/link";
 import OwnContentMenu from "@/components/OwnContentMenu";
 import ProfileAvatar from "@/components/ProfileAvatar";
@@ -14,6 +15,11 @@ type PublicationAuthorHeaderProps = {
   /** Omit to keep this row avatar/username only — e.g. when the three-dot menu is rendered elsewhere. */
   onDelete?: () => Promise<{ ok: boolean; error: string | null }>;
   onDeleted?: () => void;
+  /**
+   * When set, runs instead of the default in-place Link navigation (e.g. close a
+   * fullscreen Spot overlay before opening the profile).
+   */
+  onAuthorClick?: (event: MouseEvent<HTMLAnchorElement>) => void;
   className?: string;
   menuTriggerClassName?: string;
 };
@@ -29,6 +35,7 @@ export default function PublicationAuthorHeader({
   onEdit,
   onDelete,
   onDeleted,
+  onAuthorClick,
   className = "",
   menuTriggerClassName = "",
 }: PublicationAuthorHeaderProps) {
@@ -39,6 +46,7 @@ export default function PublicationAuthorHeader({
     <div className={`flex min-w-0 items-center gap-2 ${className}`}>
       <Link
         href={`/user?id=${encodeURIComponent(authorUserId)}`}
+        onClick={onAuthorClick}
         className="flex min-w-0 flex-1 items-center gap-2 transition hover:opacity-90"
       >
         <ProfileAvatar

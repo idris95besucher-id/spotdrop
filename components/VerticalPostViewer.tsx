@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { usePathname } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import PostViewerSlide from "@/components/PostViewerSlide";
 import { useAuthSession } from "@/components/AuthSessionProvider";
@@ -47,9 +48,55 @@ type VerticalPostViewerProps = {
   onItemDeleted?: (postId: string) => void;
   /** Search grid only — reuse profile-feed swipe-right close. */
   enableHorizontalSwipeClose?: boolean;
+  /**
+   * Search Spot only: hide this overlay while opening the author profile (keep it
+   * mounted in memory) so back from the profile restores the same Spot.
+   */
+  closeBeforeAuthorProfileNavigation?: boolean;
 };
 
 const OPEN_SWIPE_LOCK_MS = 600;
+
+function currentLocationKey() {
+  if (typeof window === "undefined") {
+    return "";
+  }
+
+  return `${window.location.pathname}${window.location.search}`;
+}
+
+/** Normalize Capacitor trailing-slash paths so /user/?id= matches /user?id=. */
+function normalizeLocationKey(key: string) {
+  try {
+    const url = new URL(key, "https://spotdrop.local");
+    let pathname = url.pathname;
+
+    if (pathname.length > 1 && pathname.endsWith("/")) {
+      pathname = pathname.slice(0, -1);
+    }
+
+    return `${pathname}${url.search}`;
+  } catch {
+    return key;
+  }
+}
+
+function locationKeysEqual(a: string | null, b: string) {
+  if (!a) {
+    return false;
+  }
+
+  return normalizeLocationKey(a) === normalizeLocationKey(b);
+}
+
+function isAuthorProfileLocation(locationKey: string, authorUserId: string) {
+  try {
+    const url = new URL(normalizeLocationKey(locationKey), "https://spotdrop.local");
+    return url.pathname === "/user" && url.searchParams.get("id") === authorUserId;
+  } catch {
+    return false;
+  }
+}
 
 export default function VerticalPostViewer({
   items,
@@ -59,8 +106,10 @@ export default function VerticalPostViewer({
   onClose,
   onItemDeleted,
   enableHorizontalSwipeClose = false,
+  closeBeforeAuthorProfileNavigation = false,
 }: VerticalPostViewerProps) {
   const { t } = useI18n();
+  const pathname = usePathname();
   const viewportRef = useRef<HTMLDivElement>(null);
   const screenRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -75,6 +124,10 @@ export default function VerticalPostViewer({
   const dragRafRef = useRef<number | null>(null);
   const pendingDragOffsetRef = useRef<number | null>(null);
   const commitTimerRef = useRef<number | null>(null);
+  const authorNavReturnPathRef = useRef<string | null>(null);
+  const authorNavUserIdRef = useRef<string | null>(null);
+  const authorNavHasOpenedProfileRef = useRef(false);
+  const [authorProfileSuspended, setAuthorProfileSuspended] = useState(false);
 
   const openedIndex = useMemo(
     () => findViewerIndexForSpot(items, initialSpotId, initialMediaUrl),
@@ -347,7 +400,7 @@ export default function VerticalPostViewer({
     onClose,
     targetRef: screenRef,
     panelRef,
-    isActive: mounted && Boolean(gestureHost),
+    isActive: mounted && Boolean(gestureHost) && !authorProfileSuspended,
     gestureHost,
     enableVerticalAxis: true,
     enableHorizontalDismiss: false,
@@ -368,9 +421,65 @@ export default function VerticalPostViewer({
     onClose,
     targetRef: screenRef,
     panelRef,
-    enabled: enableHorizontalSwipeClose && mounted && Boolean(gestureHost),
+    enabled: enableHorizontalSwipeClose && mounted && Boolean(gestureHost) && !authorProfileSuspended,
     gestureHost,
   });
+
+  const suspendForAuthorProfileNavigation = useCallback((authorUserId: string) => {
+    if (!closeBeforeAuthorProfileNavigation || authorProfileSuspended) {
+      return;
+    }
+
+    authorNavReturnPathRef.current = currentLocationKey();
+    authorNavUserIdRef.current = authorUserId;
+    authorNavHasOpenedProfileRef.current = false;
+    setAuthorProfileSuspended(true);
+    pauseAllPreloadedReelVideos();
+    notifySpotFullscreenViewerClosed();
+  }, [authorProfileSuspended, closeBeforeAuthorProfileNavigation]);
+
+  // Search → Spot → author profile: keep this Spot mounted (hidden). Resume when
+  // back navigation returns to the Search path; discard if the user leaves elsewhere.
+  useEffect(() => {
+    if (!authorProfileSuspended) {
+      return;
+    }
+
+    const current = currentLocationKey();
+    const returnPath = authorNavReturnPathRef.current;
+    const authorUserId = authorNavUserIdRef.current;
+
+    if (authorUserId && isAuthorProfileLocation(current, authorUserId)) {
+      authorNavHasOpenedProfileRef.current = true;
+      return;
+    }
+
+    if (locationKeysEqual(returnPath, current)) {
+      // Still on Search before router.push commits — do not resume yet.
+      if (!authorNavHasOpenedProfileRef.current) {
+        return;
+      }
+
+      setAuthorProfileSuspended(false);
+      authorNavReturnPathRef.current = null;
+      authorNavUserIdRef.current = null;
+      authorNavHasOpenedProfileRef.current = false;
+      pauseAllGridVideoPreviews();
+      pauseAllPreloadedReelVideos();
+      notifySpotFullscreenViewerOpened();
+      return;
+    }
+
+    // Left the author profile without returning to Search — drop the suspended Spot.
+    if (!authorNavHasOpenedProfileRef.current) {
+      return;
+    }
+
+    authorNavReturnPathRef.current = null;
+    authorNavUserIdRef.current = null;
+    authorNavHasOpenedProfileRef.current = false;
+    onClose();
+  }, [authorProfileSuspended, onClose, pathname]);
 
   const isClosing = enableHorizontalSwipeClose ? swipeCloseIsClosing : dismissIsClosing;
   const requestClose = enableHorizontalSwipeClose ? swipeCloseRequestClose : dismissRequestClose;
@@ -581,8 +690,14 @@ export default function VerticalPostViewer({
       data-spot-viewer-screen
       data-search-reel-viewer={enableHorizontalSwipeClose ? "" : undefined}
       data-spot-viewer-closing={isClosing ? "" : undefined}
+      data-spot-viewer-author-suspended={authorProfileSuspended ? "" : undefined}
+      hidden={authorProfileSuspended}
       className="fixed inset-0 z-[120] overscroll-none text-white"
-      style={screenStyle}
+      style={{
+        ...screenStyle,
+        ...(authorProfileSuspended ? { display: "none" } : null),
+      }}
+      aria-hidden={authorProfileSuspended || undefined}
     >
       <div ref={panelRef} data-spot-viewer-panel style={panelStyle}>
         <button
@@ -633,11 +748,13 @@ export default function VerticalPostViewer({
                 <PostViewerSlide
                   item={spot}
                   slideIndex={index}
-                  isActive={index === activeIndex}
+                  isActive={index === activeIndex && !authorProfileSuspended}
                   shouldPreloadMedia={distance <= 1}
                   userId={userId}
                   onItemDeleted={onItemDeleted}
                   onCarouselGestureStateChange={handleCarouselGestureStateChange}
+                  closeBeforeAuthorProfileNavigation={closeBeforeAuthorProfileNavigation}
+                  onSuspendForAuthorProfileNavigation={suspendForAuthorProfileNavigation}
                 />
               </div>
             );

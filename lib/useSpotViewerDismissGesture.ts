@@ -308,11 +308,14 @@ export function useSpotViewerDismissGesture({
 
       // Claim vertical-dominant moves immediately (before AXIS_LOCK). If we wait,
       // WKWebView rubber-bands on swipe-down and later preventDefault is ignored.
+      // Skip when the gesture started on a control/link — eager preventDefault
+      // cancels the synthesized click (e.g. author name → profile).
       if (
         enableVerticalAxisRef.current &&
         absY > 0 &&
         absY >= absX &&
-        !isVerticalSwipeLockedRef.current?.()
+        !isVerticalSwipeLockedRef.current?.() &&
+        !dismissBlockedForGestureRef.current
       ) {
         event.preventDefault();
       }

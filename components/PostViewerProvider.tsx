@@ -170,6 +170,7 @@ export default function PostViewerProvider({ children }: { children: ReactNode }
             onClose={closePostViewer}
             onItemDeleted={handleItemDeleted}
             enableHorizontalSwipeClose
+            closeBeforeAuthorProfileNavigation={viewerState.mode === "search-reel"}
           />
         )
       ) : null}

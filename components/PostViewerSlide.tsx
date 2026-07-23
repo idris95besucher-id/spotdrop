@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type MouseEvent } from "react";
+import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import EditPublicationScreen from "@/components/EditPublicationScreen";
 import PublicationAuthorHeader from "@/components/PublicationAuthorHeader";
@@ -79,6 +80,10 @@ type PostViewerSlideProps = {
   onCarouselGestureStateChange?: (
     state: { itemCount: number; activeIndex: number } | null
   ) => void;
+  /** Search Spot only — see VerticalPostViewer.closeBeforeAuthorProfileNavigation. */
+  closeBeforeAuthorProfileNavigation?: boolean;
+  /** Hides the Search Spot overlay (keeps it mounted) before opening the author profile. */
+  onSuspendForAuthorProfileNavigation?: (authorUserId: string) => void;
 };
 
 function previewToPost(item: ViewerPostListItem): PostDetailRow {
@@ -114,7 +119,10 @@ export default function PostViewerSlide({
   onItemDeleted,
   onActiveMediaLoadingChange,
   onCarouselGestureStateChange,
+  closeBeforeAuthorProfileNavigation = false,
+  onSuspendForAuthorProfileNavigation,
 }: PostViewerSlideProps) {
+  const router = useRouter();
   const { t, locale } = useI18n();
   const [post, setPost] = useState<PostDetailRow>(() => previewToPost(item));
   const [detailLoadPhase, setDetailLoadPhase] = useState<SpotLoadPhase>("loading");
@@ -732,6 +740,17 @@ export default function PostViewerSlide({
               authorUsername={authorUsername}
               avatarUrl={postAuthor.avatar_url}
               viewerUserId={userId}
+              onAuthorClick={
+                closeBeforeAuthorProfileNavigation
+                  ? (event: MouseEvent<HTMLAnchorElement>) => {
+                      // Keep the Search Spot mounted but hidden, then open the profile
+                      // so swipe-back returns to this same Spot instead of Search.
+                      event.preventDefault();
+                      onSuspendForAuthorProfileNavigation?.(post.user_id);
+                      router.push(`/user?id=${encodeURIComponent(post.user_id)}`);
+                    }
+                  : undefined
+              }
             />
           ) : null}
 
