@@ -2,9 +2,10 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { UserRound, X } from "lucide-react";
+import { X } from "lucide-react";
 import { useI18n } from "@/components/I18nProvider";
 import LiveMapUserPresenceLine from "@/components/LiveMapUserPresenceLine";
+import ProfileAvatar from "@/components/ProfileAvatar";
 import { localizeCityByEnglishName, localizeCountryByEnglishName } from "@/lib/i18n/localizeGeo";
 import { auditLocationLocaleOutput } from "@/lib/i18n/localizeGeoAudit";
 import type { I18nLocale } from "@/lib/i18n/locales";
@@ -131,13 +132,12 @@ export default function LiveMapUserSheet({
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
           <div className="flex items-start justify-between gap-3 px-4 py-3">
             <div className="flex min-w-0 items-center gap-3">
-              <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-full border border-cyan-400/40 bg-slate-800 text-white">
-                {user.avatar_url ? (
-                  <img src={user.avatar_url} alt="" className="h-full w-full object-cover" />
-                ) : (
-                  <UserRound className="h-6 w-6 text-slate-400" strokeWidth={1.5} aria-hidden />
-                )}
-              </div>
+              <ProfileAvatar
+                src={user.avatar_url}
+                sizeClassName="h-14 w-14"
+                iconClassName="h-6 w-6"
+                className="border border-cyan-400/40 bg-slate-800"
+              />
               <div className="min-w-0">
                 <p
                   id="live-map-user-sheet-title"

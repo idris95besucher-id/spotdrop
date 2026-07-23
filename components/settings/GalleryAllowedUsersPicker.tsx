@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Loader2, Search, UserRound, X } from "lucide-react";
+import { Loader2, Search, X } from "lucide-react";
+import ProfileAvatar from "@/components/ProfileAvatar";
 import { useI18n } from "@/components/I18nProvider";
 import type { GalleryAllowedViewer } from "@/lib/profileGalleryAllowedViewers";
 import { filterPeopleByUsername, loadPeopleSearchCatalog } from "@/lib/peopleSearch";
@@ -107,13 +108,12 @@ export default function GalleryAllowedUsersPicker({
               key={viewer.id}
               className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 py-1 pl-1 pr-2 text-xs font-medium text-white"
             >
-              <span className="flex h-6 w-6 items-center justify-center overflow-hidden rounded-full bg-slate-800">
-                {viewer.avatar_url ? (
-                  <img src={viewer.avatar_url} alt="" className="h-full w-full object-cover" />
-                ) : (
-                  <UserRound className="h-3.5 w-3.5 text-slate-400" aria-hidden />
-                )}
-              </span>
+              <ProfileAvatar
+                src={viewer.avatar_url}
+                sizeClassName="h-6 w-6"
+                iconClassName="h-3.5 w-3.5"
+                className="bg-slate-800"
+              />
               @{publicProfileUsername(viewer.username)}
               <button
                 type="button"
@@ -178,13 +178,12 @@ export default function GalleryAllowedUsersPicker({
                   }
                   className="flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left transition hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  <span className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full bg-slate-800">
-                    {profile.avatar_url ? (
-                      <img src={profile.avatar_url} alt="" className="h-full w-full object-cover" />
-                    ) : (
-                      <UserRound className="h-4 w-4 text-slate-400" aria-hidden />
-                    )}
-                  </span>
+                  <ProfileAvatar
+                    src={profile.avatar_url}
+                    sizeClassName="h-9 w-9"
+                    iconClassName="h-4 w-4"
+                    className="bg-slate-800"
+                  />
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-sm font-medium text-white">
                       @{publicProfileUsername(profile.username)}

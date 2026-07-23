@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { Globe2, Lock, UserRound } from "lucide-react";
+import { Globe2, Lock } from "lucide-react";
 import MobileSecondaryHeader from "@/components/MobileSecondaryHeader";
 import PostCardMedia from "@/components/PostCardMedia";
 import PostMediaLink from "@/components/PostMediaLink";
+import ProfileAvatar from "@/components/ProfileAvatar";
 import Shell from "@/components/Shell";
 import { useI18n } from "@/components/I18nProvider";
 import { getSafeAuthSession } from "@/lib/authSession";
@@ -91,13 +92,12 @@ export default function ChannelView({ channelId }: { channelId: string }) {
             <div className="mb-4 space-y-2">
               {owner ? (
                 <Link href={`/user?id=${owner.id}`} className="inline-flex items-center gap-2">
-                  <span className="flex h-8 w-8 items-center justify-center overflow-hidden rounded-full bg-slate-800">
-                    {owner.avatar_url ? (
-                      <img src={owner.avatar_url} alt="" className="h-full w-full object-cover" />
-                    ) : (
-                      <UserRound className="h-4 w-4 text-slate-400" aria-hidden />
-                    )}
-                  </span>
+                  <ProfileAvatar
+                    src={owner.avatar_url}
+                    sizeClassName="h-8 w-8"
+                    iconClassName="h-4 w-4"
+                    className="bg-slate-800"
+                  />
                   <span className="text-sm font-semibold text-white">{owner.username}</span>
                 </Link>
               ) : null}

@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ChevronLeft, MapPinned, UserRound, Users, X } from "lucide-react";
+import { ChevronLeft, MapPinned, Users, X } from "lucide-react";
+import ProfileAvatar from "@/components/ProfileAvatar";
 import { useI18n } from "@/components/I18nProvider";
 import { getMapSpotPinPreviewUrl, getMapSpotPinTitle } from "@/lib/mapSpotPin";
 import type { MapSpotPin } from "@/lib/spots";
@@ -151,13 +152,12 @@ export default function MapOverlapActionSheet({
                   onClick={() => handleOpenUser(users[0]!)}
                   className="flex w-full items-center gap-3 rounded-2xl border border-violet-400/25 bg-violet-500/10 px-3.5 py-3 text-left transition hover:bg-violet-500/15"
                 >
-                  <span className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full border-2 border-violet-400/80 bg-slate-800">
-                    {users[0]!.avatar_url ? (
-                      <img src={users[0]!.avatar_url} alt="" className="h-full w-full object-cover" />
-                    ) : (
-                      <UserRound className="h-5 w-5 text-slate-300" aria-hidden />
-                    )}
-                  </span>
+                  <ProfileAvatar
+                    src={users[0]!.avatar_url}
+                    sizeClassName="h-11 w-11"
+                    iconClassName="h-5 w-5"
+                    className="border-2 border-violet-400/80 bg-slate-800"
+                  />
                   <span className="min-w-0 flex-1">
                     <span className="block text-sm font-semibold text-white">{t("map.overlapOpenUser")}</span>
                     <span className="block truncate text-xs text-slate-400">@{users[0]!.username}</span>
@@ -200,13 +200,12 @@ export default function MapOverlapActionSheet({
                     onClick={() => handleOpenUser(user)}
                     className="flex w-full items-center gap-3 rounded-2xl border border-white/8 bg-white/[0.04] px-3 py-2.5 text-left transition hover:bg-white/[0.07]"
                   >
-                    <span className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full border-2 border-violet-400/80 bg-slate-800">
-                      {user.avatar_url ? (
-                        <img src={user.avatar_url} alt="" className="h-full w-full object-cover" />
-                      ) : (
-                        <UserRound className="h-4 w-4 text-slate-300" aria-hidden />
-                      )}
-                    </span>
+                    <ProfileAvatar
+                      src={user.avatar_url}
+                      sizeClassName="h-10 w-10"
+                      iconClassName="h-4 w-4"
+                      className="border-2 border-violet-400/80 bg-slate-800"
+                    />
                     <span className="min-w-0 flex-1 truncate text-sm font-semibold text-white">
                       @{user.username}
                     </span>

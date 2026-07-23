@@ -275,18 +275,33 @@ export async function markDmThreadOpened(
 
   const readResult = await markDirectMessagesReadInThread(recipientId, partnerId);
 
-  const clearedCount =
-    readResult.updatedCount > 0 ? readResult.updatedCount : unreadBefore;
-
-  console.log("[DM read] clearedCount=", clearedCount);
+  // Always drop the optimistic exclude before the authoritative recount. Refreshing
+  // while the partner is still excluded can report 0 even when read_at never persisted.
+  releaseOptimisticDmRead(partnerId);
 
   if (readResult.error) {
     console.error("[DM read] mark read failed", readResult.error);
-    releaseOptimisticDmRead(partnerId);
     await refreshUnreadCount();
     window.dispatchEvent(new Event(CHATS_INBOX_REFRESH_EVENT));
     return { error: readResult.error, clearedCount: 0 };
   }
+
+  const { count: unreadAfter, error: afterError } = await countUnreadDirectMessagesForPartner(
+    recipientId,
+    partnerId
+  );
+
+  if (afterError || (unreadAfter ?? 0) > 0) {
+    console.error("[DM read] unread remains after mark-read", { unreadAfter, afterError });
+    await refreshUnreadCount();
+    window.dispatchEvent(new Event(CHATS_INBOX_REFRESH_EVENT));
+    return { error: "Unable to mark messages as read.", clearedCount: 0 };
+  }
+
+  const clearedCount =
+    readResult.updatedCount > 0 ? readResult.updatedCount : unreadBefore;
+
+  console.log("[DM read] clearedCount=", clearedCount, "unreadAfter=", unreadAfter);
 
   if (clearedCount > 0) {
     dispatchDmThreadRead({ partnerId, clearedCount });
@@ -294,7 +309,6 @@ export async function markDmThreadOpened(
   }
 
   await refreshUnreadCount();
-  releaseOptimisticDmRead(partnerId);
   window.dispatchEvent(new Event(CHATS_INBOX_REFRESH_EVENT));
 
   return { error: null as string | null, clearedCount };

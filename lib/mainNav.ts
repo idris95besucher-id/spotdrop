@@ -11,11 +11,11 @@ export type MainNavItem = {
   shortLabelKey?: TranslationKey;
 };
 
-/** Left side: Search | Following | Visit */
+/** Left side: Search | Following | Visit (Explore Countries) */
 export const MAIN_NAV_LEFT: MainNavItem[] = [
   { href: "/search", labelKey: "nav.search" },
   { href: "/friends", labelKey: "nav.friends" },
-  { href: "/visit", labelKey: "nav.visit" },
+  { href: "/visit?tab=explore", labelKey: "nav.visit" },
 ];
 
 /** Right side: Messages | Map | Profile */
@@ -112,7 +112,7 @@ export function isMainNavActive(
     return isMessagesNavRoute(pathname);
   }
 
-  if (href === "/visit") {
+  if (href === "/visit" || href === "/visit?tab=explore") {
     return isVisitNavRoute(pathname, searchParams);
   }
 
@@ -175,6 +175,17 @@ export function shouldShowMobileBottomNav(pathname: string | null) {
     return false;
   }
 
+  if (
+    pathname === "/support" ||
+    pathname.startsWith("/support/") ||
+    pathname === "/privacy" ||
+    pathname.startsWith("/privacy/") ||
+    pathname === "/terms" ||
+    pathname.startsWith("/terms/")
+  ) {
+    return false;
+  }
+
   if (isChatThreadRoute(pathname)) {
     return false;
   }
@@ -208,5 +219,5 @@ export const PROFILE_SAFE_AREA_TOP = MOBILE_SAFE_AREA_TOP;
 
 export { MOBILE_BOTTOM_NAV_PADDING, MOBILE_SAFE_AREA_TOP };
 
-/** Visit hub — explore, nearby users, live map */
-export const EXPLORE_NEARBY_HREF = "/visit";
+/** Visit hub — explore countries (explicit tab so Map ↔ Explore nav always swaps params) */
+export const EXPLORE_NEARBY_HREF = "/visit?tab=explore";

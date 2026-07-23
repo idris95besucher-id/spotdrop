@@ -11,10 +11,13 @@ type TranslateFn = (key: TranslationKey, values?: Record<string, string | number
 
 type BuildProfileMenuItemsInput = {
   onSignOut: () => void;
+  notificationsUnreadCount?: number;
 };
 
 /** Central list for profile overflow menu — extend here as new tools are added. */
 export function buildProfileMenuItems(input: BuildProfileMenuItemsInput, t: TranslateFn): ProfileMenuItem[] {
+  const unread = input.notificationsUnreadCount ?? 0;
+
   return [
     {
       id: "notifications",
@@ -22,6 +25,7 @@ export function buildProfileMenuItems(input: BuildProfileMenuItemsInput, t: Tran
       description: t("menu.notificationsDesc"),
       icon: Bell,
       href: "/notifications",
+      badge: unread > 0 ? (unread > 99 ? "99+" : unread) : undefined,
     },
     {
       id: "settings",
@@ -35,7 +39,7 @@ export function buildProfileMenuItems(input: BuildProfileMenuItemsInput, t: Tran
       label: t("menu.help"),
       description: t("menu.helpDesc"),
       icon: CircleHelp,
-      href: "mailto:support@spotdrop.app",
+      href: "/support",
     },
     {
       id: "sign-out",

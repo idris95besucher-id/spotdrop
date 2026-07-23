@@ -278,14 +278,8 @@ export async function enableNativePush(userId: string) {
       });
     }
 
-    try {
-      await FirebaseMessaging.removeAllDeliveredNotifications();
-      pushStep("2", "removeAllDeliveredNotifications OK");
-    } catch (error) {
-      pushStepError("2", "removeAllDeliveredNotifications failed (non-fatal)", {
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
+    // Do not call removeAllDeliveredNotifications here — on iOS it also forces
+    // applicationIconBadgeNumber = 0, which fights the chat-unread badge sync.
 
     const resolved = await resolveFcmToken(FirebaseMessaging);
 

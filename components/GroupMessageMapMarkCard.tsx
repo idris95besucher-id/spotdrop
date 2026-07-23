@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { MapPinned, Navigation } from "lucide-react";
+import ProfileAvatar from "@/components/ProfileAvatar";
 import { useI18n } from "@/components/I18nProvider";
 import { buildMapMarkDeepLink, parseCityRoomMapMarkMessage } from "@/lib/cityRoomMapMarkMessage";
 import {
@@ -69,13 +70,12 @@ export default function GroupMessageMapMarkCard({ body, isOwnMessage }: GroupMes
             href={profileHref ?? "#"}
             className="flex items-center gap-2 px-3 pb-0 pt-2.5 hover:opacity-90"
           >
-            <span className="flex h-6 w-6 shrink-0 items-center justify-center overflow-hidden rounded-full bg-slate-800/90 text-[10px] font-semibold text-white ring-1 ring-white/10">
-              {mark.creatorAvatarUrl ? (
-                <img src={mark.creatorAvatarUrl} alt="" className="h-full w-full object-cover" />
-              ) : (
-                mark.creatorUsername.charAt(0).toUpperCase()
-              )}
-            </span>
+            <ProfileAvatar
+              src={mark.creatorAvatarUrl}
+              sizeClassName="h-6 w-6"
+              iconClassName="h-3 w-3"
+              className="bg-slate-800/90 ring-1 ring-white/10"
+            />
             <span className="truncate text-[11.5px] font-medium text-slate-400">
               {t("map.shareMark.createdBy", { username: mark.creatorUsername })}
             </span>

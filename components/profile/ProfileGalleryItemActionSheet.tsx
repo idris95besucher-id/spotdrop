@@ -2,16 +2,14 @@
 
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { Image, PencilLine, Trash2 } from "lucide-react";
+import { PencilLine, Trash2 } from "lucide-react";
 import { useI18n } from "@/components/I18nProvider";
 import { bottomSheetLayout, useBottomSheetScrollLock } from "@/lib/bottomSheetScrollLock";
-import { isProfileGalleryPhoto } from "@/lib/profileGallery";
 import type { ProfileContentPost } from "@/lib/profileContent";
 
 type ProfileGalleryItemActionSheetProps = {
   item: ProfileContentPost | null;
   onClose: () => void;
-  onSetProfilePhoto: () => void;
   onEditDescription: () => void;
   onDelete: () => void;
 };
@@ -19,7 +17,6 @@ type ProfileGalleryItemActionSheetProps = {
 export default function ProfileGalleryItemActionSheet({
   item,
   onClose,
-  onSetProfilePhoto,
   onEditDescription,
   onDelete,
 }: ProfileGalleryItemActionSheetProps) {
@@ -37,7 +34,6 @@ export default function ProfileGalleryItemActionSheet({
     return null;
   }
 
-  const canSetProfilePhoto = isProfileGalleryPhoto(item);
   const descriptionLabel = item.content?.trim()
     ? t("profile.galleryEditDescription")
     : t("profile.galleryAddDescription");
@@ -66,20 +62,6 @@ export default function ProfileGalleryItemActionSheet({
         </div>
 
         <div className="space-y-1 p-2 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
-          {canSetProfilePhoto ? (
-            <button
-              type="button"
-              onClick={() => {
-                onSetProfilePhoto();
-                onClose();
-              }}
-              className="flex w-full items-center gap-3 rounded-2xl px-4 py-3.5 text-left text-sm font-medium text-white transition hover:bg-white/5"
-            >
-              <Image className="h-5 w-5 shrink-0 text-cyan-300" aria-hidden />
-              {t("profile.gallerySetProfilePhoto")}
-            </button>
-          ) : null}
-
           <button
             type="button"
             onClick={() => {

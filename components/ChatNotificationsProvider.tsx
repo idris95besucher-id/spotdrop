@@ -48,9 +48,11 @@ import {
   isStaleRealtimeNotification,
   playNotificationSound,
   skipMessageNotificationSound,
+  suppressInAppNotificationSounds,
 } from "@/lib/messageNotificationSound";
 import { buildRoomHref, fetchRoomMembershipForCity } from "@/lib/roomMemberships";
 import { loadUserSettingsPreferences } from "@/lib/settingsPreferences";
+import { syncAppIconBadge } from "@/lib/appIconBadge";
 import { isCapacitorNative } from "@/lib/capacitorUtils";
 import {
   CHAT_PUSH_BANNER_EVENT,
@@ -194,7 +196,7 @@ export default function ChatNotificationsProvider({ children }: { children: Reac
     setUnreadCount((current) => {
       const next = Math.max(0, current + delta);
       console.log("[DM global] unread count updated", next);
-      console.log("[DM global] badge updated", next);
+      void syncAppIconBadge(next);
       return next;
     });
   }, []);
@@ -205,6 +207,7 @@ export default function ChatNotificationsProvider({ children }: { children: Reac
   const refreshUnreadCount = useCallback(async () => {
     if (!userId) {
       setUnreadCount(0);
+      void syncAppIconBadge(0);
       return;
     }
 
@@ -216,8 +219,8 @@ export default function ChatNotificationsProvider({ children }: { children: Reac
     }
 
     setUnreadCount(count);
+    void syncAppIconBadge(count);
     console.log("[DM global] unread count updated", count);
-    console.log("[DM global] badge updated", count);
   }, [userId]);
 
   const refreshUnreadCountRef = useRef(refreshUnreadCount);
@@ -242,6 +245,7 @@ export default function ChatNotificationsProvider({ children }: { children: Reac
   useEffect(() => {
     if (!userId) {
       setUnreadCount(0);
+      void syncAppIconBadge(0);
     }
   }, [userId]);
 
@@ -282,13 +286,24 @@ export default function ChatNotificationsProvider({ children }: { children: Reac
   useEffect(() => {
     const bumpResumeGeneration = (source: string) => {
       console.log("[Chat global] resume — reconnecting global channels", { source });
+      // Prevent realtime catch-up from playing in-app WAV on foreground.
+      suppressInAppNotificationSounds(2500);
       setResumeGeneration((current) => current + 1);
+      void refreshUnreadCountRef.current();
     };
 
     const onVisibilityChange = () => {
-      if (!isCapacitorNative() && document.visibilityState === "visible") {
-        bumpResumeGeneration("visibility-visible");
+      if (document.visibilityState !== "visible") {
+        return;
       }
+
+      // Native reconnect is owned by appStateChange; still refresh unread → app badge.
+      if (isCapacitorNative()) {
+        void refreshUnreadCountRef.current();
+        return;
+      }
+
+      bumpResumeGeneration("visibility-visible");
     };
 
     const onWindowFocus = () => {
@@ -663,7 +678,9 @@ export default function ChatNotificationsProvider({ children }: { children: Reac
 
           if (isViewingGroupThread(pathnameRef.current, row.group_id)) {
             skipMessageNotificationSound("viewing_thread");
-            void markGroupThreadRead(row.group_id, userId);
+            void markGroupThreadRead(row.group_id, userId).then(() => {
+              void refreshUnreadCountRef.current();
+            });
             return;
           }
 

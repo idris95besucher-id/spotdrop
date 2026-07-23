@@ -1,6 +1,6 @@
 "use client";
 
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ArrowLeft } from "lucide-react";
@@ -162,9 +162,11 @@ export default function PostDetailPage({ postIdOverride }: PostDetailPageProps =
   const [reactionsError, setReactionsError] = useState<string | null>(null);
   const [authHint, setAuthHint] = useState<string | null>(null);
 
+  const searchParams = useSearchParams();
   const [commentCount, setCommentCount] = useState(0);
   const [spotStats, setSpotStats] = useState<SpotPublicStats>(EMPTY_SPOT_PUBLIC_STATS);
   const [commentsOpen, setCommentsOpen] = useState(false);
+  const [highlightCommentId, setHighlightCommentId] = useState<string | null>(null);
   const [sendSpotSheetOpen, setSendSpotSheetOpen] = useState(false);
   const [editPublicationOpen, setEditPublicationOpen] = useState(false);
   const [isSpotSaved, setIsSpotSaved] = useState(false);
@@ -197,6 +199,19 @@ export default function PostDetailPage({ postIdOverride }: PostDetailPageProps =
     setMounted(true);
     perfMark("post-detail");
   }, []);
+
+  useEffect(() => {
+    const openComments =
+      searchParams.get("comments") === "1" || Boolean(searchParams.get("commentId"));
+    const commentId = searchParams.get("commentId")?.trim() || null;
+
+    if (!openComments) {
+      return;
+    }
+
+    setCommentsOpen(true);
+    setHighlightCommentId(commentId);
+  }, [searchParams]);
 
   useEffect(() => {
     setImmersiveOverlayActive(true);
@@ -915,7 +930,11 @@ export default function PostDetailPage({ postIdOverride }: PostDetailPageProps =
               onRequireAuth={handleRequireAuth}
               mode="drawer"
               drawerOpen={commentsOpen}
-              onDrawerClose={() => setCommentsOpen(false)}
+              onDrawerClose={() => {
+                setCommentsOpen(false);
+                setHighlightCommentId(null);
+              }}
+              highlightCommentId={highlightCommentId}
               uniqueCommentersCount={isSpotPost}
               initialCommentCount={commentCount}
               skipInitialCountFetch={isSpotPost}

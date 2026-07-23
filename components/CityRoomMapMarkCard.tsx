@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { MapPinned, Navigation } from "lucide-react";
+import type { CityRoomMessageProfile } from "@/components/CityRoomMessageBubble";
+import ProfileAvatar from "@/components/ProfileAvatar";
 import { useI18n } from "@/components/I18nProvider";
 import {
   buildMapMarkDeepLink,
@@ -16,7 +18,6 @@ import {
 } from "@/lib/mapMarkCategories";
 import { formatChatMessageTime } from "@/lib/chatDates";
 import { publicProfileUsername } from "@/lib/publicProfile";
-import type { CityRoomMessageProfile } from "@/components/CityRoomMessageBubble";
 
 type CityRoomMapMarkCardProps = {
   mark: CityRoomMapMarkPayload;
@@ -97,15 +98,13 @@ export default function CityRoomMapMarkCard({
   return (
     <article className="sd-room-mark-card w-full max-w-[16.75rem] overflow-hidden rounded-[1.15rem] border border-white/[0.07] bg-[#141b2a]/95 shadow-[0_8px_24px_rgba(0,0,0,0.28)]">
       <div className="flex items-center gap-2 px-3 pb-0 pt-2.5">
-        <Link
-          href={profileHref}
-          className="flex h-7 w-7 shrink-0 items-center justify-center overflow-hidden rounded-full bg-slate-800/90 text-[10px] font-semibold text-white ring-1 ring-white/10"
-        >
-          {creatorAvatarUrl ? (
-            <img src={creatorAvatarUrl} alt="" className="h-full w-full object-cover" />
-          ) : (
-            displayName.charAt(0).toUpperCase()
-          )}
+        <Link href={profileHref} className="shrink-0">
+          <ProfileAvatar
+            src={creatorAvatarUrl}
+            sizeClassName="h-7 w-7"
+            iconClassName="h-3.5 w-3.5"
+            className="bg-slate-800/90 ring-1 ring-white/10"
+          />
         </Link>
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline gap-1.5">

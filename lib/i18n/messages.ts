@@ -90,7 +90,6 @@ export type CoreTranslationKey =
   | "profile.galleryFriendsOnly"
   | "profile.galleryPrivate"
   | "profile.galleryItemActions"
-  | "profile.gallerySetProfilePhoto"
   | "profile.galleryAddDescription"
   | "profile.galleryEditDescription"
   | "profile.galleryDescriptionPlaceholder"
@@ -128,7 +127,6 @@ export type CoreTranslationKey =
   | "profile.updating"
   | "profile.updatedSuccess"
   | "profile.storyShared"
-  | "profile.photoUpdated"
   | "profile.loadTimeout"
   | "profile.sessionTimeout"
   | "profile.dataTimeout"
@@ -441,7 +439,6 @@ const CORE_EN: CoreMessageTable = {
   "profile.galleryFriendsOnly": "This Profile Gallery is available to friends only.",
   "profile.galleryPrivate": "This gallery is private.",
   "profile.galleryItemActions": "Gallery item",
-  "profile.gallerySetProfilePhoto": "Set as profile photo",
   "profile.galleryAddDescription": "Add description",
   "profile.galleryEditDescription": "Edit description",
   "profile.galleryDescriptionPlaceholder": "Write a description…",
@@ -479,7 +476,6 @@ const CORE_EN: CoreMessageTable = {
   "profile.updating": "Updating…",
   "profile.updatedSuccess": "Profile updated successfully.",
   "profile.storyShared": "Story shared.",
-  "profile.photoUpdated": "Profile photo updated.",
   "profile.loadTimeout": "Profile is taking too long to load. Please try again.",
   "profile.sessionTimeout": "Profile session is taking too long to load. Please try again.",
   "profile.dataTimeout": "Profile data is taking too long to load. Please try again.",
@@ -790,7 +786,6 @@ const CORE_RU: CoreMessageTable = {
   "profile.galleryFriendsOnly": "Эта галерея профиля доступна только друзьям.",
   "profile.galleryPrivate": "Эта галерея профиля закрыта.",
   "profile.galleryItemActions": "Элемент галереи",
-  "profile.gallerySetProfilePhoto": "Сделать фото профиля",
   "profile.galleryAddDescription": "Добавить описание",
   "profile.galleryEditDescription": "Изменить описание",
   "profile.galleryDescriptionPlaceholder": "Напишите описание…",
@@ -828,7 +823,6 @@ const CORE_RU: CoreMessageTable = {
   "profile.updating": "Обновление…",
   "profile.updatedSuccess": "Профиль успешно обновлён.",
   "profile.storyShared": "История опубликована.",
-  "profile.photoUpdated": "Фото профиля обновлено.",
   "profile.loadTimeout": "Профиль слишком долго загружается. Попробуйте ещё раз.",
   "profile.sessionTimeout": "Сессия слишком долго загружается. Попробуйте ещё раз.",
   "profile.dataTimeout": "Данные профиля слишком долго загружаются. Попробуйте ещё раз.",
@@ -1139,7 +1133,6 @@ const CORE_DE: CoreMessageTable = {
   "profile.galleryFriendsOnly": "Diese Profilgalerie ist nur für Freunde verfügbar.",
   "profile.galleryPrivate": "Diese Profilgalerie ist privat.",
   "profile.galleryItemActions": "Galerie-Element",
-  "profile.gallerySetProfilePhoto": "Als Profilfoto festlegen",
   "profile.galleryAddDescription": "Beschreibung hinzufügen",
   "profile.galleryEditDescription": "Beschreibung bearbeiten",
   "profile.galleryDescriptionPlaceholder": "Beschreibung schreiben…",
@@ -1177,7 +1170,6 @@ const CORE_DE: CoreMessageTable = {
   "profile.updating": "Wird aktualisiert…",
   "profile.updatedSuccess": "Profil erfolgreich aktualisiert.",
   "profile.storyShared": "Story geteilt.",
-  "profile.photoUpdated": "Profilfoto aktualisiert.",
   "profile.loadTimeout": "Das Profil lädt zu lange. Bitte erneut versuchen.",
   "profile.sessionTimeout": "Die Sitzung lädt zu lange. Bitte erneut versuchen.",
   "profile.dataTimeout": "Profildaten laden zu lange. Bitte erneut versuchen.",

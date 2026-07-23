@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { UserRound } from "lucide-react";
 import { useI18n } from "@/components/I18nProvider";
+import ProfileAvatar from "@/components/ProfileAvatar";
 import {
   acceptConversationRequest,
   declineConversationRequest,
@@ -92,15 +92,14 @@ export default function MessageRequestItem({ request, viewerUserId, onResolved }
   return (
     <li className="rounded-2xl border border-white/[0.08] bg-[#0B1026] p-4">
       <div className="flex items-start gap-3">
-        <Link
-          href={dmThreadHref(request.partnerId)}
-          className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full bg-white/[0.06]"
-        >
-          {request.avatarUrl ? (
-            <img src={request.avatarUrl} alt="" className="h-full w-full object-cover" />
-          ) : (
-            <UserRound className="h-5 w-5 text-muted" strokeWidth={1.75} aria-hidden />
-          )}
+        <Link href={dmThreadHref(request.partnerId)} className="shrink-0">
+          <ProfileAvatar
+            src={request.avatarUrl}
+            sizeClassName="h-12 w-12"
+            iconClassName="h-5 w-5"
+            iconStrokeWidth={1.75}
+            className="bg-white/[0.06]"
+          />
         </Link>
 
         <div className="min-w-0 flex-1">

@@ -15,6 +15,11 @@ const config: CapacitorConfig = {
       // Foreground: in-app banner + WAV via JS. Background/killed: APNs alert+sound.
       presentationOptions: ['badge'],
     },
+    Badge: {
+      // Keep client-set chat unread badge across relaunch; never auto-clear on resume.
+      persist: true,
+      autoClear: false,
+    },
     Keyboard: {
       // Native WebView resize: absolute/flex shells (100dvh / inset-0) shrink with the
       // keyboard so in-flow composers stay visible. Do not also lift by native height.

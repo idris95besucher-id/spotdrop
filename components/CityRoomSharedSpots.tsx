@@ -2,15 +2,15 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { UserRound } from "lucide-react";
 import SpotDropSpotsIcon from "@/components/icons/SpotDropSpotsIcon";
 import PostCardMedia from "@/components/PostCardMedia";
 import PostMediaLink from "@/components/PostMediaLink";
+import ProfileAvatar from "@/components/ProfileAvatar";
+import SpotCommentsSheet from "@/components/SpotCommentsSheet";
+import SpotPostMeta from "@/components/SpotPostMeta";
+import SpotStatsBar from "@/components/SpotStatsBar";
 import { useI18n } from "@/components/I18nProvider";
 import { localizeCityName } from "@/lib/i18n/localizeGeo";
-import SpotPostMeta from "@/components/SpotPostMeta";
-import SpotCommentsSheet from "@/components/SpotCommentsSheet";
-import SpotStatsBar from "@/components/SpotStatsBar";
 import { getSafeAuthSession } from "@/lib/authSession";
 import type { FeedSpotRow } from "@/lib/feed";
 import { getFeedSpotPublicStats } from "@/lib/feed";
@@ -168,18 +168,15 @@ export default function CityRoomSharedSpots({ room }: CityRoomSharedSpotsProps) 
                   <div className="flex items-center gap-2 px-4 pt-3">
                     <Link
                       href={`/user?id=${spot.user_id}`}
-                      className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/10 bg-slate-800"
+                      className="shrink-0"
                       onClick={(event) => event.stopPropagation()}
                     >
-                      {spot.profiles?.avatar_url ? (
-                        <img
-                          src={spot.profiles.avatar_url}
-                          alt=""
-                          className="h-full w-full object-cover"
-                        />
-                      ) : (
-                        <UserRound className="h-4 w-4 text-slate-400" aria-hidden />
-                      )}
+                      <ProfileAvatar
+                        src={spot.profiles?.avatar_url}
+                        sizeClassName="h-9 w-9"
+                        iconClassName="h-4 w-4"
+                        className="border border-white/10 bg-slate-800"
+                      />
                     </Link>
                     <div className="min-w-0">
                       <p className="truncate text-sm font-semibold text-white">{username}</p>

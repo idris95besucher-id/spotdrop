@@ -1,3 +1,4 @@
+import { normalizeAvatarUrl } from "@/lib/avatarUrl";
 import { getPostMediaType, uploadPostMedia } from "@/lib/postMedia";
 import {
   getProfilePostMedia,
@@ -232,10 +233,6 @@ async function loadOwnedGalleryItem(userId: string, postId: string) {
   return { post, error: null };
 }
 
-export function isProfileGalleryPhoto(post: ProfileContentPost) {
-  return isProfileGalleryItem(post) && !isProfileGalleryVideo(post);
-}
-
 export function getProfileGalleryDescription(post: ProfileContentPost) {
   return post.content?.trim() ?? "";
 }
@@ -268,53 +265,53 @@ export async function updateProfileGalleryDescription(
   return { post: mapGalleryPostRow(data as Record<string, unknown>), error: null };
 }
 
+function galleryItemAvatarCandidates(post: ProfileContentPost) {
+  const { mediaUrl } = getProfilePostMedia(post);
+  return [mediaUrl, post.image_url, post.media_url, post.thumbnail_url, post.video_cover_url]
+    .map((value) => normalizeAvatarUrl(value))
+    .filter((value): value is string => Boolean(value));
+}
+
 export async function deleteProfileGalleryItem(
   userId: string,
   postId: string
-): Promise<{ ok: boolean; error: string | null }> {
+): Promise<{ ok: boolean; error: string | null; clearedAvatar?: boolean }> {
   const { post, error } = await loadOwnedGalleryItem(userId, postId);
 
   if (!post) {
     return { ok: false, error };
   }
 
-  const result = await deleteOwnedPost(postId, userId);
-  return { ok: result.ok, error: result.error ?? null };
-}
+  const candidates = new Set(galleryItemAvatarCandidates(post));
 
-export async function setProfilePhotoFromGalleryItem(
-  userId: string,
-  postId: string
-): Promise<{ ok: boolean; avatarUrl: string | null; error: string | null }> {
-  const { post, error } = await loadOwnedGalleryItem(userId, postId);
-
-  if (!post) {
-    return { ok: false, avatarUrl: null, error };
-  }
-
-  if (!isProfileGalleryPhoto(post)) {
-    return { ok: false, avatarUrl: null, error: "Only photos can be set as profile pictures." };
-  }
-
-  const { mediaUrl, mediaType } = getProfilePostMedia(post);
-  const avatarUrl =
-    mediaType === "image"
-      ? mediaUrl ?? post.image_url ?? post.media_url
-      : post.image_url ?? post.media_url;
-
-  if (!avatarUrl?.trim()) {
-    return { ok: false, avatarUrl: null, error: "Photo unavailable." };
-  }
-
-  const { error: updateError } = await supabase
+  const { data: profile } = await supabase
     .from("profiles")
-    .update({ avatar_url: avatarUrl })
-    .eq("id", userId);
+    .select("avatar_url")
+    .eq("id", userId)
+    .maybeSingle();
 
-  if (updateError) {
-    return { ok: false, avatarUrl: null, error: updateError.message };
+  const currentAvatar = normalizeAvatarUrl(profile?.avatar_url as string | null);
+  const deletingProfilePhoto = Boolean(currentAvatar && candidates.has(currentAvatar));
+
+  const result = await deleteOwnedPost(postId, userId);
+
+  if (!result.ok) {
+    return { ok: false, error: result.error ?? null };
   }
 
-  dispatchProfileMetaRefresh();
-  return { ok: true, avatarUrl, error: null };
+  if (deletingProfilePhoto) {
+    const { error: clearError } = await supabase
+      .from("profiles")
+      .update({ avatar_url: null })
+      .eq("id", userId);
+
+    if (clearError) {
+      return { ok: false, error: clearError.message };
+    }
+
+    dispatchProfileMetaRefresh();
+    return { ok: true, error: null, clearedAvatar: true };
+  }
+
+  return { ok: true, error: null, clearedAvatar: false };
 }

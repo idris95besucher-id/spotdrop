@@ -3,11 +3,12 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { FormEvent } from "react";
-import { Loader2, MessageCircle, Send, UserRound } from "lucide-react";
+import { Loader2, MessageCircle, Send } from "lucide-react";
 import CommentActionSheet from "@/components/CommentActionSheet";
 import CommentRow from "@/components/CommentRow";
 import GroupActionConfirmSheet from "@/components/GroupActionConfirmSheet";
 import MessageActionErrorToast from "@/components/chat/MessageActionErrorToast";
+import ProfileAvatar from "@/components/ProfileAvatar";
 import { useI18n } from "@/components/I18nProvider";
 import { addPostComment, loadPostComments, loadPostCommentsCount, type PostCommentRow } from "@/lib/postComments";
 import { postIdForQuery } from "@/lib/postIds";
@@ -38,6 +39,8 @@ type PostCommentsSectionProps = {
   skipInitialCountFetch?: boolean;
   /** Raise above fullscreen overlays such as the gallery viewer. */
   elevatedOverlay?: boolean;
+  /** Brief highlight target when opening from a comment notification. */
+  highlightCommentId?: string | null;
 };
 
 const DRAWER_SPRING_MS = 320;
@@ -91,6 +94,7 @@ export default function PostCommentsSection({
   initialCommentCount,
   skipInitialCountFetch = false,
   elevatedOverlay = false,
+  highlightCommentId = null,
 }: PostCommentsSectionProps) {
   const { t } = useI18n();
   const [comments, setComments] = useState<PostCommentRow[]>([]);
@@ -98,6 +102,9 @@ export default function PostCommentsSection({
   const [draft, setDraft] = useState("");
   const [expanded, setExpanded] = useState(false);
   const [hasLoadedComments, setHasLoadedComments] = useState(false);
+  const [activeHighlightId, setActiveHighlightId] = useState<string | null>(null);
+  const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const highlightedRowRef = useRef<HTMLLIElement | null>(null);
   const [loadingComments, setLoadingComments] = useState(false);
   const [loadingCount, setLoadingCount] = useState(true);
   const [posting, setPosting] = useState(false);
@@ -339,6 +346,47 @@ export default function PostCommentsSection({
   }, [drawerOpen, postId, disabled, mode]);
 
   useEffect(() => {
+    if (!highlightCommentId || !hasLoadedComments || loadingComments) {
+      return;
+    }
+
+    const exists = comments.some((comment) => String(comment.id) === highlightCommentId);
+
+    // Deleted/missing comments must not crash navigation — open drawer without highlight.
+    if (!exists) {
+      setActiveHighlightId(null);
+      return;
+    }
+
+    setActiveHighlightId(highlightCommentId);
+
+    const frame = window.requestAnimationFrame(() => {
+      highlightedRowRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+
+    if (highlightTimerRef.current) {
+      clearTimeout(highlightTimerRef.current);
+    }
+
+    highlightTimerRef.current = setTimeout(() => {
+      setActiveHighlightId(null);
+      highlightTimerRef.current = null;
+    }, 2200);
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+    };
+  }, [comments, hasLoadedComments, highlightCommentId, loadingComments]);
+
+  useEffect(() => {
+    return () => {
+      if (highlightTimerRef.current) {
+        clearTimeout(highlightTimerRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
     if (mode !== "drawer" || !drawerOpen || disabled || !postId) {
       return;
     }
@@ -489,22 +537,28 @@ export default function PostCommentsSection({
     <p className="text-sm text-slate-500">{t("comments.empty")}</p>
   ) : (
     <ul className="space-y-4">
-      {comments.map((comment) => (
-        <CommentRow
-          key={comment.id}
-          comment={comment}
-          isOwnComment={Boolean(userId) && userId === comment.user_id}
-          isEditing={commentActions.editingCommentId === comment.id}
-          isDeleting={commentActions.deleting && commentActions.confirmDeleteId === comment.id}
-          editDraft={commentActions.editDraft}
-          editError={commentActions.editingCommentId === comment.id ? commentActions.editError : null}
-          savingEdit={commentActions.savingEdit}
-          onLongPress={() => commentActions.openActionSheet(comment.id)}
-          onEditDraftChange={commentActions.setEditDraft}
-          onSaveEdit={() => void commentActions.saveEdit()}
-          onCancelEdit={commentActions.cancelEdit}
-        />
-      ))}
+      {comments.map((comment) => {
+        const isHighlighted = activeHighlightId === String(comment.id);
+
+        return (
+          <CommentRow
+            key={comment.id}
+            ref={isHighlighted ? highlightedRowRef : undefined}
+            comment={comment}
+            isOwnComment={Boolean(userId) && userId === comment.user_id}
+            isEditing={commentActions.editingCommentId === comment.id}
+            isDeleting={commentActions.deleting && commentActions.confirmDeleteId === comment.id}
+            isHighlighted={isHighlighted}
+            editDraft={commentActions.editDraft}
+            editError={commentActions.editingCommentId === comment.id ? commentActions.editError : null}
+            savingEdit={commentActions.savingEdit}
+            onLongPress={() => commentActions.openActionSheet(comment.id)}
+            onEditDraftChange={commentActions.setEditDraft}
+            onSaveEdit={() => void commentActions.saveEdit()}
+            onCancelEdit={commentActions.cancelEdit}
+          />
+        );
+      })}
       <li ref={commentsEndRef} />
     </ul>
   );
@@ -515,13 +569,12 @@ export default function PostCommentsSection({
     <div className="space-y-2">
       {userId ? (
         <div className="flex items-center gap-2 text-xs text-slate-400">
-          <div className="flex h-6 w-6 shrink-0 items-center justify-center overflow-hidden rounded-full bg-slate-800">
-            {currentUserProfile?.avatar_url ? (
-              <img src={currentUserProfile.avatar_url} alt="" className="h-full w-full object-cover" />
-            ) : (
-              <UserRound className="h-3.5 w-3.5 text-slate-500" strokeWidth={1.5} aria-hidden />
-            )}
-          </div>
+          <ProfileAvatar
+            src={currentUserProfile?.avatar_url}
+            sizeClassName="h-6 w-6"
+            iconClassName="h-3.5 w-3.5"
+            className="bg-slate-800"
+          />
           <span>
             {t("comments.commentingAs", {
               username: publicProfileUsername(currentUserProfile?.username),

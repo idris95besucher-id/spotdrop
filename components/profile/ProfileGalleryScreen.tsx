@@ -25,7 +25,6 @@ import {
   deleteProfileGalleryItem,
   getProfileGalleryDescription,
   getProfileGalleryStats,
-  setProfilePhotoFromGalleryItem,
   updateProfileGalleryDescription,
 } from "@/lib/profileGallery";
 import {
@@ -275,22 +274,6 @@ export default function ProfileGalleryScreen({
     }
   };
 
-  const handleSetProfilePhoto = async (post: ProfileContentPost) => {
-    setError(null);
-
-    const result = await setProfilePhotoFromGalleryItem(ownerUserId, post.id);
-
-    if (!result.ok) {
-      setError(result.error ?? t("profile.unableToLoad"));
-      return;
-    }
-
-    setOwnerProfile((current) =>
-      current ? { ...current, avatar_url: result.avatarUrl } : current
-    );
-    setSuccessMessage(t("profile.photoUpdated"));
-  };
-
   const handleSaveDescription = async (description: string) => {
     if (!descriptionItem) {
       return;
@@ -344,6 +327,10 @@ export default function ProfileGalleryScreen({
 
       return next;
     });
+
+    if (result.clearedAvatar) {
+      setOwnerProfile((current) => (current ? { ...current, avatar_url: null } : current));
+    }
 
     setDeleteItem(null);
     setDeleting(false);
@@ -473,11 +460,6 @@ export default function ProfileGalleryScreen({
       <ProfileGalleryItemActionSheet
         item={actionItem}
         onClose={() => setActionItem(null)}
-        onSetProfilePhoto={() => {
-          if (actionItem) {
-            void handleSetProfilePhoto(actionItem);
-          }
-        }}
         onEditDescription={() => {
           if (actionItem) {
             setDescriptionItem(actionItem);

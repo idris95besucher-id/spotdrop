@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { Loader2, MapPin, UserRound, X } from "lucide-react";
+import { Loader2, MapPin, X } from "lucide-react";
 import { useI18n } from "@/components/I18nProvider";
+import ProfileAvatar from "@/components/ProfileAvatar";
 import { usePostViewerOptional } from "@/components/PostViewerProvider";
 import SpotLocationSummary from "@/components/SpotLocationSummary";
 import type { MapSpotPin } from "@/lib/spots";
@@ -169,13 +170,12 @@ export default function SpotMapPinSheet({ pin, embedded = false, onClose }: Spot
             onClick={onClose}
             className="flex min-w-0 flex-1 items-center gap-3"
           >
-            <span className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full border border-cyan-400/35 bg-slate-800">
-              {pin.avatar_url ? (
-                <img src={pin.avatar_url} alt="" className="h-full w-full object-cover" />
-              ) : (
-                <UserRound className="h-5 w-5 text-slate-400" aria-hidden />
-              )}
-            </span>
+            <ProfileAvatar
+              src={pin.avatar_url}
+              sizeClassName="h-11 w-11"
+              iconClassName="h-5 w-5"
+              className="border border-cyan-400/35 bg-slate-800"
+            />
             <span className="min-w-0">
               <span className="block truncate text-sm font-semibold text-white">@{pin.username}</span>
               {createdLabel ? <span className="block text-xs text-slate-400">{createdLabel}</span> : null}

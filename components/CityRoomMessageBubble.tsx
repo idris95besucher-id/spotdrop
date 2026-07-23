@@ -3,12 +3,12 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { UserRound } from "lucide-react";
 import CityRoomPlaceCard from "@/components/CityRoomPlaceCard";
 import CityRoomMapMarkCard from "@/components/CityRoomMapMarkCard";
 import ChatLocationCardPreview, {
   chatLocationCardPreviewFromPayload,
 } from "@/components/ChatLocationCardPreview";
+import ProfileAvatar from "@/components/ProfileAvatar";
 import { useI18n } from "@/components/I18nProvider";
 import { usePostViewerOptional } from "@/components/PostViewerProvider";
 import { formatChatMessageTime } from "@/lib/chatDates";
@@ -71,15 +71,12 @@ type CityRoomMessageBubbleProps = {
 
 function AvatarPlaceholder({ profile }: { profile: CityRoomMessageProfile | null }) {
   return (
-    <div className="flex h-7 w-7 items-center justify-center overflow-hidden rounded-full bg-slate-800/90 text-[10px] font-semibold text-white ring-1 ring-white/10">
-      {profile?.avatar_url ? (
-        <img src={profile.avatar_url} alt="" className="h-full w-full object-cover" />
-      ) : profile?.username ? (
-        publicProfileUsername(profile.username).charAt(0).toUpperCase()
-      ) : (
-        <UserRound className="h-3.5 w-3.5 text-slate-500" strokeWidth={1.5} aria-hidden />
-      )}
-    </div>
+    <ProfileAvatar
+      src={profile?.avatar_url}
+      sizeClassName="h-7 w-7"
+      iconClassName="h-3.5 w-3.5"
+      className="bg-slate-800/90 ring-1 ring-white/10"
+    />
   );
 }
 

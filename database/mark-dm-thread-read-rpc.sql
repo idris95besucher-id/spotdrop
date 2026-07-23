@@ -1,5 +1,5 @@
--- Mark a DM thread read for the authenticated recipient (RLS-safe fallback)
--- Run in Supabase SQL editor after fix-direct-messages-read-at.sql
+-- Mark a DM thread read for the authenticated recipient (RLS-safe).
+-- Prefer the full fix + backfill in: database/fix-dm-unread-read-model.sql
 
 grant update on table public.direct_messages to authenticated;
 
@@ -18,18 +18,23 @@ security definer
 set search_path = public
 as $$
 declare
+  uid uuid := auth.uid();
   updated_count integer;
 begin
-  if auth.uid() is null then
+  if uid is null then
     raise exception 'not authenticated';
+  end if;
+
+  if p_sender_id is null or p_sender_id = uid then
+    return 0;
   end if;
 
   update public.direct_messages
   set
-    read_at = now(),
+    read_at = coalesce(read_at, now()),
     delivered_at = coalesce(delivered_at, now())
   where sender_id = p_sender_id
-    and recipient_id = auth.uid()
+    and recipient_id = uid
     and read_at is null;
 
   get diagnostics updated_count = row_count;

@@ -7,6 +7,7 @@ import { Camera, ChevronRight, Crown, Loader2, Pencil, Shield, Users, X } from "
 import GroupActionConfirmSheet from "@/components/GroupActionConfirmSheet";
 import GroupMemberPicker from "@/components/GroupMemberPicker";
 import MobileSecondaryHeader from "@/components/MobileSecondaryHeader";
+import ProfileAvatar from "@/components/ProfileAvatar";
 import Shell from "@/components/Shell";
 import { useAuthSession } from "@/components/AuthSessionProvider";
 import { useI18n } from "@/components/I18nProvider";
@@ -484,13 +485,12 @@ export default function GroupInfoView() {
                         disabled={!canOpenMenu}
                         className="flex w-full items-center gap-3 rounded-xl px-2 py-2.5 text-left transition hover:bg-white/[0.04] disabled:cursor-default disabled:hover:bg-transparent"
                       >
-                        <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/10 bg-slate-900">
-                          {member.avatarUrl ? (
-                            <img src={member.avatarUrl} alt="" className="h-full w-full object-cover" />
-                          ) : (
-                            <Users className="h-4 w-4 text-slate-400" strokeWidth={1.5} aria-hidden />
-                          )}
-                        </div>
+                        <ProfileAvatar
+                          src={member.avatarUrl}
+                          sizeClassName="h-10 w-10"
+                          iconClassName="h-4 w-4"
+                          className="border border-white/10"
+                        />
                         <div className="min-w-0 flex-1">
                           <p className="truncate text-sm font-medium text-white">
                             @{member.username} {isSelf ? <span className="text-slate-500">({t("group.you")})</span> : null}

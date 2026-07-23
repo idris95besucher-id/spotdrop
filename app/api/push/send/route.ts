@@ -89,7 +89,8 @@ function shouldSendPushForType(type: NotificationRow["type"]) {
     type === "room_message" ||
     type === "room_mention" ||
     type === "group_message" ||
-    type === "new_follower"
+    type === "new_follower" ||
+    type === "post_comment"
   );
 }
 

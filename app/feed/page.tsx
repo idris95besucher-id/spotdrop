@@ -2,22 +2,22 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { UserRound } from "lucide-react";
 import SpotDropSpotsIcon from "@/components/icons/SpotDropSpotsIcon";
+import ExploreNearbyCard from "@/components/ExploreNearbyCard";
+import PostCardMedia from "@/components/PostCardMedia";
+import ProfileAvatar from "@/components/ProfileAvatar";
+import SpotCommentsSheet from "@/components/SpotCommentsSheet";
+import SpotPostMeta from "@/components/SpotPostMeta";
+import SpotStatsBar from "@/components/SpotStatsBar";
 import { getSafeAuthSession } from "@/lib/authSession";
 import { normalizePostId, postIdsEqual } from "@/lib/postIds";
 import { SPOT_DELETED_EVENT, type SpotDeletedDetail } from "@/lib/spotDeletedEvents";
-import SpotStatsBar from "@/components/SpotStatsBar";
-import SpotPostMeta from "@/components/SpotPostMeta";
-import SpotCommentsSheet from "@/components/SpotCommentsSheet";
-import ExploreNearbyCard from "@/components/ExploreNearbyCard";
 import { getFeedSpotPublicStats, loadExploreFeed, type FeedSpotRow } from "@/lib/feed";
 import { feedRowsToViewerItems } from "@/lib/postViewer";
 import { shouldShowSpotLocation } from "@/lib/spotLocationDisplay";
 import { getSpotCaption } from "@/lib/spotCaption";
 import { SPOT_STATS_UPDATED_EVENT, dispatchSpotStatsUpdated, type SpotStatsUpdatedDetail } from "@/lib/spotStatsEvents";
 import { getPostMedia } from "@/lib/posts";
-import PostCardMedia from "@/components/PostCardMedia";
 import PostMediaLink from "@/components/PostMediaLink";
 import Shell from "@/components/Shell";
 import { useI18n } from "@/components/I18nProvider";
@@ -184,13 +184,12 @@ export default function FeedPage() {
                       href={`/user?id=${post.user_id}`}
                       className="flex min-w-0 flex-1 items-center gap-3 transition hover:opacity-90"
                     >
-                      <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/10 bg-slate-800">
-                        {post.profiles.avatar_url ? (
-                          <img src={post.profiles.avatar_url} alt="" className="h-full w-full object-cover" />
-                        ) : (
-                          <UserRound className="h-4 w-4 text-slate-400" strokeWidth={1.5} aria-hidden />
-                        )}
-                      </div>
+                      <ProfileAvatar
+                        src={post.profiles.avatar_url}
+                        sizeClassName="h-10 w-10"
+                        iconClassName="h-4 w-4"
+                        className="border border-white/10 bg-slate-800"
+                      />
                       <div className="min-w-0 flex-1 text-left">
                         <p className="truncate text-sm font-semibold text-white">{username}</p>
                       </div>

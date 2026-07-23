@@ -1,10 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { UserRound } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useI18n } from "@/components/I18nProvider";
+import ProfileAvatar from "@/components/ProfileAvatar";
 import ProfileGalleryVisibilityBadge from "@/components/profile/ProfileGalleryVisibilityBadge";
+import { normalizeAvatarUrl } from "@/lib/avatarUrl";
 import {
   hasSeenProfileGalleryAvatarPulse,
   markProfileGalleryAvatarPulseSeen,
@@ -35,6 +36,7 @@ export default function ProfileGalleryAvatarLink({
   const [ringPulsing, setRingPulsing] = useState(false);
   const isOwner = Boolean(viewerUserId && viewerUserId === ownerUserId);
   const href = profileGalleryHref(ownerUserId, viewerUserId);
+  const safeAvatarUrl = normalizeAvatarUrl(avatarUrl);
 
   const avatarSizeClass =
     variant === "large"
@@ -60,6 +62,32 @@ export default function ProfileGalleryAvatarLink({
     setRingPulsing(false);
   };
 
+  const avatarBlock = (
+    <span className="relative">
+      <span
+        className={`profile-gallery-avatar-ring block rounded-full p-[2px] transition duration-150 group-active:scale-[0.98] group-active:opacity-90 ${
+          isOwner && ringPulsing ? "profile-gallery-avatar-ring--pulse" : ""
+        }`}
+        onAnimationEnd={isOwner ? handlePulseEnd : undefined}
+      >
+        <ProfileAvatar
+          key={safeAvatarUrl ?? "no-avatar"}
+          src={safeAvatarUrl}
+          sizeClassName={avatarSizeClass}
+          iconClassName={placeholderIconClass}
+          className="border border-white/10 shadow-xl shadow-black/50"
+        />
+      </span>
+      <ProfileGalleryVisibilityBadge
+        visibility={visibility}
+        className={variant === "large" ? "h-6 w-6 -bottom-0.5 -right-0.5" : ""}
+      />
+    </span>
+  );
+
+  // Tapping the avatar only ever navigates to the (read-only-on-arrival) gallery/Private
+  // Profile screen — it never opens a photo picker, crop screen, or editing action directly.
+  // Changing the profile photo itself is only reachable via Edit profile -> Change photo.
   return (
     <Link
       href={href}
@@ -68,31 +96,9 @@ export default function ProfileGalleryAvatarLink({
       }`}
       aria-label={t("profile.openGallery")}
     >
-      <span className="relative">
-        <span
-          className={`profile-gallery-avatar-ring block rounded-full p-[2px] transition duration-150 group-active:scale-[0.98] group-active:opacity-90 ${
-            isOwner && ringPulsing ? "profile-gallery-avatar-ring--pulse" : ""
-          }`}
-          onAnimationEnd={isOwner ? handlePulseEnd : undefined}
-        >
-          <span
-            className={`flex ${avatarSizeClass} items-center justify-center overflow-hidden rounded-full border border-white/10 bg-slate-900 shadow-xl shadow-black/50`}
-          >
-            {avatarUrl ? (
-              <img src={avatarUrl} alt="" className="h-full w-full object-cover" />
-            ) : (
-              <UserRound className={`${placeholderIconClass} text-slate-500`} strokeWidth={1.25} aria-hidden />
-            )}
-          </span>
-        </span>
-        <ProfileGalleryVisibilityBadge
-          visibility={visibility}
-          className={variant === "large" ? "h-6 w-6 -bottom-0.5 -right-0.5" : ""}
-        />
-      </span>
+      {avatarBlock}
       {showLabel ? (
         <span className="max-w-[5.5rem] text-center text-[10px] font-medium leading-tight tracking-[0.02em] text-cyan-300/75 transition group-hover:text-cyan-200/90">
-          {/* Visible label under the My Profile avatar only — not the gallery page header. */}
           {t("profile.galleryLabel")}
         </span>
       ) : null}

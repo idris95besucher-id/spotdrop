@@ -45,9 +45,12 @@ export default function PeopleSearchResults({
   const scrollRef = externalScrollRef ?? internalScrollRef;
   const { presenceOnlineIds } = usePresenceOnlineIds();
 
-  const cityById = useMemo(() => new Map(cities.map((city) => [city.id, city])), [cities]);
+  const cityById = useMemo(
+    () => new Map(cities.map((city) => [String(city.id), city])),
+    [cities]
+  );
   const countryBySlug = useMemo(
-    () => new Map(countries.map((country) => [country.slug, country])),
+    () => new Map(countries.map((country) => [country.slug.trim().toLowerCase(), country])),
     [countries]
   );
 
@@ -85,8 +88,10 @@ export default function PeopleSearchResults({
   }, [mode, scrollRef]);
 
   const locationFor = (profile: PeopleSearchProfile) => {
-    const country = profile.country_slug ? countryBySlug.get(profile.country_slug) ?? null : null;
-    const city = profile.city_id ? cityById.get(profile.city_id) ?? null : null;
+    const country = profile.country_slug
+      ? countryBySlug.get(profile.country_slug.trim().toLowerCase()) ?? null
+      : null;
+    const city = profile.city_id ? cityById.get(String(profile.city_id)) ?? null : null;
     const localizedCityName = city
       ? localizeCityName(locale, {
           slug: city.slug,

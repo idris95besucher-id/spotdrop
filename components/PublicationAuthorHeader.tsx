@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { UserRound } from "lucide-react";
 import OwnContentMenu from "@/components/OwnContentMenu";
+import ProfileAvatar from "@/components/ProfileAvatar";
 import { useI18n } from "@/components/I18nProvider";
 
 type PublicationAuthorHeaderProps = {
@@ -41,13 +41,12 @@ export default function PublicationAuthorHeader({
         href={`/user?id=${encodeURIComponent(authorUserId)}`}
         className="flex min-w-0 flex-1 items-center gap-2 transition hover:opacity-90"
       >
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/15 bg-slate-900">
-          {avatarUrl ? (
-            <img src={avatarUrl} alt="" className="h-full w-full object-cover" />
-          ) : (
-            <UserRound className="h-4 w-4 text-slate-400" strokeWidth={1.5} aria-hidden />
-          )}
-        </div>
+        <ProfileAvatar
+          src={avatarUrl}
+          sizeClassName="h-8 w-8"
+          iconClassName="h-4 w-4"
+          className="border border-white/15"
+        />
         <span className="truncate text-sm font-semibold text-white">{authorUsername}</span>
       </Link>
 

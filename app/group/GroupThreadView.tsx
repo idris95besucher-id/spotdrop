@@ -184,6 +184,7 @@ export default function GroupThreadView() {
 
     markedReadRef.current = groupId;
     void markGroupThreadRead(groupId, currentUserId).then(() => {
+      // ChatNotificationsProvider listens and refreshes unread + app icon badge.
       window.dispatchEvent(new Event(CHATS_INBOX_REFRESH_EVENT));
     });
   }, [currentUserId, groupId, isMember]);

@@ -1,7 +1,7 @@
 "use client";
 
-import { UserRound } from "lucide-react";
 import PublicationAuthorHeader from "@/components/PublicationAuthorHeader";
+import ProfileAvatar from "@/components/ProfileAvatar";
 import SpotPostMeta from "@/components/SpotPostMeta";
 import SpotStatsBar from "@/components/SpotStatsBar";
 import PostCardMedia from "@/components/PostCardMedia";
@@ -73,13 +73,12 @@ export default function ProfilePostFeedCard({
           />
         ) : (
           <div className="flex min-w-0 flex-1 items-center gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/10 bg-slate-800">
-              {post.profiles?.avatar_url ? (
-                <img src={post.profiles.avatar_url} alt="" className="h-full w-full object-cover" />
-              ) : (
-                <UserRound className="h-4 w-4 text-slate-400" strokeWidth={1.5} aria-hidden />
-              )}
-            </div>
+            <ProfileAvatar
+              src={post.profiles?.avatar_url}
+              sizeClassName="h-10 w-10"
+              iconClassName="h-4 w-4"
+              className="border border-white/10 bg-slate-800"
+            />
             <p className="min-w-0 flex-1 truncate text-sm font-semibold text-white">{username}</p>
           </div>
         )}

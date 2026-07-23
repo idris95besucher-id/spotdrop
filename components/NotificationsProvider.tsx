@@ -289,11 +289,12 @@ export default function NotificationsProvider({ children }: { children: ReactNod
 
 export function NotificationsBellLink({ className }: { className?: string }) {
   const { t } = useI18n();
+  const { unreadCount } = useNotifications();
 
   return (
     <Link
       href="/notifications"
-      className={className}
+      className={`relative inline-flex ${className ?? ""}`}
       aria-label={t("notifications.title")}
     >
       <svg
@@ -307,6 +308,11 @@ export function NotificationsBellLink({ className }: { className?: string }) {
         <path d="M18 8a6 6 0 1 0-12 0c0 7-3 8-3 8h18s-3-1-3-8" strokeLinecap="round" strokeLinejoin="round" />
         <path d="M13.7 21a2 2 0 0 1-3.4 0" strokeLinecap="round" strokeLinejoin="round" />
       </svg>
+      {unreadCount > 0 ? (
+        <span className="absolute -right-1.5 -top-1 min-w-[1.1rem] rounded-full bg-primary px-1 text-center text-[10px] font-bold leading-4 text-slate-950">
+          {unreadCount > 99 ? "99+" : unreadCount}
+        </span>
+      ) : null}
     </Link>
   );
 }

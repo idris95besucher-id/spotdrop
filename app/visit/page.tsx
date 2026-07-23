@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import Shell from "@/components/Shell";
 import ProfileAppHeader from "@/components/profile/ProfileAppHeader";
@@ -8,7 +8,7 @@ import VisitExplorePanel from "@/components/visit/VisitExplorePanel";
 import VisitMapPanel from "@/components/visit/VisitMapPanel";
 import VisitNearbyPanel from "@/components/visit/VisitNearbyPanel";
 import { useI18n } from "@/components/I18nProvider";
-import { parseVisitTab, type VisitTab } from "@/lib/visitTabs";
+import { parseVisitTab } from "@/lib/visitTabs";
 
 function VisitPageFallback() {
   const { t } = useI18n();
@@ -22,13 +22,9 @@ function VisitPageFallback() {
 
 function VisitPageContent() {
   const searchParams = useSearchParams();
-  const tabParam = searchParams.get("tab");
-  const [activeTab, setActiveTab] = useState<VisitTab>(() => parseVisitTab(tabParam));
-
-  useEffect(() => {
-    setActiveTab(parseVisitTab(tabParam));
-  }, [tabParam]);
-
+  // Derive from URL every render — no local tab state that can stick on Map after
+  // tapping the airplane (/visit?tab=explore) from /visit?tab=map.
+  const activeTab = parseVisitTab(searchParams.get("tab"));
   const isMapTab = activeTab === "map";
 
   return (

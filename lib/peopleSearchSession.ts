@@ -16,6 +16,7 @@ export type PeopleFiltersSearchState = {
   appliedMax: number | null;
   appliedCountrySlug: string;
   appliedCityId: string;
+  appliedCitySlug: string;
   appliedOnlineOnly: boolean;
   hasSearched: boolean;
 };
@@ -71,21 +72,22 @@ export function saveUsernameSearchState(state: PeopleUsernameSearchState) {
 }
 
 export function loadFiltersSearchState(): PeopleFiltersSearchState {
-  return (
-    readJson<PeopleFiltersSearchState>(storageKey("filters", "state")) ?? {
-      minInput: "18",
-      maxInput: "99",
-      countrySlug: "",
-      cityId: "",
-      onlineOnly: false,
-      appliedMin: null,
-      appliedMax: null,
-      appliedCountrySlug: "",
-      appliedCityId: "",
-      appliedOnlineOnly: false,
-      hasSearched: false,
-    }
-  );
+  const saved = readJson<Partial<PeopleFiltersSearchState>>(storageKey("filters", "state"));
+
+  return {
+    minInput: saved?.minInput ?? "18",
+    maxInput: saved?.maxInput ?? "99",
+    countrySlug: saved?.countrySlug ?? "",
+    cityId: saved?.cityId ?? "",
+    onlineOnly: saved?.onlineOnly ?? false,
+    appliedMin: saved?.appliedMin ?? null,
+    appliedMax: saved?.appliedMax ?? null,
+    appliedCountrySlug: saved?.appliedCountrySlug ?? "",
+    appliedCityId: saved?.appliedCityId ?? "",
+    appliedCitySlug: saved?.appliedCitySlug ?? "",
+    appliedOnlineOnly: saved?.appliedOnlineOnly ?? false,
+    hasSearched: saved?.hasSearched ?? false,
+  };
 }
 
 export function saveFiltersSearchState(state: PeopleFiltersSearchState) {

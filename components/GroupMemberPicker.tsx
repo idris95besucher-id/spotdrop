@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Check, Loader2, Search, UserRound, X } from "lucide-react";
+import { Check, Loader2, Search, X } from "lucide-react";
+import ProfileAvatar from "@/components/ProfileAvatar";
 import { useI18n } from "@/components/I18nProvider";
 import { localizeUserMessage } from "@/lib/i18n/localizeUserMessage";
 import {
@@ -43,13 +44,12 @@ function RecipientRow({
         selected ? "border-cyan-400/35 bg-cyan-400/10" : "border-white/10 bg-[#050816]/80 hover:bg-white/[0.04]"
       }`}
     >
-      <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/10 bg-slate-900">
-        {recipient.avatar_url ? (
-          <img src={recipient.avatar_url} alt="" className="h-full w-full object-cover" />
-        ) : (
-          <UserRound className="h-4 w-4 text-slate-400" strokeWidth={1.5} aria-hidden />
-        )}
-      </div>
+      <ProfileAvatar
+        src={recipient.avatar_url}
+        sizeClassName="h-10 w-10"
+        iconClassName="h-4 w-4"
+        className="border border-white/10"
+      />
       <span className="min-w-0 flex-1 truncate text-sm font-medium text-white">@{recipient.username}</span>
       {showCheckmark ? (
         <span

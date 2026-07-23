@@ -40,6 +40,10 @@ function buildPushPayload(notification: Pick<NotificationRow, "type" | "metadata
       const name = metadataString(metadata, "followerUsername") || "Someone";
       return { title: "New follower", body: `${name} started following you` };
     }
+    case "post_comment": {
+      const name = metadataString(metadata, "commenterUsername") || "Someone";
+      return { title: name, body: "commented on your Spot" };
+    }
     case "group_message": {
       const name = metadataString(metadata, "senderUsername") || "Someone";
       const groupName = metadataString(metadata, "groupName") || "Group";
@@ -57,7 +61,8 @@ function shouldSendPush(type: string) {
     type === "room_message" ||
     type === "room_mention" ||
     type === "group_message" ||
-    type === "new_follower"
+    type === "new_follower" ||
+    type === "post_comment"
   );
 }
 
@@ -167,11 +172,39 @@ serve(async (request) => {
     return new Response(JSON.stringify({ sent: 0, skipped: "type_not_push_enabled" }), { status: 200 });
   }
 
-  const { count: badgeCount } = await admin
-    .from("notifications")
-    .select("id", { count: "exact", head: true })
-    .eq("user_id", notification.user_id)
-    .is("read_at", null);
+  // Badge = unread DMs + rooms + groups (My Chats), never notifications-feed history.
+  const [dmResult, hiddenResult, roomResult, groupResult] = await Promise.all([
+    admin
+      .from("direct_messages")
+      .select("sender_id")
+      .eq("recipient_id", notification.user_id)
+      .is("read_at", null)
+      .neq("sender_id", notification.user_id),
+    admin
+      .from("chat_inbox_preferences")
+      .select("chat_key")
+      .eq("user_id", notification.user_id)
+      .eq("chat_type", "dm")
+      .eq("hidden", true),
+    admin.rpc("get_user_room_inbox", { p_user_id: notification.user_id }),
+    admin.rpc("get_user_group_inbox", { p_user_id: notification.user_id }),
+  ]);
+
+  const hiddenPartners = new Set(
+    (hiddenResult.data ?? []).map((row: { chat_key: string }) => String(row.chat_key))
+  );
+  const dmCount = (dmResult.data ?? []).filter(
+    (row: { sender_id: string }) => !hiddenPartners.has(String(row.sender_id))
+  ).length;
+  const roomCount = ((roomResult.data ?? []) as { unread_count?: number }[]).reduce(
+    (sum, row) => sum + (row.unread_count ?? 0),
+    0
+  );
+  const groupCount = ((groupResult.data ?? []) as { unread_count?: number }[]).reduce(
+    (sum, row) => sum + (row.unread_count ?? 0),
+    0
+  );
+  const badgeCount = dmCount + roomCount + groupCount;
 
   const payload = buildPushPayload(notification);
 

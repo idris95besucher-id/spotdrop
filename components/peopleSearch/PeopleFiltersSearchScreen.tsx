@@ -1,13 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useRouter } from "next/navigation";
 import { useI18n } from "@/components/I18nProvider";
-import PeopleSearchResults from "@/components/peopleSearch/PeopleSearchResults";
 import { getCountryFlag } from "@/lib/countryFlags";
 import { localizeCityName, localizeCountryName } from "@/lib/i18n/localizeGeo";
 import { localizeUserMessage } from "@/lib/i18n/localizeUserMessage";
 import {
-  filterPeopleByFilters,
   PEOPLE_SEARCH_MAX_AGE,
   PEOPLE_SEARCH_MIN_AGE,
   validatePeopleSearchAgeRange,
@@ -18,8 +17,6 @@ import {
   saveFiltersSearchState,
 } from "@/lib/peopleSearchSession";
 import { usePeopleSearchCatalog } from "@/lib/usePeopleSearchCatalog";
-import { isOnlineNow } from "@/lib/userPresence";
-import { usePresenceOnlineIds } from "@/lib/usePresenceOnlineIds";
 import { composerPaddingBottom, useKeyboard } from "@/lib/keyboardSystem";
 
 const FIELD_CLASS =
@@ -27,26 +24,18 @@ const FIELD_CLASS =
 
 export default function PeopleFiltersSearchScreen() {
   const { t, locale } = useI18n();
+  const router = useRouter();
   const { catalog, loading, error } = usePeopleSearchCatalog();
   const { isKeyboardOpen } = useKeyboard();
-  const { presenceOnlineIds } = usePresenceOnlineIds();
 
   const [minInput, setMinInput] = useState("18");
   const [maxInput, setMaxInput] = useState(String(PEOPLE_SEARCH_MAX_AGE));
   const [countrySlug, setCountrySlug] = useState("");
   const [cityId, setCityId] = useState("");
   const [onlineOnly, setOnlineOnly] = useState(false);
-
-  const [appliedMin, setAppliedMin] = useState<number | null>(null);
-  const [appliedMax, setAppliedMax] = useState<number | null>(null);
-  const [appliedCountrySlug, setAppliedCountrySlug] = useState("");
-  const [appliedCityId, setAppliedCityId] = useState("");
-  const [appliedOnlineOnly, setAppliedOnlineOnly] = useState(false);
-
-  const [hasSearched, setHasSearched] = useState(false);
-  const [searching, setSearching] = useState(false);
   const [validationError, setValidationError] = useState<PeopleSearchAgeValidationError | null>(null);
   const [hydrated, setHydrated] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     const saved = loadFiltersSearchState();
@@ -55,12 +44,6 @@ export default function PeopleFiltersSearchScreen() {
     setCountrySlug(saved.countrySlug);
     setCityId(saved.cityId);
     setOnlineOnly(saved.onlineOnly);
-    setAppliedMin(saved.appliedMin);
-    setAppliedMax(saved.appliedMax);
-    setAppliedCountrySlug(saved.appliedCountrySlug);
-    setAppliedCityId(saved.appliedCityId);
-    setAppliedOnlineOnly(saved.appliedOnlineOnly);
-    setHasSearched(saved.hasSearched);
     setHydrated(true);
   }, []);
 
@@ -69,33 +52,16 @@ export default function PeopleFiltersSearchScreen() {
       return;
     }
 
+    const saved = loadFiltersSearchState();
     saveFiltersSearchState({
+      ...saved,
       minInput,
       maxInput,
       countrySlug,
       cityId,
       onlineOnly,
-      appliedMin,
-      appliedMax,
-      appliedCountrySlug,
-      appliedCityId,
-      appliedOnlineOnly,
-      hasSearched,
     });
-  }, [
-    hydrated,
-    minInput,
-    maxInput,
-    countrySlug,
-    cityId,
-    onlineOnly,
-    appliedMin,
-    appliedMax,
-    appliedCountrySlug,
-    appliedCityId,
-    appliedOnlineOnly,
-    hasSearched,
-  ]);
+  }, [hydrated, minInput, maxInput, countrySlug, cityId, onlineOnly]);
 
   const selectedCountry = useMemo(
     () => catalog.countries.find((country) => country.slug === countrySlug) ?? null,
@@ -110,37 +76,10 @@ export default function PeopleFiltersSearchScreen() {
     return catalog.cities.filter((city) => city.country_id === selectedCountry.id);
   }, [catalog.cities, selectedCountry]);
 
-  const results = useMemo(() => {
-    if (!hasSearched || appliedMin == null || appliedMax == null) {
-      return [];
-    }
-
-    return filterPeopleByFilters(catalog.profiles, {
-      minAge: appliedMin,
-      maxAge: appliedMax,
-      countrySlug: appliedCountrySlug,
-      cityId: appliedCityId,
-      onlineOnly: appliedOnlineOnly,
-      isOnline: (profile) =>
-        isOnlineNow({
-          screen: "search",
-          userId: profile.id,
-          username: profile.username,
-          isOnlineFlag: profile.is_online,
-          lastSeenAt: profile.last_seen_at,
-          presenceOnline: presenceOnlineIds.has(profile.id),
-        }),
-    });
-  }, [
-    catalog.profiles,
-    hasSearched,
-    appliedMin,
-    appliedMax,
-    appliedCountrySlug,
-    appliedCityId,
-    appliedOnlineOnly,
-    presenceOnlineIds,
-  ]);
+  const selectedCity = useMemo(
+    () => availableCities.find((city) => city.id === cityId) ?? null,
+    [availableCities, cityId]
+  );
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -152,28 +91,31 @@ export default function PeopleFiltersSearchScreen() {
     }
 
     setValidationError(null);
-    setSearching(true);
-    setHasSearched(true);
-    setAppliedMin(null);
-    setAppliedMax(null);
-    setAppliedCountrySlug("");
-    setAppliedCityId("");
-    setAppliedOnlineOnly(false);
+    setSubmitting(true);
 
     const nextMin = Number(minInput.trim());
     const nextMax = Number(maxInput.trim());
     const nextCountry = countrySlug;
     const nextCity = cityId;
+    const nextCitySlug = selectedCity?.slug ?? "";
     const nextOnline = onlineOnly;
 
-    window.setTimeout(() => {
-      setAppliedMin(nextMin);
-      setAppliedMax(nextMax);
-      setAppliedCountrySlug(nextCountry);
-      setAppliedCityId(nextCity);
-      setAppliedOnlineOnly(nextOnline);
-      setSearching(false);
-    }, 0);
+    saveFiltersSearchState({
+      minInput,
+      maxInput,
+      countrySlug: nextCountry,
+      cityId: nextCity,
+      onlineOnly: nextOnline,
+      appliedMin: nextMin,
+      appliedMax: nextMax,
+      appliedCountrySlug: nextCountry,
+      appliedCityId: nextCity,
+      appliedCitySlug: nextCitySlug,
+      appliedOnlineOnly: nextOnline,
+      hasSearched: true,
+    });
+
+    router.push("/search/people");
   };
 
   const resetFilters = () => {
@@ -182,14 +124,21 @@ export default function PeopleFiltersSearchScreen() {
     setCountrySlug("");
     setCityId("");
     setOnlineOnly(false);
-    setAppliedMin(null);
-    setAppliedMax(null);
-    setAppliedCountrySlug("");
-    setAppliedCityId("");
-    setAppliedOnlineOnly(false);
-    setHasSearched(false);
-    setSearching(false);
     setValidationError(null);
+    saveFiltersSearchState({
+      minInput: "18",
+      maxInput: String(PEOPLE_SEARCH_MAX_AGE),
+      countrySlug: "",
+      cityId: "",
+      onlineOnly: false,
+      appliedMin: null,
+      appliedMax: null,
+      appliedCountrySlug: "",
+      appliedCityId: "",
+      appliedCitySlug: "",
+      appliedOnlineOnly: false,
+      hasSearched: false,
+    });
   };
 
   const localizedError = localizeUserMessage(t, error);
@@ -202,10 +151,10 @@ export default function PeopleFiltersSearchScreen() {
   const formPad = composerPaddingBottom("fullscreen", isKeyboardOpen);
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
       <form
         onSubmit={handleSubmit}
-        className="shrink-0 space-y-4 border-b border-white/[0.06] px-4 pb-4 pt-3 sm:px-0"
+        className="shrink-0 space-y-4 px-4 pb-4 pt-3 sm:px-0"
         style={{ paddingBottom: formPad }}
       >
         <section className="space-y-2">
@@ -296,9 +245,9 @@ export default function PeopleFiltersSearchScreen() {
           <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-slate-500">
             {t("search.filters.section.availability")}
           </p>
-          <label className="flex h-11 items-center justify-between rounded-[14px] border border-white/[0.06] bg-[#0c0e14] px-3">
-            <span className="text-[14px] text-slate-200">{t("search.onlineNow")}</span>
-            <span className="relative inline-flex h-6 w-10 items-center">
+          <label className="flex h-11 items-center gap-3 rounded-[14px] border border-white/[0.06] bg-[#0c0e14] px-3">
+            <span className="min-w-0 flex-1 text-[14px] text-slate-200">{t("search.onlineNow")}</span>
+            <span className="relative inline-flex h-6 w-10 shrink-0 items-center">
               <input
                 type="checkbox"
                 checked={onlineOnly}
@@ -311,10 +260,16 @@ export default function PeopleFiltersSearchScreen() {
           </label>
         </section>
 
+        {localizedError || validationMessage ? (
+          <div className="rounded-[14px] border border-red-500/20 bg-red-500/5 px-3 py-2.5 text-sm text-red-200">
+            {localizedError ?? validationMessage}
+          </div>
+        ) : null}
+
         <div className="space-y-2 pt-1">
           <button
             type="submit"
-            disabled={loading || searching}
+            disabled={loading || submitting}
             className="inline-flex h-11 w-full items-center justify-center rounded-[14px] bg-cyan-400 text-[15px] font-semibold text-slate-950 transition active:opacity-90 disabled:opacity-50"
           >
             {t("nav.search")}
@@ -328,25 +283,6 @@ export default function PeopleFiltersSearchScreen() {
           </button>
         </div>
       </form>
-
-      {localizedError || validationMessage ? (
-        <div className="mx-4 mt-3 rounded-[14px] border border-red-500/20 bg-red-500/5 px-3 py-2.5 text-sm text-red-200 sm:mx-0">
-          {localizedError ?? validationMessage}
-        </div>
-      ) : null}
-
-      {hasSearched || searching ? (
-        <PeopleSearchResults
-          mode="filters"
-          profiles={results}
-          countries={catalog.countries}
-          cities={catalog.cities}
-          searching={loading || searching}
-          showEmpty={hasSearched && !searching && !loading}
-          emptyTitle={t("search.filters.emptyTitle")}
-          emptyBody={t("search.filters.emptyBody")}
-        />
-      ) : null}
     </div>
   );
 }

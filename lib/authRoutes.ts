@@ -24,6 +24,17 @@ export function isPublicBrowseRoute(pathname: string | null) {
     return true;
   }
 
+  if (
+    pathname === "/support" ||
+    pathname.startsWith("/support/") ||
+    pathname === "/privacy" ||
+    pathname.startsWith("/privacy/") ||
+    pathname === "/terms" ||
+    pathname.startsWith("/terms/")
+  ) {
+    return true;
+  }
+
   return false;
 }
 

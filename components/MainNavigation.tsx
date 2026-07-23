@@ -68,6 +68,7 @@ function navIcon(item: MainNavItem, active: boolean, badgeCount = 0) {
       icon = <Users className={className} strokeWidth={1.75} aria-hidden />;
       break;
     case "/visit":
+    case "/visit?tab=explore":
       icon = <Plane className={className} strokeWidth={1.75} aria-hidden />;
       break;
     case "/chats":

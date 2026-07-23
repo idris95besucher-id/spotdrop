@@ -3,7 +3,7 @@ export type VisitTab = "explore" | "nearby" | "map";
 export const VISIT_TABS: VisitTab[] = ["explore", "map", "nearby"];
 
 export function parseVisitTab(value: string | null | undefined): VisitTab {
-  if (value === "nearby" || value === "map") {
+  if (value === "nearby" || value === "map" || value === "explore") {
     return value;
   }
 
@@ -11,9 +11,7 @@ export function parseVisitTab(value: string | null | undefined): VisitTab {
 }
 
 export function visitTabHref(tab: VisitTab) {
-  if (tab === "explore") {
-    return "/visit";
-  }
-
+  // Always include ?tab= so App Router/Capacitor replaces search params when
+  // switching between Explore and Map (same /visit pathname).
   return `/visit?tab=${tab}`;
 }

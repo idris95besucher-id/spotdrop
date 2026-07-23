@@ -1,8 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from "react";
-import { UserRound, X } from "lucide-react";
+import { X } from "lucide-react";
 import OwnContentMenu from "@/components/OwnContentMenu";
+import ProfileAvatar from "@/components/ProfileAvatar";
 import { deleteOwnedStory } from "@/lib/deleteContent";
 import type { StoryRow } from "@/lib/stories";
 import { publicProfileUsername } from "@/lib/publicProfile";
@@ -195,13 +196,12 @@ export default function StoriesViewer({
 
       <div className="absolute inset-x-0 top-[max(2.25rem,env(safe-area-inset-top))] z-20 flex items-center justify-between gap-3 px-4">
         <div className="flex min-w-0 items-center gap-2.5">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-slate-800">
-            {avatarUrl ? (
-              <img src={avatarUrl} alt="" className="h-full w-full object-cover" />
-            ) : (
-              <UserRound className="h-4 w-4 text-slate-400" strokeWidth={1.5} aria-hidden />
-            )}
-          </div>
+          <ProfileAvatar
+            src={avatarUrl}
+            sizeClassName="h-8 w-8"
+            iconClassName="h-4 w-4"
+            className="bg-slate-800"
+          />
           <p className="truncate text-sm font-semibold">{displayUsername}</p>
         </div>
         <div className="flex items-center gap-1">

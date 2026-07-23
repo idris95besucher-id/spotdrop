@@ -6,8 +6,11 @@ import { useRouter } from "next/navigation";
 import { getSafeAuthSession } from "@/lib/authSession";
 import { ensureProfileRow } from "@/lib/profile";
 import { uploadAvatarImage } from "@/lib/profileMedia";
+import { pickSpotGalleryPhoto } from "@/lib/pickMediaFromGallery";
 import { getCountryFlag } from "@/lib/countryFlags";
 import { supabase } from "@/lib/supabaseClient";
+import AvatarCropScreen from "@/components/AvatarCropScreen";
+import ProfileAvatar from "@/components/ProfileAvatar";
 import Shell from "@/components/Shell";
 import { useI18n } from "@/components/I18nProvider";
 import { localizeUserMessage } from "@/lib/i18n/localizeUserMessage";
@@ -41,6 +44,8 @@ export default function OnboardingPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [pickingAvatar, setPickingAvatar] = useState(false);
+  const [avatarCropFile, setAvatarCropFile] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [session, setSession] = useState<Session | null>(null);
 
@@ -122,13 +127,30 @@ export default function OnboardingPage() {
     }
   };
 
-  const handleAvatarUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
+  const handlePickAvatar = async () => {
+    if (!session?.user?.id || uploadingAvatar || pickingAvatar) {
+      return;
+    }
 
+    setError(null);
+    setPickingAvatar(true);
+
+    try {
+      const file = await pickSpotGalleryPhoto();
+      if (file) {
+        setAvatarCropFile(file);
+      }
+    } catch (pickError) {
+      setError(pickError instanceof Error ? pickError.message : "Unable to open photos.");
+    } finally {
+      setPickingAvatar(false);
+    }
+  };
+
+  const handleAvatarCropConfirm = async (croppedFile: File) => {
     if (!session?.user?.id) {
       setError("Please sign in to upload files.");
-      event.target.value = "";
+      setAvatarCropFile(null);
       return;
     }
 
@@ -136,14 +158,14 @@ export default function OnboardingPage() {
     setUploadingAvatar(true);
 
     try {
-      const publicUrl = await uploadAvatarImage(session.user.id, file);
+      const publicUrl = await uploadAvatarImage(session.user.id, croppedFile);
       setAvatarUrl(publicUrl);
       await persistAvatarUrl(publicUrl);
+      setAvatarCropFile(null);
     } catch (uploadError) {
       setError(uploadError instanceof Error ? uploadError.message : "Unable to upload profile photo.");
     } finally {
       setUploadingAvatar(false);
-      event.target.value = "";
     }
   };
 
@@ -234,17 +256,25 @@ export default function OnboardingPage() {
               <div className="text-sm text-slate-300">
                 <span className="block">{t("onboarding.profilePhoto")}</span>
                 <div className="mt-2 flex items-center gap-4 rounded-3xl border border-white/10 bg-slate-950 p-4">
-                  <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-full bg-slate-800 text-lg font-semibold text-white">
-                    {avatarUrl ? (
-                      <img src={avatarUrl} alt="Profile avatar preview" className="h-full w-full object-cover" />
-                    ) : (
-                      username.trim().charAt(0).toUpperCase() || "?"
-                    )}
-                  </div>
-                  <label className="inline-flex cursor-pointer items-center justify-center rounded-3xl bg-white/5 px-4 py-3 text-sm font-medium text-white transition hover:bg-white/10">
-                    <input type="file" accept="image/*" className="hidden" onChange={handleAvatarUpload} />
-                    {uploadingAvatar ? t("onboarding.uploading") : t("onboarding.uploadPhoto")}
-                  </label>
+                  <ProfileAvatar
+                    src={avatarUrl}
+                    alt="Profile avatar preview"
+                    sizeClassName="h-16 w-16"
+                    iconClassName="h-7 w-7"
+                    className="bg-slate-800"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void handlePickAvatar()}
+                    disabled={uploadingAvatar || pickingAvatar}
+                    className="inline-flex cursor-pointer items-center justify-center rounded-3xl bg-white/5 px-4 py-3 text-sm font-medium text-white transition hover:bg-white/10 disabled:opacity-50"
+                  >
+                    {uploadingAvatar
+                      ? t("onboarding.uploading")
+                      : pickingAvatar
+                        ? t("avatarCrop.picking")
+                        : t("onboarding.uploadPhoto")}
+                  </button>
                 </div>
               </div>
             </div>
@@ -314,6 +344,21 @@ export default function OnboardingPage() {
           </form>
         )}
       </div>
+
+      {avatarCropFile ? (
+        <AvatarCropScreen
+          file={avatarCropFile}
+          busy={uploadingAvatar}
+          onCancel={() => {
+            if (!uploadingAvatar) {
+              setAvatarCropFile(null);
+            }
+          }}
+          onConfirm={(cropped) => {
+            void handleAvatarCropConfirm(cropped);
+          }}
+        />
+      ) : null}
     </Shell>
   );
 }

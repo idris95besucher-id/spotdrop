@@ -1,9 +1,9 @@
 "use client";
 
 import { MessageCircle, X } from "lucide-react";
+import ProfileAvatar from "@/components/ProfileAvatar";
 import { useI18n } from "@/components/I18nProvider";
 import type { MapMark } from "@/lib/mapMarks";
-import { mapMarkAvatarInitial } from "@/lib/mapMarkMarkers";
 
 type MapMarkClusterSheetProps = {
   marks: MapMark[];
@@ -67,12 +67,13 @@ export default function MapMarkClusterSheet({
                 onClick={() => onSelect(mark)}
                 className="flex w-full items-start gap-3 rounded-2xl border border-white/8 bg-white/[0.04] px-3 py-2.5 text-left transition hover:bg-white/[0.07]"
               >
-                <span className="relative mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full border-2 border-cyan-400/85 bg-slate-800 shadow-[0_0_12px_rgba(34,211,238,0.25)]">
-                  {mark.avatar_url ? (
-                    <img src={mark.avatar_url} alt="" className="h-full w-full object-cover" />
-                  ) : (
-                    <span className="text-sm font-bold text-white">{mapMarkAvatarInitial(mark.username)}</span>
-                  )}
+                <span className="relative mt-0.5 shrink-0">
+                  <ProfileAvatar
+                    src={mark.avatar_url}
+                    sizeClassName="h-11 w-11"
+                    iconClassName="h-5 w-5"
+                    className="border-2 border-cyan-400/85 bg-slate-800 shadow-[0_0_12px_rgba(34,211,238,0.25)]"
+                  />
                   <span className="absolute -bottom-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full border border-[#0B1026] bg-cyan-500 text-white">
                     <MessageCircle className="h-2.5 w-2.5" strokeWidth={2.5} aria-hidden />
                   </span>

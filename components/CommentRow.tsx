@@ -1,7 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { Check, Loader2, UserRound, X as XIcon } from "lucide-react";
+import { forwardRef } from "react";
+import { Check, Loader2, X as XIcon } from "lucide-react";
+import ProfileAvatar from "@/components/ProfileAvatar";
 import { useI18n } from "@/components/I18nProvider";
 import type { PostCommentRow as PostCommentRowType } from "@/lib/postComments";
 import { formatPostTime } from "@/lib/posts";
@@ -14,6 +16,7 @@ type CommentRowProps = {
   isOwnComment: boolean;
   isEditing: boolean;
   isDeleting: boolean;
+  isHighlighted?: boolean;
   editDraft: string;
   editError: string | null;
   savingEdit: boolean;
@@ -30,19 +33,23 @@ type CommentRowProps = {
  * directly inside the parent <ul>, which is invalid HTML. Reused everywhere PostCommentsSection
  * renders a comment: My Gallery, other users' galleries, Spot/post comments, feed, etc.
  */
-export default function CommentRow({
-  comment,
-  isOwnComment,
-  isEditing,
-  isDeleting,
-  editDraft,
-  editError,
-  savingEdit,
-  onLongPress,
-  onEditDraftChange,
-  onSaveEdit,
-  onCancelEdit,
-}: CommentRowProps) {
+const CommentRow = forwardRef<HTMLLIElement, CommentRowProps>(function CommentRow(
+  {
+    comment,
+    isOwnComment,
+    isEditing,
+    isDeleting,
+    isHighlighted = false,
+    editDraft,
+    editError,
+    savingEdit,
+    onLongPress,
+    onEditDraftChange,
+    onSaveEdit,
+    onCancelEdit,
+  },
+  ref
+) {
   const { t } = useI18n();
   const { longPressProps, onClickCapture } = useLongPress({
     onLongPress,
@@ -51,19 +58,20 @@ export default function CommentRow({
 
   return (
     <li
+      ref={ref}
       {...longPressProps}
       onClickCapture={onClickCapture}
-      className={`flex gap-3 select-none touch-manipulation ${isDeleting ? "opacity-50" : ""}`}
+      className={`flex gap-3 rounded-2xl select-none touch-manipulation transition ${
+        isDeleting ? "opacity-50" : ""
+      } ${isHighlighted ? "bg-primary/15 ring-1 ring-primary/40 -mx-2 px-2 py-1.5" : ""}`}
     >
-      <Link
-        href={`/user?id=${comment.user_id}`}
-        className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-slate-800"
-      >
-        {comment.profiles.avatar_url ? (
-          <img src={comment.profiles.avatar_url} alt="" className="h-full w-full object-cover" />
-        ) : (
-          <UserRound className="h-4 w-4 text-slate-400" strokeWidth={1.5} aria-hidden />
-        )}
+      <Link href={`/user?id=${comment.user_id}`} className="shrink-0">
+        <ProfileAvatar
+          src={comment.profiles.avatar_url}
+          sizeClassName="h-9 w-9"
+          iconClassName="h-4 w-4"
+          className="bg-slate-800"
+        />
       </Link>
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
@@ -120,4 +128,6 @@ export default function CommentRow({
       </div>
     </li>
   );
-}
+});
+
+export default CommentRow;

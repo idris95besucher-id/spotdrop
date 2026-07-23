@@ -11,6 +11,7 @@ import MapPlacesSearch from "@/components/MapPlacesSearch";
 import MapTapActionSheet, { type MapTapAction } from "@/components/MapTapActionSheet";
 import ShareMapPlaceSheet from "@/components/ShareMapPlaceSheet";
 import SpotMapPinSheet from "@/components/SpotMapPinSheet";
+import { mountAvatarIntoElement } from "@/lib/avatarUrl";
 import { openExternalMapsDirections } from "@/lib/externalMaps";
 import { geoLocationToMapPlaceSharePayload } from "@/lib/mapPlaceShare";
 import { DEFAULT_MAP_CENTER, DEFAULT_MAP_ZOOM, getMapLibreStyleUrl } from "@/lib/mapLibre";
@@ -23,7 +24,6 @@ import {
   buildMapMarkClusters,
   buildMapMarkSpiderfyLngLats,
   MAP_MARK_SPEECH_BUBBLE_SVG,
-  mapMarkAvatarInitial,
   shouldSpiderfyMapMarkClusters,
   type MapMarkCluster,
 } from "@/lib/mapMarkMarkers";
@@ -170,15 +170,7 @@ function createUserMarkerElement(avatarUrl: string | null, label: string, isSelf
 
   const avatar = document.createElement("div");
   avatar.className = "spot-live-user-marker__avatar";
-
-  if (avatarUrl) {
-    const image = document.createElement("img");
-    image.src = avatarUrl;
-    image.alt = "";
-    avatar.appendChild(image);
-  } else {
-    avatar.textContent = label.charAt(0).toUpperCase();
-  }
+  mountAvatarIntoElement(avatar, avatarUrl);
 
   root.appendChild(avatar);
   anchor.appendChild(root);
@@ -197,15 +189,7 @@ function createLiveUserMarkerElement(
   button.className = "spot-live-share-marker";
   button.setAttribute("aria-label", ariaLabel);
 
-  if (user.avatar_url) {
-    const image = document.createElement("img");
-    image.src = user.avatar_url;
-    image.alt = "";
-    image.draggable = false;
-    button.appendChild(image);
-  } else {
-    button.textContent = user.username.charAt(0).toUpperCase();
-  }
+  mountAvatarIntoElement(button, user.avatar_url, { draggable: false });
 
   anchor.appendChild(button);
 
@@ -297,17 +281,7 @@ function createPublicMapMarkElement(
 
   const avatar = document.createElement("span");
   avatar.className = "spot-map-public-mark__avatar";
-
-  if (mark.avatar_url) {
-    const image = document.createElement("img");
-    image.src = mark.avatar_url;
-    image.alt = "";
-    image.loading = "lazy";
-    image.draggable = false;
-    avatar.appendChild(image);
-  } else {
-    avatar.textContent = mapMarkAvatarInitial(mark.username);
-  }
+  mountAvatarIntoElement(avatar, mark.avatar_url, { draggable: false });
 
   button.appendChild(avatar);
 
@@ -350,16 +324,7 @@ function createPublicMapMarkClusterElement(
     avatar.style.left = `${index * 12}px`;
     avatar.style.zIndex = String(previewMarks.length - index);
 
-    if (mark.avatar_url) {
-      const image = document.createElement("img");
-      image.src = mark.avatar_url;
-      image.alt = "";
-      image.loading = "lazy";
-      image.draggable = false;
-      avatar.appendChild(image);
-    } else {
-      avatar.textContent = mapMarkAvatarInitial(mark.username);
-    }
+    mountAvatarIntoElement(avatar, mark.avatar_url, { draggable: false });
 
     stack.appendChild(avatar);
   });

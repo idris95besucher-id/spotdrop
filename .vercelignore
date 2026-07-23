@@ -2,7 +2,23 @@
 .env.*
 .env.local
 .next
+out
 node_modules
 coverage
 *.pem
 *.tsbuildinfo
+ios
+android
+.capacitor-stash
+.git
+.claude
+*.log
+.DS_Store
+
+# Native Capacitor package build artifacts (OpenCV, SPM, DerivedData)
+packages/**/.build
+packages/**/.derivedData
+packages/**/DerivedData
+packages/spotdrop-pano
+packages/spotdrop-camera/.build
+packages/spotdrop-camera/.derivedData

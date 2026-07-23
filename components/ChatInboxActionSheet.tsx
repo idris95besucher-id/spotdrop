@@ -64,25 +64,31 @@ export default function ChatInboxActionSheet({
           : t("group.leaveGroup")
         : t("chats.removeFromMessages");
 
-  const needsConfirm = target.kind === "room" || target.kind === "group";
+  const needsConfirm = true;
   const confirmTitle =
-    target.kind === "group"
-      ? target.isOwner
-        ? t("group.deleteConfirmTitle")
-        : t("group.leaveConfirmTitle")
-      : t("chats.removeRoomConfirmTitle");
+    target.kind === "dm"
+      ? t("chats.deleteConversationConfirmTitle")
+      : target.kind === "group"
+        ? target.isOwner
+          ? t("group.deleteConfirmTitle")
+          : t("group.leaveConfirmTitle")
+        : t("chats.removeRoomConfirmTitle");
   const confirmBody =
-    target.kind === "group"
-      ? target.isOwner
-        ? t("group.deleteConfirmBody")
-        : t("group.leaveConfirmBody")
-      : t("chats.removeRoomConfirmBody");
+    target.kind === "dm"
+      ? t("chats.deleteConversationConfirmBody")
+      : target.kind === "group"
+        ? target.isOwner
+          ? t("group.deleteConfirmBody")
+          : t("group.leaveConfirmBody")
+        : t("chats.removeRoomConfirmBody");
   const confirmAction =
-    target.kind === "group"
-      ? target.isOwner
-        ? t("group.deleteConfirmAction")
-        : t("group.leaveConfirmAction")
-      : t("chats.removeRoomConfirmAction");
+    target.kind === "dm"
+      ? t("chats.deleteConversationConfirmAction")
+      : target.kind === "group"
+        ? target.isOwner
+          ? t("group.deleteConfirmAction")
+          : t("group.leaveConfirmAction")
+        : t("chats.removeRoomConfirmAction");
 
   const sheet = (
     <div className={bottomSheetLayout.overlay} role="presentation">

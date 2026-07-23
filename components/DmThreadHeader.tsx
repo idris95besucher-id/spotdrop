@@ -3,8 +3,9 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { ReactNode } from "react";
-import { ChevronLeft, UserRound } from "lucide-react";
+import { ChevronLeft } from "lucide-react";
 import DmHeaderPresenceLabel from "@/components/DmHeaderPresenceLabel";
+import ProfileAvatar from "@/components/ProfileAvatar";
 import { useI18n } from "@/components/I18nProvider";
 import { MOBILE_SAFE_AREA_INSET_TOP } from "@/lib/mobileLayout";
 import { navigateBack } from "@/lib/navigateBack";
@@ -44,14 +45,13 @@ export default function DmThreadHeader({
 
   const profileContent = (
     <>
-      <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-white/[0.06] ring-1 ring-white/10">
-        {partner?.avatar_url ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={partner.avatar_url} alt="" className="h-full w-full object-cover" />
-        ) : (
-          <UserRound className="h-4 w-4 text-muted" strokeWidth={1.75} aria-hidden />
-        )}
-      </div>
+      <ProfileAvatar
+        src={partner?.avatar_url}
+        sizeClassName="h-9 w-9"
+        iconClassName="h-4 w-4"
+        iconStrokeWidth={1.75}
+        className="bg-white/[0.06] ring-1 ring-white/10"
+      />
 
       <div className="min-w-0 flex-1 text-left">
         <h1 className="truncate text-[15px] font-semibold leading-tight text-white">

@@ -1,13 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState, type ChangeEvent, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import type { Session } from "@supabase/supabase-js";
 import { getSafeAuthSession } from "@/lib/authSession";
 import { getCountryFlag } from "@/lib/countryFlags";
 import { ensureProfileRow } from "@/lib/profile";
 import { uploadAvatarImage } from "@/lib/profileMedia";
+import { dispatchProfileMetaRefresh } from "@/lib/profileContentRefresh";
+import { pickSpotGalleryPhoto } from "@/lib/pickMediaFromGallery";
 import {
   loadProfileGalleryVisibility,
   PROFILE_GALLERY_VISIBILITY_VALUES,
@@ -15,6 +17,8 @@ import {
   type ProfileGalleryVisibility,
 } from "@/lib/profileGalleryVisibility";
 import { supabase } from "@/lib/supabaseClient";
+import AvatarCropScreen from "@/components/AvatarCropScreen";
+import ProfileAvatar from "@/components/ProfileAvatar";
 import SignOutButton from "@/components/SignOutButton";
 import Shell from "@/components/Shell";
 import { useI18n } from "@/components/I18nProvider";
@@ -126,6 +130,8 @@ export default function EditProfilePage() {
   const [loading, setLoading] = useState(true);
   const [savingProfile, setSavingProfile] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [pickingAvatar, setPickingAvatar] = useState(false);
+  const [avatarCropFile, setAvatarCropFile] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [countryOptions, setCountryOptions] = useState<CountryOption[]>([]);
   const [cityOptions, setCityOptions] = useState<CityOption[]>([]);
@@ -248,13 +254,30 @@ export default function EditProfilePage() {
     void loadCitiesForCountry();
   }, [savedCityId, selectedCitySlug, selectedCountry, selectedCountrySlug]);
 
-  const handleAvatarUpload = async (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
+  const handlePickAvatar = async () => {
+    if (!session?.user?.id || uploadingAvatar || pickingAvatar) {
+      return;
+    }
 
+    setError(null);
+    setPickingAvatar(true);
+
+    try {
+      const file = await pickSpotGalleryPhoto();
+      if (file) {
+        setAvatarCropFile(file);
+      }
+    } catch (pickError) {
+      setError(localizeCaughtError(t, pickError, "common.somethingWentWrong"));
+    } finally {
+      setPickingAvatar(false);
+    }
+  };
+
+  const handleAvatarCropConfirm = async (croppedFile: File) => {
     if (!session?.user?.id) {
       setError("Please sign in to upload files.");
-      event.target.value = "";
+      setAvatarCropFile(null);
       return;
     }
 
@@ -262,13 +285,26 @@ export default function EditProfilePage() {
     setUploadingAvatar(true);
 
     try {
-      const publicUrl = await uploadAvatarImage(session.user.id, file);
+      const publicUrl = await uploadAvatarImage(session.user.id, croppedFile);
+
+      const { error: updateError } = await supabase
+        .from("profiles")
+        .update({ avatar_url: publicUrl, updated_at: new Date().toISOString() })
+        .eq("id", session.user.id);
+
+      if (updateError) {
+        console.error("Failed to persist avatar_url:", updateError.code ?? "unknown");
+        throw new Error(updateError.message || "Unable to save your profile photo.");
+      }
+
       setFormAvatarUrl(publicUrl);
+      dispatchProfileMetaRefresh();
+      // Only close the crop screen once the upload AND the profile row are both confirmed saved.
+      setAvatarCropFile(null);
     } catch (uploadError) {
       setError(localizeCaughtError(t, uploadError, "common.somethingWentWrong"));
     } finally {
       setUploadingAvatar(false);
-      event.target.value = "";
     }
   };
 
@@ -432,17 +468,24 @@ export default function EditProfilePage() {
             <section className="rounded-2xl border border-white/10 bg-slate-900/60 p-4 sm:p-5">
               <p className={labelClass}>{t("profileEdit.profilePhoto")}</p>
               <div className="mt-3 flex items-center gap-4">
-                <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/10 bg-slate-800 text-lg font-semibold text-white">
-                  {formAvatarUrl ? (
-                    <img src={formAvatarUrl} alt="" className="h-full w-full object-cover" />
-                  ) : (
-                    formUsername.trim().charAt(0).toUpperCase() || "?"
-                  )}
-                </div>
-                <label className="inline-flex cursor-pointer items-center rounded-full border border-white/15 px-4 py-2 text-sm font-medium text-slate-200 transition hover:border-white/25 hover:bg-white/5">
-                  <input type="file" accept="image/*" className="hidden" onChange={handleAvatarUpload} />
-                  {uploadingAvatar ? t("profileEdit.uploading") : t("profileEdit.changePhoto")}
-                </label>
+                <ProfileAvatar
+                  src={formAvatarUrl}
+                  sizeClassName="h-16 w-16"
+                  iconClassName="h-7 w-7"
+                  className="border border-white/10 bg-slate-800"
+                />
+                <button
+                  type="button"
+                  onClick={() => void handlePickAvatar()}
+                  disabled={uploadingAvatar || pickingAvatar}
+                  className="inline-flex cursor-pointer items-center rounded-full border border-white/15 px-4 py-2 text-sm font-medium text-slate-200 transition hover:border-white/25 hover:bg-white/5 disabled:opacity-50"
+                >
+                  {uploadingAvatar
+                    ? t("profileEdit.uploading")
+                    : pickingAvatar
+                      ? t("avatarCrop.picking")
+                      : t("profileEdit.changePhoto")}
+                </button>
               </div>
             </section>
 
@@ -698,6 +741,21 @@ export default function EditProfilePage() {
           </form>
         )}
       </div>
+
+      {avatarCropFile ? (
+        <AvatarCropScreen
+          file={avatarCropFile}
+          busy={uploadingAvatar}
+          onCancel={() => {
+            if (!uploadingAvatar) {
+              setAvatarCropFile(null);
+            }
+          }}
+          onConfirm={(cropped) => {
+            void handleAvatarCropConfirm(cropped);
+          }}
+        />
+      ) : null}
     </Shell>
   );
 }

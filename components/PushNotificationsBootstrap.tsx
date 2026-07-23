@@ -10,8 +10,9 @@ import {
   resolveNativeDeviceIdForPush,
   unregisterPushAfterConfirmedLogout,
 } from "@/lib/nativePush";
+import { syncAppIconBadge } from "@/lib/appIconBadge";
+import { countUnreadInboxMessages } from "@/lib/chatNotifications";
 import { saveUserPushToken } from "@/lib/userPushTokens";
-import { countUnreadNotifications } from "@/lib/notifications";
 import { loadUserSettingsPreferences } from "@/lib/settingsPreferences";
 import { syncUserNotificationPreferences } from "@/lib/userNotificationPreferences";
 import { supabase } from "@/lib/supabaseClient";
@@ -182,15 +183,11 @@ export default function PushNotificationsBootstrap({
         console.error("[Push][step 7] FAIL registration returned no token and no error");
       }
 
-      const { count } = await countUnreadNotifications(userId);
+      // Align home-screen badge with My Chats unread (not notifications feed history).
+      const { count } = await countUnreadInboxMessages(userId);
 
-      if (!cancelled && count > 0) {
-        try {
-          const { FirebaseMessaging: FCM } = await import("@capacitor-firebase/messaging");
-          await FCM.removeAllDeliveredNotifications();
-        } catch {
-          // badge sync is best-effort on client; server sets badge on push
-        }
+      if (!cancelled) {
+        void syncAppIconBadge(count);
       }
     })();
 

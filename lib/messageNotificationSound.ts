@@ -41,9 +41,15 @@ const SOUND_SOURCES: Record<NotificationSoundKind, string> = {
   comment: "/sounds/comment.wav",
 };
 
+/** Minimal silent WAV — used only to unlock HTMLAudio on iOS (never an audible tone). */
+const SILENT_WAV_DATA_URI =
+  "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=";
+
 let audio: HTMLAudioElement | null = null;
 let unlocked = false;
 let unlockListenersAttached = false;
+/** Suppress in-app WAV during cold start / resume catch-up (APNs push sounds unaffected). */
+let suppressInAppSoundUntil = 0;
 
 function getAudio() {
   if (typeof window === "undefined") {
@@ -63,12 +69,19 @@ export function skipMessageNotificationSound(reason: MessageNotificationSoundSki
   console.log("[Notification sound] skipped", reason);
 }
 
+/** Block in-app notification WAV briefly after launch/resume (realtime catch-up). */
+export function suppressInAppNotificationSounds(ms = 2500) {
+  suppressInAppSoundUntil = Math.max(suppressInAppSoundUntil, Date.now() + ms);
+}
+
 export function initMessageNotificationSoundUnlock() {
   if (typeof window === "undefined" || unlockListenersAttached) {
     return;
   }
 
   unlockListenersAttached = true;
+  // Cold start / first paint: never allow catch-up realtime to chirp a WAV.
+  suppressInAppNotificationSounds(2500);
 
   const unlock = () => {
     if (unlocked) {
@@ -80,9 +93,11 @@ export function initMessageNotificationSoundUnlock() {
       return;
     }
 
-    // Unlock audio with a silent buffer so later notification tones can play.
-    element.src = SOUND_SOURCES.direct_message;
-    element.volume = 0.01;
+    // Truly silent unlock. Do NOT play dm.wav (even at low volume) — WKWebView
+    // audio ignores the iPhone silent switch and was heard as a startup beep.
+    element.muted = true;
+    element.volume = 0;
+    element.src = SILENT_WAV_DATA_URI;
     element.load();
 
     void element
@@ -90,6 +105,7 @@ export function initMessageNotificationSoundUnlock() {
       .then(() => {
         element.pause();
         element.currentTime = 0;
+        element.muted = false;
         element.volume = 0.55;
         unlocked = true;
         console.log("[Notification sound] unlocked");
@@ -104,6 +120,14 @@ export function initMessageNotificationSoundUnlock() {
   window.addEventListener("pointerdown", unlock, options);
   window.addEventListener("touchstart", unlock, options);
   window.addEventListener("keydown", unlock, options);
+
+  const onVisible = () => {
+    if (document.visibilityState === "visible") {
+      suppressInAppNotificationSounds(2500);
+    }
+  };
+
+  document.addEventListener("visibilitychange", onVisible);
 }
 
 function isAppVisible() {
@@ -156,6 +180,11 @@ export async function playNotificationSound(kind: NotificationSoundKind) {
 
   if (!isAppVisible()) {
     skipMessageNotificationSound("app_hidden");
+    return;
+  }
+
+  if (Date.now() < suppressInAppSoundUntil) {
+    skipMessageNotificationSound("stale_catchup");
     return;
   }
 

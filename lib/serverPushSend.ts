@@ -121,18 +121,76 @@ export async function loadUserPushTokens(admin: AdminClient, userId: string) {
   };
 }
 
-export async function countUnreadNotificationsAdmin(admin: AdminClient, userId: string) {
-  const { count, error } = await admin
-    .from("notifications")
-    .select("id", { count: "exact", head: true })
-    .eq("user_id", userId)
-    .is("read_at", null);
+/**
+ * App-icon badge source of truth on push: unread DMs + rooms + groups,
+ * matching My Chats / nav unread (not the notifications feed).
+ * Hidden/deleted DM conversations are excluded.
+ */
+export async function countUnreadInboxMessagesAdmin(admin: AdminClient, userId: string) {
+  const [dmResult, hiddenResult, roomResult, groupResult] = await Promise.all([
+    admin
+      .from("direct_messages")
+      .select("sender_id")
+      .eq("recipient_id", userId)
+      .is("read_at", null)
+      .neq("sender_id", userId),
+    admin
+      .from("chat_inbox_preferences")
+      .select("chat_key")
+      .eq("user_id", userId)
+      .eq("chat_type", "dm")
+      .eq("hidden", true),
+    admin.rpc("get_user_room_inbox", { p_user_id: userId }),
+    admin.rpc("get_user_group_inbox", { p_user_id: userId }),
+  ]);
 
-  if (error) {
-    return { count: 0, error: error.message };
+  // Prefer a partial count over failing the push when optional RPCs/tables are missing.
+  const hiddenPartners = new Set(
+    hiddenResult.error
+      ? []
+      : (hiddenResult.data ?? []).map((row) => String((row as { chat_key: string }).chat_key))
+  );
+
+  const dmCount = dmResult.error
+    ? 0
+    : (dmResult.data ?? []).filter((row) => {
+        const senderId = String((row as { sender_id: string }).sender_id);
+        return !hiddenPartners.has(senderId);
+      }).length;
+
+  const roomCount = roomResult.error
+    ? 0
+    : ((roomResult.data ?? []) as { unread_count?: number }[]).reduce(
+        (sum, row) => sum + (row.unread_count ?? 0),
+        0
+      );
+
+  const groupCount = groupResult.error
+    ? 0
+    : ((groupResult.data ?? []) as { unread_count?: number }[]).reduce(
+        (sum, row) => sum + (row.unread_count ?? 0),
+        0
+      );
+
+  const error = dmResult.error?.message ?? null;
+
+  if (error || hiddenResult.error || roomResult.error || groupResult.error) {
+    pushServerLog("badge", "Unread inbox badge count used partial sources", {
+      userId,
+      dmCount,
+      roomCount,
+      groupCount,
+      dmError: dmResult.error?.message ?? null,
+      hiddenError: hiddenResult.error?.message ?? null,
+      roomError: roomResult.error?.message ?? null,
+      groupError: groupResult.error?.message ?? null,
+    });
   }
 
-  return { count: count ?? 0, error: null as string | null };
+  return {
+    count: dmCount + roomCount + groupCount,
+    error,
+  };
 }
 
 export async function loadServerNotificationPreferences(
@@ -212,7 +270,7 @@ export async function sendFcmToUser(input: {
   apnsSound?: string;
 }): Promise<PushSendResult> {
   const { admin, userId, notification, title, body, href, type, apnsSound } = input;
-  const { count: badgeCount } = await countUnreadNotificationsAdmin(admin, userId);
+  const { count: badgeCount } = await countUnreadInboxMessagesAdmin(admin, userId);
   const errors: PushSendResult["errors"] = [];
   const messageIds: string[] = [];
   const staleFcmTokens: string[] = [];

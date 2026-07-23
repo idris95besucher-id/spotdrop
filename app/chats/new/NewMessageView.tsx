@@ -2,7 +2,8 @@
 
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
-import { Camera, Check, ChevronLeft, Loader2, Users, UserRound, X } from "lucide-react";
+import { Camera, Check, ChevronLeft, Loader2, Users, X } from "lucide-react";
+import ProfileAvatar from "@/components/ProfileAvatar";
 import { useAuthSession } from "@/components/AuthSessionProvider";
 import { useI18n } from "@/components/I18nProvider";
 import GroupMemberPicker from "@/components/GroupMemberPicker";
@@ -274,13 +275,13 @@ export default function NewMessageView() {
                       key={recipient.id}
                       className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.04] px-2.5 py-1.5 text-xs text-slate-200"
                     >
-                      <span className="flex h-4 w-4 items-center justify-center overflow-hidden rounded-full bg-slate-800">
-                        {recipient.avatar_url ? (
-                          <img src={recipient.avatar_url} alt="" className="h-full w-full object-cover" />
-                        ) : (
-                          <UserRound className="h-2.5 w-2.5 text-slate-500" strokeWidth={2} aria-hidden />
-                        )}
-                      </span>
+                      <ProfileAvatar
+                        src={recipient.avatar_url}
+                        sizeClassName="h-4 w-4"
+                        iconClassName="h-2.5 w-2.5"
+                        iconStrokeWidth={2}
+                        className="bg-slate-800"
+                      />
                       @{recipient.username}
                     </span>
                   ))}

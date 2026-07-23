@@ -8,6 +8,7 @@ import { Search, SquarePen } from "lucide-react";
 import ChatInboxActionSheet, {
   type ChatInboxActionSheetTarget,
 } from "@/components/ChatInboxActionSheet";
+import ChatsInboxTabBar from "@/components/ChatsInboxTabBar";
 import { useChatNotifications } from "@/components/ChatNotificationsProvider";
 import DmInboxListItem from "@/components/DmInboxListItem";
 import GroupInboxListItem from "@/components/GroupInboxListItem";
@@ -16,8 +17,14 @@ import type { MessageRequestItemData } from "@/components/MessageRequestItem";
 import RoomInboxListItem from "@/components/RoomInboxListItem";
 import Shell from "@/components/Shell";
 import { hideDmChat, setDmMuted } from "@/lib/chatInboxPreferences";
+import {
+  chatsInboxTabHref,
+  inboxItemMatchesTab,
+  parseChatsInboxTab,
+  type ChatsInboxTab,
+} from "@/lib/chatsTabs";
 import { MOBILE_WIDTH_SAFE_CLASS } from "@/lib/mobileLayout";
-import { localizeCountryName, localizeCityName } from "@/lib/i18n/localizeGeo";
+import { localizeCityName } from "@/lib/i18n/localizeGeo";
 import { localizeUserMessage } from "@/lib/i18n/localizeUserMessage";
 import { getSafeAuthSession } from "@/lib/authSession";
 import { formatUnreadBadge } from "@/lib/chatNotifications";
@@ -106,11 +113,24 @@ function ChatsPageContent() {
     };
   }, []);
 
+  const activeTab = parseChatsInboxTab(searchParams.get("tab"));
+
   useEffect(() => {
     if (searchParams.get("tab") === "friends") {
       router.replace("/friends");
     }
   }, [router, searchParams]);
+
+  const handleTabChange = useCallback(
+    (tab: ChatsInboxTab) => {
+      if (tab === activeTab) {
+        return;
+      }
+
+      router.replace(chatsInboxTabHref(tab), { scroll: false });
+    },
+    [activeTab, router]
+  );
 
   useEffect(() => {
     const { data: { subscription } = {} } = supabase.auth.onAuthStateChange((_event, nextSession) => {
@@ -419,7 +439,31 @@ function ChatsPageContent() {
     });
   }, [items, locale, searchQuery]);
 
+  const directItems = useMemo(
+    () => filteredItems.filter((item) => inboxItemMatchesTab(item.kind, "direct")),
+    [filteredItems]
+  );
+  const groupItems = useMemo(
+    () => filteredItems.filter((item) => inboxItemMatchesTab(item.kind, "groups")),
+    [filteredItems]
+  );
+  const roomItems = useMemo(
+    () => filteredItems.filter((item) => inboxItemMatchesTab(item.kind, "rooms")),
+    [filteredItems]
+  );
+
   const isSearching = searchQuery.trim().length > 0;
+
+  const emptyCopy =
+    activeTab === "groups"
+      ? { title: t("chats.empty.groupsTitle"), body: t("chats.empty.groupsBody"), ctaHref: "/chats/new" as const }
+      : activeTab === "rooms"
+        ? { title: t("chats.empty.roomsTitle"), body: t("chats.empty.roomsBody"), ctaHref: "/visit" as const }
+        : {
+            title: t("chats.empty.directTitle"),
+            body: t("chats.empty.directBody"),
+            ctaHref: "/search" as const,
+          };
 
   const actionSheetTarget = useMemo((): ChatInboxActionSheetTarget | null => {
     if (!actionTarget) {
@@ -505,7 +549,7 @@ function ChatsPageContent() {
     <Shell showHeader={false} immersive>
       <div className={`mx-auto flex min-h-0 w-full max-w-lg flex-1 flex-col ${MOBILE_WIDTH_SAFE_CLASS}`}>
         {session?.user ? (
-          <div className="shrink-0 px-4 pb-2 pt-[max(0.75rem,env(safe-area-inset-top))]">
+          <div className="shrink-0 px-4 pb-0 pt-[max(0.75rem,env(safe-area-inset-top))]">
             <div className="flex items-center gap-2">
               <h1 className="min-w-0 flex-1 truncate text-xl font-bold text-white">{t("nav.myChats")}</h1>
               <Link
@@ -529,6 +573,7 @@ function ChatsPageContent() {
                 className="w-full rounded-2xl border border-white/10 bg-[#0d1322] py-2.5 pl-10 pr-4 text-sm text-white outline-none transition placeholder:text-slate-500 focus:border-primary/45"
               />
             </label>
+            <ChatsInboxTabBar activeTab={activeTab} onTabChange={handleTabChange} />
           </div>
         ) : null}
 
@@ -556,55 +601,85 @@ function ChatsPageContent() {
           <div className="mx-4 my-6 rounded-2xl border border-red-500/20 bg-red-500/5 p-4 text-sm text-red-200">
             {localizeUserMessage(t, error) ?? error}
           </div>
-        ) : !hasInboxItems ? (
-          <div className="px-4 py-16 text-center">
-            <p className="text-lg font-semibold text-white">{t("chats.noMessages")}</p>
-            <p className="mt-2 text-sm text-muted">{t("chats.noMessagesBody")}</p>
-            {pendingCount > 0 ? (
-              <Link
-                href="/chats/requests"
-                className="mt-4 inline-flex items-center gap-2 rounded-full bg-primary px-5 py-2.5 text-sm font-semibold text-[#050816]"
-              >
-                {t("chats.viewRequests", { count: requestsBadge ?? pendingCount })}
-              </Link>
-            ) : (
-              <Link
-                href="/search"
-                className="mt-4 inline-flex rounded-full bg-primary px-5 py-2.5 text-sm font-semibold text-[#050816]"
-              >
-                {t("chats.findPeople")}
-              </Link>
-            )}
-          </div>
-        ) : isSearching && filteredItems.length === 0 ? (
-          <div className="px-4 py-16 text-center text-sm text-muted">{t("chats.noResultsFound")}</div>
         ) : (
-          <ul
-            className="min-h-0 flex-1 divide-y divide-white/[0.06] overflow-y-auto overscroll-y-contain touch-pan-y px-2 pt-1 pb-[calc(54px+var(--sd-safe-bottom,0px)+22px)] [-webkit-overflow-scrolling:touch] select-none sm:px-3"
-            data-swipe-back-disabled
-          >
-            {filteredItems.map((item) =>
-              item.kind === "room" ? (
-                <RoomInboxListItem
-                  key={`room-${item.room.membershipId}`}
-                  room={item.room}
-                  onLongPress={(room) => setActionTarget({ kind: "room", room })}
-                />
-              ) : item.kind === "group" ? (
-                <GroupInboxListItem
-                  key={`group-${item.group.id}`}
-                  group={item.group}
-                  onLongPress={(group) => setActionTarget({ kind: "group", group })}
-                />
-              ) : (
-                <DmInboxListItem
-                  key={item.chat.partnerId}
-                  chat={item.chat}
-                  onLongPress={(chat) => setActionTarget({ kind: "dm", chat })}
-                />
-              )
-            )}
-          </ul>
+          <div className="relative min-h-0 flex-1">
+            {(
+              [
+                { tab: "direct" as const, tabItems: directItems },
+                { tab: "groups" as const, tabItems: groupItems },
+                { tab: "rooms" as const, tabItems: roomItems },
+              ] as const
+            ).map(({ tab, tabItems }) => {
+              const isActive = activeTab === tab;
+              const showEmpty = isActive && !isSearching && tabItems.length === 0;
+              const showNoSearch = isActive && isSearching && tabItems.length === 0;
+
+              return (
+                <div
+                  key={tab}
+                  role="tabpanel"
+                  aria-hidden={!isActive}
+                  className={
+                    isActive
+                      ? "absolute inset-0 flex min-h-0 flex-col"
+                      : "pointer-events-none invisible absolute inset-0 flex min-h-0 flex-col"
+                  }
+                >
+                  {showEmpty ? (
+                    <div className="px-4 py-16 text-center">
+                      <p className="text-lg font-semibold text-white">{emptyCopy.title}</p>
+                      <p className="mt-2 text-sm text-muted">{emptyCopy.body}</p>
+                      {tab === "direct" && pendingCount > 0 ? (
+                        <Link
+                          href="/chats/requests"
+                          className="mt-4 inline-flex items-center gap-2 rounded-full bg-primary px-5 py-2.5 text-sm font-semibold text-[#050816]"
+                        >
+                          {t("chats.viewRequests", { count: requestsBadge ?? pendingCount })}
+                        </Link>
+                      ) : (
+                        <Link
+                          href={emptyCopy.ctaHref}
+                          className="mt-4 inline-flex rounded-full bg-primary px-5 py-2.5 text-sm font-semibold text-[#050816]"
+                        >
+                          {tab === "rooms" ? t("nav.visit") : tab === "groups" ? t("chats.newMessage") : t("chats.findPeople")}
+                        </Link>
+                      )}
+                    </div>
+                  ) : showNoSearch ? (
+                    <div className="px-4 py-16 text-center text-sm text-muted">{t("chats.noResultsFound")}</div>
+                  ) : (
+                    <ul
+                      className="min-h-0 flex-1 divide-y divide-white/[0.06] overflow-y-auto overscroll-y-contain touch-pan-y px-2 pt-1 pb-[calc(54px+var(--sd-safe-bottom,0px)+22px)] [-webkit-overflow-scrolling:touch] select-none sm:px-3"
+                      data-swipe-back-disabled
+                    >
+                      {tabItems.map((item) =>
+                        item.kind === "room" ? (
+                          <RoomInboxListItem
+                            key={`room-${item.room.membershipId}`}
+                            room={item.room}
+                            onLongPress={(room) => setActionTarget({ kind: "room", room })}
+                          />
+                        ) : item.kind === "group" ? (
+                          <GroupInboxListItem
+                            key={`group-${item.group.id}`}
+                            group={item.group}
+                            onLongPress={(group) => setActionTarget({ kind: "group", group })}
+                          />
+                        ) : (
+                          <DmInboxListItem
+                            key={item.chat.partnerId}
+                            chat={item.chat}
+                            onLongPress={(chat) => setActionTarget({ kind: "dm", chat })}
+                            onSwipeDelete={(chat) => setActionTarget({ kind: "dm", chat })}
+                          />
+                        )
+                      )}
+                    </ul>
+                  )}
+                </div>
+              );
+            })}
+          </div>
         )}
       </div>
 

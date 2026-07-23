@@ -2,7 +2,9 @@
 
 import Link from "next/link";
 import { Menu } from "lucide-react";
+import ProfileAvatar from "@/components/ProfileAvatar";
 import ProfileGalleryAvatarLink from "@/components/profile/ProfileGalleryAvatarLink";
+import { normalizeAvatarUrl } from "@/lib/avatarUrl";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { useRouter } from "next/navigation";
@@ -38,6 +40,7 @@ import {
 } from "@/lib/profileGalleryVisibility";
 import { PROFILE_CONTENT_REFRESH_EVENT, PROFILE_FOLLOWERS_REFRESH_EVENT, PROFILE_META_REFRESH_EVENT } from "@/lib/profileContentRefresh";
 import { postIdsEqual } from "@/lib/postIds";
+import { useNotifications } from "@/components/NotificationsProvider";
 import { buildProfileMenuItems } from "@/lib/profileMenuItems";
 
 type ProfileData = {
@@ -61,6 +64,7 @@ function withTimeout<T>(promise: Promise<T>, message: string, timeoutMs = 6000):
 export default function ProfilePage() {
   const { t, locale } = useI18n();
   const router = useRouter();
+  const { unreadCount: notificationsUnreadCount } = useNotifications();
   const [profile, setProfile] = useState<ProfileData | null>(null);
   const [location, setLocation] = useState<ResolvedProfileLocation>({ countryName: null, cityName: null });
   const [session, setSession] = useState<Session | null>(null);
@@ -194,7 +198,10 @@ export default function ProfilePage() {
           return;
         }
 
-        setProfile(ensuredProfile.profile);
+        setProfile({
+          ...ensuredProfile.profile,
+          avatar_url: normalizeAvatarUrl(ensuredProfile.profile.avatar_url),
+        });
         setLoading(false);
 
         void loadProfileGalleryVisibility(session.user.id).then((visibility) => {
@@ -383,11 +390,12 @@ export default function ProfilePage() {
           .eq("id", activeSession.user.id)
           .maybeSingle();
 
-        if (data) {
-          setProfile((current) =>
-            current ? { ...current, avatar_url: data.avatar_url ?? null } : current
-          );
-        }
+        // Always apply — including explicit null after profile photo deletion.
+        setProfile((current) =>
+          current
+            ? { ...current, avatar_url: normalizeAvatarUrl(data?.avatar_url) }
+            : current
+        );
       })();
     };
 
@@ -419,10 +427,11 @@ export default function ProfilePage() {
       buildProfileMenuItems(
         {
           onSignOut: () => void handleSignOut(),
+          notificationsUnreadCount,
         },
         t
       ),
-    [handleSignOut, t]
+    [handleSignOut, notificationsUnreadCount, t]
   );
 
   return (
@@ -463,7 +472,8 @@ export default function ProfilePage() {
             {session?.user && !loading ? (
               <div className="profile-header-avatar">
                 <ProfileGalleryAvatarLink
-                  avatarUrl={profile?.avatar_url}
+                  key={normalizeAvatarUrl(profile?.avatar_url) ?? "no-avatar"}
+                  avatarUrl={normalizeAvatarUrl(profile?.avatar_url)}
                   ownerUserId={session.user.id}
                   viewerUserId={session.user.id}
                   visibility={galleryVisibility}
@@ -624,13 +634,12 @@ export default function ProfilePage() {
                     href={`/user?id=${person.id}`}
                     className="flex items-center gap-4 rounded-3xl border border-white/10 bg-slate-900 p-5 transition hover:border-cyan-300/40 hover:bg-slate-900/80"
                   >
-                    <div className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-full bg-slate-800 text-lg font-semibold text-white">
-                      {person.avatar_url ? (
-                        <img src={person.avatar_url} alt="" className="h-full w-full object-cover" />
-                      ) : (
-                        publicProfileUsername(person.username).charAt(0).toUpperCase()
-                      )}
-                    </div>
+                    <ProfileAvatar
+                      src={person.avatar_url}
+                      sizeClassName="h-14 w-14"
+                      iconClassName="h-6 w-6"
+                      className="bg-slate-800"
+                    />
                     <div className="min-w-0">
                       <p className="truncate text-base font-semibold text-white">{publicProfileUsername(person.username)}</p>
                       <p className="mt-1 text-sm text-slate-400">

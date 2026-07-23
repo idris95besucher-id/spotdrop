@@ -9,7 +9,7 @@ export default function ExploreNearbyCard() {
 
   return (
     <Link
-      href="/visit"
+      href="/visit?tab=explore"
       className="group flex items-center gap-4 rounded-2xl border border-white/[0.08] bg-card/80 px-4 py-4 transition hover:border-cyan-400/25 hover:bg-card"
     >
       <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-cyan-500/10 text-cyan-300 ring-1 ring-cyan-400/20">

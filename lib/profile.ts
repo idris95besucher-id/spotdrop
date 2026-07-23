@@ -23,7 +23,32 @@ type EnsureProfileOptions = {
   user: User;
   username?: string | null;
   dateOfBirth?: string | null;
+  country?: string | null;
+  city?: string | null;
+  cityId?: string | null;
 };
+
+function normalizeOptionalSlug(value: unknown) {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  return normalized.length > 0 ? normalized : null;
+}
+
+function normalizeOptionalId(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return String(value);
+  }
+
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const normalized = value.trim();
+  return normalized.length > 0 ? normalized : null;
+}
 
 export type EnsureProfileResult = {
   created: boolean;
@@ -87,7 +112,14 @@ async function loadProfileRecord(userId: string) {
   return legacy;
 }
 
-export async function ensureProfileRow({ user, username, dateOfBirth }: EnsureProfileOptions): Promise<EnsureProfileResult> {
+export async function ensureProfileRow({
+  user,
+  username,
+  dateOfBirth,
+  country,
+  city,
+  cityId,
+}: EnsureProfileOptions): Promise<EnsureProfileResult> {
   const { data: existingProfile, error: existingProfileError } = await loadProfileRecord(user.id);
 
   if (existingProfileError) {
@@ -111,6 +143,13 @@ export async function ensureProfileRow({ user, username, dateOfBirth }: EnsurePr
 
   const normalizedUsername = normalizeUsername(username ?? user.user_metadata?.username);
   const normalizedDateOfBirth = normalizeDateOfBirth(dateOfBirth ?? user.user_metadata?.date_of_birth);
+  const normalizedCountrySlug = normalizeOptionalSlug(
+    country ?? user.user_metadata?.country ?? user.user_metadata?.country_slug
+  );
+  const normalizedCitySlug = normalizeOptionalSlug(
+    city ?? user.user_metadata?.city ?? user.user_metadata?.city_slug
+  );
+  const normalizedCityId = normalizeOptionalId(cityId ?? user.user_metadata?.city_id);
 
   if (!normalizedUsername || !normalizedDateOfBirth) {
     return {
@@ -151,6 +190,9 @@ export async function ensureProfileRow({ user, username, dateOfBirth }: EnsurePr
     id: user.id,
     username: normalizedUsername,
     date_of_birth: normalizedDateOfBirth,
+    ...(normalizedCountrySlug ? { country_slug: normalizedCountrySlug } : {}),
+    ...(normalizedCitySlug ? { city_slug: normalizedCitySlug } : {}),
+    ...(normalizedCityId ? { city_id: normalizedCityId } : {}),
     updated_at: new Date().toISOString(),
   };
 

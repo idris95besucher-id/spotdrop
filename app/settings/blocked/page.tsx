@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { UserRound } from "lucide-react";
+import ProfileAvatar from "@/components/ProfileAvatar";
 import SettingsScreenLayout from "@/components/settings/SettingsScreenLayout";
 import { SettingsPageHeader } from "@/components/settings/SettingsUI";
 import { useI18n } from "@/components/I18nProvider";
@@ -94,13 +95,12 @@ export default function BlockedUsersPage() {
             <ul className="divide-y divide-white/[0.06]">
               {blockedProfiles.map((profile) => (
                 <li key={profile.id} className="flex items-center gap-3 px-4 py-3.5">
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full bg-white/[0.06]">
-                    {profile.avatar_url ? (
-                      <img src={profile.avatar_url} alt="" className="h-full w-full object-cover" />
-                    ) : (
-                      <UserRound className="h-4 w-4 text-muted" aria-hidden />
-                    )}
-                  </div>
+                  <ProfileAvatar
+                    src={profile.avatar_url}
+                    sizeClassName="h-10 w-10"
+                    iconClassName="h-4 w-4"
+                    className="bg-white/[0.06]"
+                  />
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium text-white">
                       {publicProfileUsername(profile.username)}

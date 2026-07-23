@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { Loader2, MapPinned, Share2, X } from "lucide-react";
+import ProfileAvatar from "@/components/ProfileAvatar";
 import ShareMapMarkSheet from "@/components/ShareMapMarkSheet";
 import { useI18n } from "@/components/I18nProvider";
 import { usePostViewerOptional } from "@/components/PostViewerProvider";
@@ -19,7 +20,6 @@ import {
   mapMarkCategoryLabelKey,
   normalizeMapMarkCategory,
 } from "@/lib/mapMarkCategories";
-import { mapMarkAvatarInitial } from "@/lib/mapMarkMarkers";
 import { getViewerSpotMediaUrl } from "@/lib/postViewer";
 import { pickSpotGalleryPhoto } from "@/lib/pickMediaFromGallery";
 import { loadSpotMessagePreview } from "@/lib/spotMessagePreview";
@@ -290,13 +290,12 @@ export default function MapMarkDetailSheet({
       >
         <div className="flex shrink-0 items-start justify-between gap-3 border-b border-white/10 px-4 py-3">
           <Link href={profileHref} onClick={onClose} className="flex min-w-0 items-center gap-3">
-            <span className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full border border-cyan-400/35 bg-slate-800 text-sm font-bold text-white">
-              {mark.avatar_url ? (
-                <img src={mark.avatar_url} alt="" className="h-full w-full object-cover" />
-              ) : (
-                mapMarkAvatarInitial(mark.username)
-              )}
-            </span>
+            <ProfileAvatar
+              src={mark.avatar_url}
+              sizeClassName="h-11 w-11"
+              iconClassName="h-5 w-5"
+              className="border border-cyan-400/35 bg-slate-800"
+            />
             <span className="min-w-0">
               <span className="block truncate text-sm font-semibold text-white">@{mark.username}</span>
               {createdLabel ? <span className="block text-xs text-slate-400">{createdLabel}</span> : null}

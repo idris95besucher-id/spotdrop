@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import { Check, ChevronLeft, Loader2, Search, Send, UserRound, Users } from "lucide-react";
+import { Check, ChevronLeft, Loader2, Search, Send, Users } from "lucide-react";
+import ProfileAvatar from "@/components/ProfileAvatar";
 import { useI18n } from "@/components/I18nProvider";
 import { localizeUserMessage } from "@/lib/i18n/localizeUserMessage";
 import type { CityRoomPlacePayload } from "@/lib/cityRoomPlaceMessage";
@@ -57,13 +58,12 @@ function RecipientSelectRow({
           : "border-white/10 bg-[#050816]/80 hover:bg-white/[0.04]"
       }`}
     >
-      <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/10 bg-slate-900">
-        {recipient.avatar_url ? (
-          <img src={recipient.avatar_url} alt="" className="h-full w-full object-cover" />
-        ) : (
-          <UserRound className="h-4 w-4 text-slate-400" strokeWidth={1.5} aria-hidden />
-        )}
-      </div>
+      <ProfileAvatar
+        src={recipient.avatar_url}
+        sizeClassName="h-10 w-10"
+        iconClassName="h-4 w-4"
+        className="border border-white/10"
+      />
       <span className="min-w-0 flex-1 truncate text-sm font-medium text-white">@{recipient.username}</span>
       <span
         className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border ${

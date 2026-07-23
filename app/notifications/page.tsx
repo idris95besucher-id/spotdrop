@@ -8,6 +8,7 @@ import { Bell, MessageCircle, MessageSquare, UserPlus } from "lucide-react";
 import { useI18n } from "@/components/I18nProvider";
 import MobileSecondaryHeader from "@/components/MobileSecondaryHeader";
 import { useNotifications } from "@/components/NotificationsProvider";
+import ProfileAvatar from "@/components/ProfileAvatar";
 import Shell from "@/components/Shell";
 import { getSafeAuthSession } from "@/lib/authSession";
 import {
@@ -19,6 +20,7 @@ import {
   NOTIFICATIONS_REFRESH_EVENT,
   type NotificationRow,
 } from "@/lib/notifications";
+import { publicProfileUsername } from "@/lib/publicProfile";
 import { supabase } from "@/lib/supabaseClient";
 
 function formatNotificationTime(createdAt: string) {
@@ -68,6 +70,12 @@ function NotificationListItem({
   onOpen: (notification: NotificationRow) => void;
 }) {
   const unread = !notification.read_at;
+  const isComment = notification.type === "post_comment";
+  const actorName = publicProfileUsername(
+    notification.actorUsername || copy.title || "Someone"
+  );
+  const useActorAvatar =
+    notification.type === "post_comment" || Boolean(notification.actor_id) || Boolean(notification.actorAvatarUrl);
 
   return (
     <li>
@@ -78,23 +86,61 @@ function NotificationListItem({
           unread ? "bg-primary/[0.06]" : "hover:bg-white/[0.03]"
         }`}
       >
-        <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/[0.06]">
-          {notificationIcon(notification.type)}
+        <div className="relative mt-0.5 shrink-0">
+          {useActorAvatar ? (
+            <ProfileAvatar
+              src={notification.actorAvatarUrl}
+              sizeClassName="h-11 w-11"
+              iconClassName="h-5 w-5"
+              className="bg-white/[0.06]"
+            />
+          ) : (
+            <span className="inline-flex h-11 w-11 items-center justify-center overflow-hidden rounded-full bg-white/[0.06]">
+              {notificationIcon(notification.type)}
+            </span>
+          )}
+          {unread ? (
+            <span
+              className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-primary ring-2 ring-[#070b1a]"
+              aria-hidden
+            />
+          ) : null}
         </div>
 
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline justify-between gap-2">
-            <p className={`truncate text-[15px] sm:text-base ${unread ? "font-bold text-white" : "font-semibold text-white"}`}>
-              {copy.title}
+            <p
+              className={`truncate text-[15px] sm:text-base ${
+                unread ? "font-bold text-white" : "font-semibold text-white"
+              }`}
+            >
+              {isComment ? actorName : copy.title}
             </p>
-            <time className={`shrink-0 text-xs ${unread ? "font-semibold text-primary" : "text-muted"}`}>
+            <time
+              className={`shrink-0 text-xs ${unread ? "font-semibold text-primary" : "text-muted"}`}
+            >
               {formatNotificationTime(notification.created_at)}
             </time>
           </div>
-          <p className={`mt-0.5 line-clamp-2 text-sm ${unread ? "font-medium text-slate-200" : "text-muted"}`}>
+          <p
+            className={`mt-0.5 line-clamp-2 text-sm ${
+              unread ? "font-medium text-slate-200" : "text-muted"
+            }`}
+          >
             {copy.body}
           </p>
         </div>
+
+        {isComment && notification.postThumbnailUrl ? (
+          <div className="mt-0.5 h-12 w-12 shrink-0 overflow-hidden rounded-lg bg-white/[0.06] ring-1 ring-white/10">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={notification.postThumbnailUrl}
+              alt=""
+              className="h-full w-full object-cover"
+            />
+          </div>
+        ) : null}
       </Link>
     </li>
   );

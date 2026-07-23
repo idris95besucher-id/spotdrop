@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Loader2, MessageCircle, UserRound } from "lucide-react";
+import { Loader2, MessageCircle } from "lucide-react";
+import ProfileAvatar from "@/components/ProfileAvatar";
 import { useI18n } from "@/components/I18nProvider";
 import { localizeError } from "@/lib/i18n/localizeError";
 import { filterRecipientsAllowedToMessage } from "@/lib/messagePrivacy";
@@ -247,13 +248,12 @@ export default function VisitNearbyPanel() {
               className="flex items-center gap-3 rounded-2xl border border-white/10 bg-slate-900/70 p-3"
             >
               <Link href={`/user?id=${user.user_id}`} className="flex min-w-0 flex-1 items-center gap-3">
-                <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full border border-cyan-400/30 bg-slate-800">
-                  {user.avatar_url ? (
-                    <img src={user.avatar_url} alt="" className="h-full w-full object-cover" />
-                  ) : (
-                    <UserRound className="h-5 w-5 text-slate-400" strokeWidth={1.5} aria-hidden />
-                  )}
-                </div>
+                <ProfileAvatar
+                  src={user.avatar_url}
+                  sizeClassName="h-12 w-12"
+                  iconClassName="h-5 w-5"
+                  className="border border-cyan-400/30 bg-slate-800"
+                />
                 <div className="min-w-0">
                   <p className="truncate text-sm font-semibold text-white">@{user.username}</p>
                   {place ? <p className="truncate text-xs text-slate-400">{place}</p> : null}

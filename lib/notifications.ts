@@ -20,7 +20,55 @@ export type NotificationRow = {
   metadata: Record<string, unknown>;
   read_at: string | null;
   created_at: string;
+  actorUsername?: string | null;
+  actorAvatarUrl?: string | null;
+  postThumbnailUrl?: string | null;
 };
+
+export function notificationPostId(notification: Pick<NotificationRow, "href" | "metadata" | "type">) {
+  if (notification.type !== "post_comment") {
+    return null;
+  }
+
+  const fromMeta = metadataString(notification.metadata ?? {}, "postId");
+  if (fromMeta) {
+    return fromMeta;
+  }
+
+  const match = notification.href.match(/^\/posts\/([^/?#]+)/);
+  return match?.[1] ?? null;
+}
+
+export function notificationCommentId(notification: Pick<NotificationRow, "href" | "metadata" | "type" | "source_id">) {
+  if (notification.type !== "post_comment") {
+    return null;
+  }
+
+  const fromMeta = metadataString(notification.metadata ?? {}, "commentId");
+  if (fromMeta) {
+    return fromMeta;
+  }
+
+  try {
+    const url = new URL(notification.href, "https://spotdrop.local");
+    const fromQuery = url.searchParams.get("commentId");
+    if (fromQuery) {
+      return fromQuery;
+    }
+  } catch {
+    // ignore malformed href
+  }
+
+  return notification.source_id || null;
+}
+
+export function buildPostCommentHref(postId: string, commentId?: string | null) {
+  const params = new URLSearchParams({ comments: "1" });
+  if (commentId) {
+    params.set("commentId", commentId);
+  }
+  return `/posts/${postId}?${params.toString()}`;
+}
 
 type TranslateFn = (key: TranslationKey, values?: Record<string, string | number>) => string;
 
@@ -68,12 +116,9 @@ export function buildNotificationCopy(
     }
     case "post_comment": {
       const name = publicProfileUsername(metadataString(metadata, "commenterUsername") || "Someone");
-      const preview = metadataString(metadata, "preview");
       return {
-        title: t("notifications.newComment"),
-        body: preview
-          ? t("notifications.commentedPreview", { name, preview })
-          : t("notifications.commented", { name }),
+        title: name,
+        body: t("notifications.commentedOnSpot"),
       };
     }
     case "room_message": {
@@ -143,10 +188,10 @@ export function buildNotificationPushPayload(notification: Pick<NotificationRow,
     }
     case "post_comment": {
       const name = publicProfileUsername(metadataString(metadata, "commenterUsername") || "Someone");
-      const preview = metadataString(metadata, "preview");
+      // Identify the commenter; do not include comment body (may be private/sensitive).
       return {
-        title: "New comment",
-        body: preview ? `${name}: ${preview}` : `${name} commented on your post`,
+        title: name,
+        body: "commented on your Spot",
       };
     }
     case "room_message": {
@@ -210,17 +255,87 @@ export async function fetchNotifications(userId: string, limit = 50) {
     return { notifications: [] as NotificationRow[], error: error.message };
   }
 
-  const notifications = (data ?? []).map((row) => ({
-    id: String(row.id),
-    user_id: String(row.user_id),
-    type: row.type as NotificationType,
-    actor_id: row.actor_id ? String(row.actor_id) : null,
-    href: String(row.href),
-    source_id: String(row.source_id),
-    metadata: (row.metadata as Record<string, unknown> | null) ?? {},
-    read_at: (row.read_at as string | null) ?? null,
-    created_at: String(row.created_at),
-  }));
+  const base = (data ?? []).map((row) => {
+    const metadata = (row.metadata as Record<string, unknown> | null) ?? {};
+    return {
+      id: String(row.id),
+      user_id: String(row.user_id),
+      type: row.type as NotificationType,
+      actor_id: row.actor_id ? String(row.actor_id) : null,
+      href: String(row.href),
+      source_id: String(row.source_id),
+      metadata,
+      read_at: (row.read_at as string | null) ?? null,
+      created_at: String(row.created_at),
+      postThumbnailUrl: metadataString(metadata, "postThumbnailUrl") || null,
+    };
+  });
+
+  const actorIds = [...new Set(base.map((row) => row.actor_id).filter(Boolean))] as string[];
+  const actorById = new Map<string, { username: string | null; avatar_url: string | null }>();
+
+  if (actorIds.length > 0) {
+    const { data: profiles } = await supabase
+      .from("profiles")
+      .select("id, username, avatar_url")
+      .in("id", actorIds);
+
+    for (const profile of profiles ?? []) {
+      actorById.set(String(profile.id), {
+        username: (profile.username as string | null) ?? null,
+        avatar_url: (profile.avatar_url as string | null) ?? null,
+      });
+    }
+  }
+
+  // Fill missing Spot thumbnails for older comment notifications.
+  const missingThumbPostIds = [
+    ...new Set(
+      base
+        .filter((row) => row.type === "post_comment" && !row.postThumbnailUrl)
+        .map((row) => notificationPostId(row))
+        .filter(Boolean)
+    ),
+  ] as string[];
+
+  const thumbByPostId = new Map<string, string | null>();
+
+  if (missingThumbPostIds.length > 0) {
+    const { data: posts } = await supabase
+      .from("posts")
+      .select("id, video_cover_url, thumbnail_url, image_url, media_url, media_type, video_url")
+      .in("id", missingThumbPostIds);
+
+    for (const post of posts ?? []) {
+      const thumb =
+        (post.video_cover_url as string | null)?.trim() ||
+        (post.thumbnail_url as string | null)?.trim() ||
+        (post.image_url as string | null)?.trim() ||
+        (post.media_url as string | null)?.trim() ||
+        null;
+      thumbByPostId.set(String(post.id), thumb);
+    }
+  }
+
+  const notifications: NotificationRow[] = base.map((row) => {
+    const actor = row.actor_id ? actorById.get(row.actor_id) : null;
+    const postId = notificationPostId(row);
+    const commentId = notificationCommentId(row);
+    const href =
+      row.type === "post_comment" && postId
+        ? buildPostCommentHref(postId, commentId)
+        : row.href;
+
+    return {
+      ...row,
+      href,
+      actorUsername:
+        actor?.username ?? (metadataString(row.metadata, "commenterUsername") || null),
+      actorAvatarUrl: actor?.avatar_url ?? null,
+      postThumbnailUrl:
+        row.postThumbnailUrl || (postId ? (thumbByPostId.get(postId) ?? null) : null),
+    };
+  });
 
   return { notifications, error: null as string | null };
 }

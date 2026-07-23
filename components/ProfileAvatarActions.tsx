@@ -3,8 +3,9 @@
 import { useEffect, useRef, useState } from "react";
 import type { ChangeEvent } from "react";
 import { flushSync } from "react-dom";
-import { Camera, Loader2, Sparkles, UserRound } from "lucide-react";
+import { Camera, Loader2, Sparkles } from "lucide-react";
 import { useI18n } from "@/components/I18nProvider";
+import ProfileAvatar from "@/components/ProfileAvatar";
 import StoryCameraFlow from "@/components/StoryCameraFlow";
 import StoryMediaSourceSheet from "@/components/StoryMediaSourceSheet";
 import { pickImageFromGallery, pickMediaFromGallery } from "@/lib/pickMediaFromGallery";
@@ -113,16 +114,7 @@ export default function ProfileAvatarActions({
   };
 
   const avatarSizeClass = tiny ? "h-12 w-12" : compact ? "h-14 w-14" : "h-24 w-24 sm:h-28 sm:w-28";
-
-  const avatarImage = avatarUrl ? (
-    <img src={avatarUrl} alt="" className="h-full w-full object-cover" />
-  ) : (
-    <UserRound
-      className={`text-slate-500 ${tiny ? "h-5 w-5" : compact ? "h-6 w-6" : "h-11 w-11 sm:h-12 sm:w-12"}`}
-      strokeWidth={1.25}
-      aria-hidden
-    />
-  );
+  const avatarIconClass = tiny ? "h-5 w-5" : compact ? "h-6 w-6" : "h-11 w-11 sm:h-12 sm:w-12";
 
   return (
     <>
@@ -134,11 +126,12 @@ export default function ProfileAvatarActions({
           aria-label="Profile photo actions"
           aria-expanded={menuOpen}
         >
-          <span
-            className={`flex ${avatarSizeClass} items-center justify-center overflow-hidden rounded-full border border-white/10 bg-slate-900 shadow-xl shadow-black/50`}
-          >
-            {avatarImage}
-          </span>
+          <ProfileAvatar
+            src={avatarUrl}
+            sizeClassName={avatarSizeClass}
+            iconClassName={avatarIconClass}
+            className="border border-white/10 shadow-xl shadow-black/50"
+          />
         </button>
 
         {menuOpen ? (
