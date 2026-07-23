@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { Play, Volume2, VolumeX } from "lucide-react";
 import SpotPanoramaImage from "@/components/SpotPanoramaImage";
+import ZoomableImage from "@/components/ZoomableImage";
 import { pauseAllGridVideoPreviews } from "@/lib/gridVideoPreviewControl";
 import { logSpotLoadUiFailure } from "@/lib/spotLoadDiagnostics";
 import { releasePreloadedReelVideo } from "@/lib/postViewerMedia";
@@ -51,6 +52,8 @@ type PostReelMediaProps = {
   audioMuted?: boolean;
   onLoadingChange?: (loading: boolean) => void;
   onPhaseChange?: (phase: SpotLoadPhase) => void;
+  /** Search Spot only — spring-back pinch zoom via shared ZoomableImage. */
+  enableImagePinchZoom?: boolean;
 };
 
 export default function PostReelMedia(props: PostReelMediaProps) {
@@ -88,6 +91,7 @@ function PostReelMediaImage({
   audioMuted = false,
   onLoadingChange,
   onPhaseChange,
+  enableImagePinchZoom = false,
 }: PostReelMediaProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const isActiveRef = useRef(isActive);
@@ -672,17 +676,36 @@ function PostReelMediaImage({
             imageReady ? "opacity-100" : "opacity-0"
           }`}
         >
-          <SpotPanoramaImage
-            src={playbackUrl}
-            alt={alt}
-            className="h-full w-full"
-            onLoad={() => {
-              setImageReady(true);
-              setPhase("loaded");
-              logSpotMedia("loaded", { mediaUrl: playbackUrl, mediaType: "image" });
-            }}
-            onError={() => setPhase("error")}
-          />
+          {enableImagePinchZoom ? (
+            <ZoomableImage
+              src={playbackUrl}
+              alt={alt}
+              className="h-full w-full"
+              imageClassName="h-full w-full"
+              objectFit="cover"
+              draggable={false}
+              loading={loadHeavyMedia ? "eager" : "lazy"}
+              decoding="async"
+              onLoad={() => {
+                setImageReady(true);
+                setPhase("loaded");
+                logSpotMedia("loaded", { mediaUrl: playbackUrl, mediaType: "image" });
+              }}
+              onError={() => setPhase("error")}
+            />
+          ) : (
+            <SpotPanoramaImage
+              src={playbackUrl}
+              alt={alt}
+              className="h-full w-full"
+              onLoad={() => {
+                setImageReady(true);
+                setPhase("loaded");
+                logSpotMedia("loaded", { mediaUrl: playbackUrl, mediaType: "image" });
+              }}
+              onError={() => setPhase("error")}
+            />
+          )}
         </div>
       ) : null}
 

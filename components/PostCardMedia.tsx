@@ -121,7 +121,9 @@ export default function PostCardMedia({
         loading="lazy"
         decoding="async"
         objectFit="cover"
-        imageClassName={`touch-manipulation ${imageClassName.replace(/object-(cover|contain)/g, "")} ${className}`}
+        // Do not put Tailwind touch-* classes on the img — ZoomableImage owns touch-action
+        // for iOS pinch (pan-y alone would block multi-touch in WKWebView).
+        imageClassName={`${imageClassName.replace(/object-(cover|contain)/g, "")} ${className}`}
         onError={() => setMediaFailed(true)}
       />
     );

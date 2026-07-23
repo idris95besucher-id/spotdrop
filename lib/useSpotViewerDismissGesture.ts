@@ -109,6 +109,11 @@ type UseSpotViewerDismissGestureOptions = {
   enableVerticalAxis?: boolean;
   /** Horizontal swipe-to-close. Vertical Spot viewer disables this (back button only). */
   enableHorizontalDismiss?: boolean;
+  /**
+   * When true, two-finger touches disengage this gesture (Search photo pinch-to-zoom).
+   * One-finger vertical paging / dismiss stay unchanged.
+   */
+  ignoreMultiTouch?: boolean;
   isVerticalSwipeLocked?: () => boolean;
   getCarouselGestureState?: () => SpotViewerCarouselGestureState | null;
   onVerticalDrag?: (offsetPx: number) => void;
@@ -126,6 +131,7 @@ export function useSpotViewerDismissGesture({
   gestureHost = null,
   enableVerticalAxis = false,
   enableHorizontalDismiss = true,
+  ignoreMultiTouch = false,
   isVerticalSwipeLocked,
   getCarouselGestureState,
   onVerticalDrag,
@@ -144,6 +150,7 @@ export function useSpotViewerDismissGesture({
   const onCloseRef = useRef(onClose);
   const enableVerticalAxisRef = useRef(enableVerticalAxis);
   const enableHorizontalDismissRef = useRef(enableHorizontalDismiss);
+  const ignoreMultiTouchRef = useRef(ignoreMultiTouch);
   const isVerticalSwipeLockedRef = useRef(isVerticalSwipeLocked);
   const getCarouselGestureStateRef = useRef(getCarouselGestureState);
   const onVerticalDragRef = useRef(onVerticalDrag);
@@ -154,6 +161,7 @@ export function useSpotViewerDismissGesture({
   onCloseRef.current = onClose;
   enableVerticalAxisRef.current = enableVerticalAxis;
   enableHorizontalDismissRef.current = enableHorizontalDismiss;
+  ignoreMultiTouchRef.current = ignoreMultiTouch;
   isVerticalSwipeLockedRef.current = isVerticalSwipeLocked;
   getCarouselGestureStateRef.current = getCarouselGestureState;
   onVerticalDragRef.current = onVerticalDrag;
@@ -256,6 +264,11 @@ export function useSpotViewerDismissGesture({
         return;
       }
 
+      if (ignoreMultiTouchRef.current && event.touches.length > 1) {
+        resetGesture();
+        return;
+      }
+
       const touch = event.touches[0];
 
       if (!touch) {
@@ -289,6 +302,10 @@ export function useSpotViewerDismissGesture({
       const start = touchStartRef.current;
 
       if (!start || isClosingRef.current || isBottomSheetScrollLocked()) {
+        return;
+      }
+
+      if (ignoreMultiTouchRef.current && event.touches.length > 1) {
         return;
       }
 

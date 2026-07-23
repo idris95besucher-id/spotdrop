@@ -84,6 +84,8 @@ type PostViewerSlideProps = {
   closeBeforeAuthorProfileNavigation?: boolean;
   /** Hides the Search Spot overlay (keeps it mounted) before opening the author profile. */
   onSuspendForAuthorProfileNavigation?: (authorUserId: string) => void;
+  /** Search Spot only — Instagram-style spring-back pinch zoom on photos. */
+  enableImagePinchZoom?: boolean;
 };
 
 function previewToPost(item: ViewerPostListItem): PostDetailRow {
@@ -121,6 +123,7 @@ export default function PostViewerSlide({
   onCarouselGestureStateChange,
   closeBeforeAuthorProfileNavigation = false,
   onSuspendForAuthorProfileNavigation,
+  enableImagePinchZoom = false,
 }: PostViewerSlideProps) {
   const router = useRouter();
   const { t, locale } = useI18n();
@@ -658,6 +661,7 @@ export default function PostViewerSlide({
             audioMuted={Boolean(post.audio_muted)}
             alt={viewerCaption ?? viewerTitle ?? spotTitle ?? ""}
             onLoadingChange={isActive ? onActiveMediaLoadingChange : undefined}
+            enableImagePinchZoom={enableImagePinchZoom}
           />
         </LocationCardViewerFrame>
       ) : showMediaLayer && hasCarousel ? (
@@ -669,6 +673,7 @@ export default function PostViewerSlide({
             onActiveIndexChange={setCarouselActiveIndex}
             viewerPlayback
             className="h-full w-full"
+            enableImagePinchZoom={enableImagePinchZoom}
           />
         </div>
       ) : showMediaLayer && mediaUrl && mediaType ? (
@@ -684,6 +689,7 @@ export default function PostViewerSlide({
             audioMuted={Boolean(post.audio_muted)}
             alt={viewerCaption ?? viewerTitle ?? spotTitle ?? ""}
             onLoadingChange={isActive ? onActiveMediaLoadingChange : undefined}
+            enableImagePinchZoom={enableImagePinchZoom}
           />
         </div>
       ) : showMediaLayer && posterUrl ? (
@@ -698,6 +704,7 @@ export default function PostViewerSlide({
             mediaPreload={mediaPreload}
             alt={viewerCaption ?? viewerTitle ?? spotTitle ?? ""}
             onLoadingChange={isActive ? onActiveMediaLoadingChange : undefined}
+            enableImagePinchZoom={enableImagePinchZoom}
           />
         </div>
       ) : showDetailLoading ? (

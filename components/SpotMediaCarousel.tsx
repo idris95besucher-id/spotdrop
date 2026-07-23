@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import SpotMediaCarouselIndicator from "@/components/SpotMediaCarouselIndicator";
 import SpotPanoramaImage from "@/components/SpotPanoramaImage";
+import ZoomableImage from "@/components/ZoomableImage";
 import type { SpotCarouselSlide } from "@/lib/spotCarouselTypes";
 
 export type { SpotCarouselSlide };
@@ -197,6 +198,8 @@ type SpotMediaCarouselProps = {
   showSwipeHint?: boolean;
   /** Unused — kept for call-site compatibility. Video always plays via CarouselVideoSlide. */
   viewerPlayback?: boolean;
+  /** Search Spot only — spring-back pinch zoom on photo slides. */
+  enableImagePinchZoom?: boolean;
 };
 
 function clampIndex(index: number, length: number) {
@@ -222,6 +225,7 @@ export default function SpotMediaCarousel({
   showIndicator = false,
   indicatorPlacement = "compact",
   showSwipeHint = false,
+  enableImagePinchZoom = false,
 }: SpotMediaCarouselProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const scrollSettleTimerRef = useRef<number | null>(null);
@@ -392,6 +396,14 @@ export default function SpotMediaCarousel({
             >
               {slide.mediaType === "video" ? (
                 <CarouselVideoSlide slide={slide} isActive={isActive} />
+              ) : enableImagePinchZoom ? (
+                <ZoomableImage
+                  src={slide.mediaUrl}
+                  className="h-full w-full"
+                  imageClassName="h-full w-full"
+                  objectFit="cover"
+                  draggable={false}
+                />
               ) : (
                 <SpotPanoramaImage
                   src={slide.mediaUrl}

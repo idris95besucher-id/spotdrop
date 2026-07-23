@@ -38,6 +38,8 @@ function midpoint(a: Point, b: Point): Point {
 type ZoomableImageProps = {
   src: string;
   alt?: string;
+  /** Optional classes on the outer touch target (e.g. h-full w-full in fullscreen viewers). */
+  className?: string;
   /** Sizing classes only — object-fit is controlled by `objectFit` so the full-screen overlay
    *  clone can reproduce it without inheriting any width/height classes meant for the in-feed box. */
   imageClassName?: string;
@@ -45,6 +47,7 @@ type ZoomableImageProps = {
   draggable?: boolean;
   loading?: "lazy" | "eager";
   decoding?: "async" | "sync" | "auto";
+  onLoad?: () => void;
   onError?: () => void;
 };
 
@@ -70,11 +73,13 @@ type ZoomableImageProps = {
 export default function ZoomableImage({
   src,
   alt = "",
+  className = "",
   imageClassName,
   objectFit = "cover",
   draggable = false,
   loading,
   decoding,
+  onLoad,
   onError,
 }: ZoomableImageProps) {
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -117,14 +122,20 @@ export default function ZoomableImage({
 
   const setClaimingGesture = useCallback((claiming: boolean) => {
     const wrapper = wrapperRef.current;
+    const img = imgRef.current;
+    // At rest: pan-y + pinch-zoom. Bare `pan-y` tells iOS WKWebView that pinch is not an
+    // allowed gesture, so multi-touch never reaches JS inside overflow scrollers.
+    // Viewport is user-scalable=false, so pinch-zoom here does not scale the page.
+    // While claiming: none so the browser cannot steal the active pinch/pan.
+    const next = claiming ? "none" : "pan-y pinch-zoom";
 
-    if (!wrapper) {
-      return;
+    if (wrapper) {
+      wrapper.style.touchAction = next;
     }
 
-    // pan-y while at rest so vertical feed scroll and swipe-back keep working untouched;
-    // none only for the lifetime of an active pinch/pan so the browser never fights it.
-    wrapper.style.touchAction = claiming ? "none" : "pan-y";
+    if (img) {
+      img.style.touchAction = next;
+    }
   }, []);
 
   const closeOverlay = useCallback(() => {
@@ -196,6 +207,10 @@ export default function ZoomableImage({
         const p1 = clientPoint(touches[1]!);
         const mid = midpoint(p0, p1);
 
+        // Claim in capture before the profile feed's UIScrollView / swipe-close
+        // can swallow the multi-touch sequence on iOS.
+        event.preventDefault();
+
         // A brand-new pinch (not a third finger joining one already in progress) opens the
         // full-screen overlay and anchors the zoom exactly on the fingers' current midpoint.
         if (gestureRef.current?.mode !== "pinch") {
@@ -212,7 +227,6 @@ export default function ZoomableImage({
         setClaimingGesture(true);
         setBackdropOpacity(MAX_BACKDROP_OPACITY, true);
         applyOverlayTransform(false);
-        event.preventDefault();
         return;
       }
 
@@ -309,16 +323,21 @@ export default function ZoomableImage({
       closeOverlay();
     };
 
-    wrapper.addEventListener("touchstart", handleTouchStart, { passive: false });
-    wrapper.addEventListener("touchmove", handleTouchMove, { passive: false });
-    wrapper.addEventListener("touchend", handleTouchEnd, { passive: true });
-    wrapper.addEventListener("touchcancel", handleTouchCancel, { passive: true });
+    // Capture + non-passive: required on iOS so preventDefault runs before the
+    // enclosing profile feed scroller claims the multi-touch gesture.
+    const activeOpts: AddEventListenerOptions = { capture: true, passive: false };
+    const endOpts: AddEventListenerOptions = { capture: true, passive: true };
+
+    wrapper.addEventListener("touchstart", handleTouchStart, activeOpts);
+    wrapper.addEventListener("touchmove", handleTouchMove, activeOpts);
+    wrapper.addEventListener("touchend", handleTouchEnd, endOpts);
+    wrapper.addEventListener("touchcancel", handleTouchCancel, endOpts);
 
     return () => {
-      wrapper.removeEventListener("touchstart", handleTouchStart);
-      wrapper.removeEventListener("touchmove", handleTouchMove);
-      wrapper.removeEventListener("touchend", handleTouchEnd);
-      wrapper.removeEventListener("touchcancel", handleTouchCancel);
+      wrapper.removeEventListener("touchstart", handleTouchStart, activeOpts);
+      wrapper.removeEventListener("touchmove", handleTouchMove, activeOpts);
+      wrapper.removeEventListener("touchend", handleTouchEnd, endOpts);
+      wrapper.removeEventListener("touchcancel", handleTouchCancel, endOpts);
     };
   }, [applyOverlayTransform, closeOverlay, openOverlay, setBackdropOpacity, setClaimingGesture]);
 
@@ -337,7 +356,11 @@ export default function ZoomableImage({
 
   return (
     <>
-      <div ref={wrapperRef} className="relative" style={{ touchAction: "pan-y" }}>
+      <div
+        ref={wrapperRef}
+        className={`relative ${className}`.trim()}
+        style={{ touchAction: "pan-y pinch-zoom" }}
+      >
         <img
           ref={imgRef}
           src={src}
@@ -345,8 +368,9 @@ export default function ZoomableImage({
           draggable={draggable}
           loading={loading}
           decoding={decoding}
+          onLoad={onLoad}
           onError={onError}
-          style={{ objectFit }}
+          style={{ objectFit, touchAction: "pan-y pinch-zoom" }}
           className={`select-none ${imageClassName ?? ""}`}
         />
       </div>

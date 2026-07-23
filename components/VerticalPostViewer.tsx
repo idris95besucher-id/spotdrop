@@ -404,6 +404,8 @@ export default function VerticalPostViewer({
     gestureHost,
     enableVerticalAxis: true,
     enableHorizontalDismiss: false,
+    // Search-reel only: let ZoomableImage own two-finger pinch.
+    ignoreMultiTouch: closeBeforeAuthorProfileNavigation,
     isVerticalSwipeLocked: isSwipeLocked,
     getCarouselGestureState,
     getSwipeDebugContext,
@@ -755,6 +757,7 @@ export default function VerticalPostViewer({
                   onCarouselGestureStateChange={handleCarouselGestureStateChange}
                   closeBeforeAuthorProfileNavigation={closeBeforeAuthorProfileNavigation}
                   onSuspendForAuthorProfileNavigation={suspendForAuthorProfileNavigation}
+                  enableImagePinchZoom={closeBeforeAuthorProfileNavigation}
                 />
               </div>
             );
