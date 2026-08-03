@@ -496,46 +496,14 @@ export default function ProfilePage() {
             )}
 
             {!loading && profile?.username ? (
-              profile?.is_official === true ? (
-                <div className="profile-header-rise flex items-center justify-center gap-1.5">
-                  <h1 className="max-w-full">
-                    <UsernameWithVerification
-                      username={publicProfileUsername(profile.username)}
-                      isVerified={profile.is_verified}
-                      className="text-base font-semibold text-white"
-                      iconSize={15}
-                    />
-                  </h1>
-                  <svg
-                    viewBox="0 0 24 24"
-                    className="h-5 w-5 shrink-0"
-                    role="img"
-                    aria-label="Official verified account"
-                  >
-                    <path
-                      fill="#1687F8"
-                      d="M23 12l-2.44-2.79.34-3.69-3.61-.82L15.4 1.5 12 2.96 8.6 1.5 6.71 4.69 3.1 5.51l.34 3.69L1 12l2.44 2.8-.34 3.69 3.61.82L8.6 22.5 12 21.04l3.4 1.46 1.89-3.19 3.61-.82-.34-3.69L23 12z"
-                    />
-                    <path
-                      d="m8.6 12.2 2.15 2.15 4.65-4.7"
-                      fill="none"
-                      stroke="#FFFFFF"
-                      strokeWidth="2.1"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
-                </div>
-              ) : (
-                <h1 className="profile-header-rise max-w-full">
-                  <UsernameWithVerification
-                    username={publicProfileUsername(profile.username)}
-                    isVerified={profile.is_verified}
-                    className="text-base font-semibold text-white"
-                    iconSize={15}
-                  />
-                </h1>
-              )
+              <h1 className="profile-header-rise max-w-full">
+                <UsernameWithVerification
+                  username={publicProfileUsername(profile.username)}
+                  isVerified={profile.is_verified}
+                  className="text-base font-semibold text-white"
+                  iconSize={15}
+                />
+              </h1>
             ) : null}
 
             {session?.user && !loading && !error && profile?.is_official !== true ? (

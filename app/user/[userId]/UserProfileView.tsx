@@ -459,46 +459,14 @@ export default function UserPage({ userIdOverride }: { userIdOverride?: string }
                 </div>
 
                 <div className="profile-header-rise min-w-0 w-full space-y-1.5 sm:space-y-2">
-                  {profile.is_official === true ? (
-                    <div className="flex items-center gap-1.5 sm:justify-center">
-                      <h1 className="min-w-0 max-w-full">
-                        <UsernameWithVerification
-                          username={profile.name?.trim() || profile.username}
-                          isVerified={profile.is_verified}
-                          className="text-2xl font-semibold tracking-tight text-white sm:text-4xl"
-                          iconSize={18}
-                        />
-                      </h1>
-                      <svg
-                        viewBox="0 0 24 24"
-                        className="h-5 w-5 shrink-0"
-                        role="img"
-                        aria-label="Official verified account"
-                      >
-                        <path
-                          fill="#1687F8"
-                          d="M23 12l-2.44-2.79.34-3.69-3.61-.82L15.4 1.5 12 2.96 8.6 1.5 6.71 4.69 3.1 5.51l.34 3.69L1 12l2.44 2.8-.34 3.69 3.61.82L8.6 22.5 12 21.04l3.4 1.46 1.89-3.19 3.61-.82-.34-3.69L23 12z"
-                        />
-                        <path
-                          d="m8.6 12.2 2.15 2.15 4.65-4.7"
-                          fill="none"
-                          stroke="#FFFFFF"
-                          strokeWidth="2.1"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        />
-                      </svg>
-                    </div>
-                  ) : (
-                    <h1 className="max-w-full sm:mx-auto sm:w-fit">
-                      <UsernameWithVerification
-                        username={profile.name?.trim() || profile.username}
-                        isVerified={profile.is_verified}
-                        className="text-2xl font-semibold tracking-tight text-white sm:text-4xl"
-                        iconSize={18}
-                      />
-                    </h1>
-                  )}
+                  <h1 className="max-w-full sm:mx-auto sm:w-fit">
+                    <UsernameWithVerification
+                      username={profile.name?.trim() || profile.username}
+                      isVerified={profile.is_verified}
+                      className="text-2xl font-semibold tracking-tight text-white sm:text-4xl"
+                      iconSize={18}
+                    />
+                  </h1>
                   <p className="text-sm font-medium text-slate-500 sm:text-center">@{profile.username}</p>
                   {!isOwnProfile && targetFollowsViewer ? (
                     <p className="text-xs font-semibold uppercase tracking-wide text-cyan-300/90 sm:text-center">
