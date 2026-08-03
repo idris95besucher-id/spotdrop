@@ -24,6 +24,7 @@ export type CoreTranslationKey =
   | "common.close"
   | "common.back"
   | "profile.myProfile"
+  | "profile.officialProfile"
   | "profile.follow"
   | "profile.unfollow"
   | "profile.message"
@@ -373,6 +374,7 @@ const CORE_EN: CoreMessageTable = {
   "common.close": "Close",
   "common.back": "Back",
   "profile.myProfile": "My profile",
+  "profile.officialProfile": "Official profile",
   "profile.follow": "Follow",
   "profile.unfollow": "Unfollow",
   "profile.message": "Message",
@@ -720,6 +722,7 @@ const CORE_RU: CoreMessageTable = {
   "common.close": "Закрыть",
   "common.back": "Назад",
   "profile.myProfile": "Мой профиль",
+  "profile.officialProfile": "Официальный профиль",
   "profile.follow": "Подписаться",
   "profile.unfollow": "Отписаться",
   "profile.message": "Написать",
@@ -1067,6 +1070,7 @@ const CORE_DE: CoreMessageTable = {
   "common.close": "Schließen",
   "common.back": "Zurück",
   "profile.myProfile": "Mein Profil",
+  "profile.officialProfile": "Offizielles Profil",
   "profile.follow": "Folgen",
   "profile.unfollow": "Entfolgen",
   "profile.message": "Nachricht",

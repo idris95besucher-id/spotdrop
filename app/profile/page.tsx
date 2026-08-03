@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Menu } from "lucide-react";
+import { BadgeCheck, Menu } from "lucide-react";
 import ProfileAvatar from "@/components/ProfileAvatar";
 import ProfileGalleryAvatarLink from "@/components/profile/ProfileGalleryAvatarLink";
 import { normalizeAvatarUrl } from "@/lib/avatarUrl";
@@ -50,6 +50,7 @@ type ProfileData = {
   country_slug?: string | null;
   city_slug?: string | null;
   city_id?: string | null;
+  is_official?: boolean | null;
 };
 
 function withTimeout<T>(promise: Promise<T>, message: string, timeoutMs = 6000): Promise<T> {
@@ -488,6 +489,13 @@ export default function ProfilePage() {
               <h1 className="profile-header-rise max-w-full truncate text-base font-semibold text-white">
                 {publicProfileUsername(profile.username)}
               </h1>
+            ) : null}
+
+            {!loading && profile?.is_official === true ? (
+              <div className="profile-header-rise flex items-center gap-1 text-xs font-medium text-primary">
+                <BadgeCheck className="h-3.5 w-3.5" strokeWidth={2} aria-hidden />
+                <span>{t("profile.officialProfile")}</span>
+              </div>
             ) : null}
 
             {session?.user && !loading && !error ? (

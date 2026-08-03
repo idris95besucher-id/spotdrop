@@ -17,6 +17,7 @@ export type ProfileRecord = {
   country_slug?: string | null;
   city_slug?: string | null;
   city_id?: string | null;
+  is_official?: boolean | null;
 };
 
 type EnsureProfileOptions = {
@@ -58,7 +59,7 @@ export type EnsureProfileResult = {
 };
 
 const PROFILE_SELECT_WITH_LOCATION =
-  "id, name, username, gender, avatar_url, cover_url, bio, country_slug, city_slug, city_id, age_years";
+  "id, name, username, gender, avatar_url, cover_url, bio, country_slug, city_slug, city_id, age_years, is_official";
 const PROFILE_SELECT_LEGACY =
   "id, name, username, gender, date_of_birth, avatar_url, cover_url, bio, country_slug, city_slug, city_id";
 

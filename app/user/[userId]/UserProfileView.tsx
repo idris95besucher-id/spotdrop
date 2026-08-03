@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import { MoreVertical, UserMinus } from "lucide-react";
+import { BadgeCheck, MoreVertical, UserMinus } from "lucide-react";
 import { useI18n } from "@/components/I18nProvider";
 import { localizeError } from "@/lib/i18n/localizeError";
 import { getSafeAuthSession } from "@/lib/authSession";
@@ -51,6 +51,7 @@ type Profile = {
   city_slug?: string | null;
   city_id?: string | null;
   gallery_visibility?: ProfileGalleryVisibility | null;
+  is_official?: boolean | null;
 };
 
 function isUuid(value: string) {
@@ -64,7 +65,7 @@ async function loadPublicProfile(profileParam: string) {
   };
 
   const primaryResult = await loadWithSelect(
-    "id, name, username, avatar_url, bio, country_slug, city_slug, city_id, gallery_visibility"
+    "id, name, username, avatar_url, bio, country_slug, city_slug, city_id, gallery_visibility, is_official"
   );
 
     if (primaryResult.error?.code !== "42703") {
@@ -448,6 +449,12 @@ export default function UserPage({ userIdOverride }: { userIdOverride?: string }
                     {profile.name?.trim() || profile.username}
                   </h1>
                   <p className="text-sm font-medium text-slate-500 sm:text-center">@{profile.username}</p>
+                  {profile.is_official === true ? (
+                    <div className="flex items-center gap-1 text-xs font-medium text-primary sm:justify-center">
+                      <BadgeCheck className="h-3.5 w-3.5" strokeWidth={2} aria-hidden />
+                      <span>{t("profile.officialProfile")}</span>
+                    </div>
+                  ) : null}
                   {!isOwnProfile && targetFollowsViewer ? (
                     <p className="text-xs font-semibold uppercase tracking-wide text-cyan-300/90 sm:text-center">
                       {t("profile.followsYou")}
