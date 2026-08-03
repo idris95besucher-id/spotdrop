@@ -152,6 +152,10 @@ type ProfileContentGridPanelProps = {
   loading?: boolean;
   emptyPostsMessage?: string;
   emptySpotsMessage?: string;
+  /** Overrides the empty-state subtitle. Defaults to t("profile.noPostsYetSubtitle") when omitted. */
+  emptySpotsSubtitle?: string;
+  /** Fully replaces the built-in empty-state (icon + title + subtitle) when provided. */
+  emptyState?: ReactNode;
   viewerUserId?: string | null;
   onPostDeleted?: (postId: string) => void;
   viewerAuthor?: ViewerPostAuthor | null;
@@ -168,6 +172,8 @@ export function ProfileContentGridPanel({
   loading = false,
   emptyPostsMessage,
   emptySpotsMessage,
+  emptySpotsSubtitle,
+  emptyState,
   viewerUserId = null,
   onPostDeleted,
   viewerAuthor = null,
@@ -191,6 +197,8 @@ export function ProfileContentGridPanel({
       loading={loading}
       emptyPostsMessage={emptyPostsMessage}
       emptySpotsMessage={emptySpotsMessage}
+      emptySpotsSubtitle={emptySpotsSubtitle}
+      emptyState={emptyState}
       viewerUserId={viewerUserId}
       onPostDeleted={onPostDeleted}
       viewerAuthor={viewerAuthor}
@@ -205,6 +213,8 @@ function ProfilePostsGrid({
   loading = false,
   emptyPostsMessage,
   emptySpotsMessage,
+  emptySpotsSubtitle,
+  emptyState,
   onPostDeleted,
   viewerAuthor = null,
 }: {
@@ -214,6 +224,8 @@ function ProfilePostsGrid({
   loading?: boolean;
   emptyPostsMessage?: string;
   emptySpotsMessage?: string;
+  emptySpotsSubtitle?: string;
+  emptyState?: ReactNode;
   viewerUserId?: string | null;
   onPostDeleted?: (postId: string) => void;
   viewerAuthor?: ViewerPostAuthor | null;
@@ -245,6 +257,10 @@ function ProfilePostsGrid({
   }
 
   if (activeItems.length === 0) {
+    if (emptyState) {
+      return <div className={MOBILE_WIDTH_SAFE_CLASS}>{emptyState}</div>;
+    }
+
     const emptyTitle =
       mode === "posts"
         ? (emptyPostsMessage ?? t("profile.noPostsYet"))
@@ -257,7 +273,7 @@ function ProfilePostsGrid({
         <LayoutGrid className="h-9 w-9 text-slate-500" strokeWidth={1.5} aria-hidden />
         <p className="mt-4 text-[15px] font-semibold text-white">{emptyTitle}</p>
         <p className="mt-1.5 max-w-[16rem] text-[13px] leading-relaxed text-muted">
-          {t("profile.noPostsYetSubtitle")}
+          {emptySpotsSubtitle ?? t("profile.noPostsYetSubtitle")}
         </p>
       </div>
     );
@@ -744,6 +760,10 @@ type ProfileContentTabsProps = {
   loading?: boolean;
   emptyPostsMessage?: string;
   emptySpotsMessage?: string;
+  /** Overrides the empty-state subtitle. Defaults to t("profile.noPostsYetSubtitle") when omitted. */
+  emptySpotsSubtitle?: string;
+  /** Fully replaces the built-in empty-state (icon + title + subtitle) when provided. */
+  emptyState?: ReactNode;
   viewerUserId?: string | null;
   onPostDeleted?: (postId: string) => void;
   viewerAuthor?: ViewerPostAuthor | null;
@@ -764,6 +784,8 @@ export default function ProfileContentTabs({
   loading = false,
   emptyPostsMessage,
   emptySpotsMessage,
+  emptySpotsSubtitle,
+  emptyState,
   viewerUserId = null,
   onPostDeleted,
   viewerAuthor = null,
@@ -791,6 +813,8 @@ export default function ProfileContentTabs({
       loading={loading}
       emptyPostsMessage={emptyPostsMessage}
       emptySpotsMessage={emptySpotsMessage}
+      emptySpotsSubtitle={emptySpotsSubtitle}
+      emptyState={emptyState}
       viewerUserId={viewerUserId}
       onPostDeleted={onPostDeleted}
       viewerAuthor={viewerAuthor}

@@ -123,6 +123,13 @@ export type CoreTranslationKey =
   | "menu.channelsDesc"
   | "profile.noPostsYet"
   | "profile.noPostsYetSubtitle"
+  | "profile.officialNoPostsYet"
+  | "profile.officialNoPostsYetSubtitle"
+  | "profile.officialChannelCardTitle"
+  | "profile.officialChannelCardDescription"
+  | "profile.officialChannelCardButton"
+  | "officialChannel.postingRestriction"
+  | "officialChannel.comingSoon"
   | "profile.noPublicSpotsYet"
   | "profile.loading"
   | "profile.updating"
@@ -473,6 +480,13 @@ const CORE_EN: CoreMessageTable = {
   "menu.channelsDesc": "Your curated channels",
   "profile.noPostsYet": "No posts yet",
   "profile.noPostsYetSubtitle": "Your published posts will appear here.",
+  "profile.officialNoPostsYet": "No official posts yet",
+  "profile.officialNoPostsYetSubtitle": "Official SpotDrop posts will appear here.",
+  "profile.officialChannelCardTitle": "SpotDrop Official",
+  "profile.officialChannelCardDescription": "News, updates, and official announcements from SpotDrop.",
+  "profile.officialChannelCardButton": "Open channel",
+  "officialChannel.postingRestriction": "Only SpotDrop can post messages.",
+  "officialChannel.comingSoon": "Official SpotDrop news and updates will appear here soon.",
   "profile.noPublicSpotsYet": "No public spots yet",
   "profile.loading": "Loading profile…",
   "profile.updating": "Updating…",
@@ -821,6 +835,13 @@ const CORE_RU: CoreMessageTable = {
   "menu.channelsDesc": "Ваши тематические каналы",
   "profile.noPostsYet": "Пока нет постов",
   "profile.noPostsYetSubtitle": "Ваши опубликованные посты появятся здесь.",
+  "profile.officialNoPostsYet": "Пока нет официальных публикаций",
+  "profile.officialNoPostsYetSubtitle": "Официальные публикации SpotDrop появятся здесь.",
+  "profile.officialChannelCardTitle": "SpotDrop Official",
+  "profile.officialChannelCardDescription": "Новости, обновления и официальные объявления SpotDrop.",
+  "profile.officialChannelCardButton": "Открыть канал",
+  "officialChannel.postingRestriction": "Только SpotDrop может публиковать сообщения.",
+  "officialChannel.comingSoon": "Скоро здесь появятся официальные новости и обновления SpotDrop.",
   "profile.noPublicSpotsYet": "Пока нет публичных мест",
   "profile.loading": "Загрузка профиля…",
   "profile.updating": "Обновление…",
@@ -1169,6 +1190,13 @@ const CORE_DE: CoreMessageTable = {
   "menu.channelsDesc": "Deine kuratierten Kanäle",
   "profile.noPostsYet": "Noch keine Beiträge",
   "profile.noPostsYetSubtitle": "Deine veröffentlichten Beiträge erscheinen hier.",
+  "profile.officialNoPostsYet": "Noch keine offiziellen Beiträge",
+  "profile.officialNoPostsYetSubtitle": "Offizielle SpotDrop-Beiträge erscheinen hier.",
+  "profile.officialChannelCardTitle": "SpotDrop Official",
+  "profile.officialChannelCardDescription": "Neuigkeiten, Updates und offizielle Ankündigungen von SpotDrop.",
+  "profile.officialChannelCardButton": "Kanal öffnen",
+  "officialChannel.postingRestriction": "Nur SpotDrop kann Nachrichten veröffentlichen.",
+  "officialChannel.comingSoon": "Offizielle SpotDrop-Neuigkeiten und Updates erscheinen hier bald.",
   "profile.noPublicSpotsYet": "Noch keine öffentlichen Spots",
   "profile.loading": "Profil wird geladen…",
   "profile.updating": "Wird aktualisiert…",

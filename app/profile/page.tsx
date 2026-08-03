@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { BadgeCheck, Menu } from "lucide-react";
+import { Megaphone, Menu } from "lucide-react";
 import ProfileAvatar from "@/components/ProfileAvatar";
 import ProfileGalleryAvatarLink from "@/components/profile/ProfileGalleryAvatarLink";
 import { normalizeAvatarUrl } from "@/lib/avatarUrl";
@@ -472,33 +472,61 @@ export default function ProfilePage() {
           <div className="flex flex-col items-center gap-0.5">
             {session?.user && !loading ? (
               <div className="profile-header-avatar">
-                <ProfileGalleryAvatarLink
-                  key={normalizeAvatarUrl(profile?.avatar_url) ?? "no-avatar"}
-                  avatarUrl={normalizeAvatarUrl(profile?.avatar_url)}
-                  ownerUserId={session.user.id}
-                  viewerUserId={session.user.id}
-                  visibility={galleryVisibility}
-                  showLabel
-                />
+                {profile?.is_official === true ? (
+                  <ProfileAvatar
+                    src={normalizeAvatarUrl(profile?.avatar_url)}
+                    sizeClassName="h-14 w-14"
+                    className="border border-white/10 shadow-xl shadow-black/50"
+                  />
+                ) : (
+                  <ProfileGalleryAvatarLink
+                    key={normalizeAvatarUrl(profile?.avatar_url) ?? "no-avatar"}
+                    avatarUrl={normalizeAvatarUrl(profile?.avatar_url)}
+                    ownerUserId={session.user.id}
+                    viewerUserId={session.user.id}
+                    visibility={galleryVisibility}
+                    showLabel
+                  />
+                )}
               </div>
             ) : (
               <div className="flex h-14 w-14 items-center justify-center overflow-hidden rounded-full border border-primary/20 bg-card shadow-lg shadow-primary/10" />
             )}
 
             {!loading && profile?.username ? (
-              <h1 className="profile-header-rise max-w-full truncate text-base font-semibold text-white">
-                {publicProfileUsername(profile.username)}
-              </h1>
+              profile?.is_official === true ? (
+                <div className="profile-header-rise flex items-center justify-center gap-1.5">
+                  <h1 className="max-w-full truncate text-base font-semibold text-white">
+                    {publicProfileUsername(profile.username)}
+                  </h1>
+                  <svg
+                    viewBox="0 0 24 24"
+                    className="h-5 w-5 shrink-0"
+                    role="img"
+                    aria-label="Official verified account"
+                  >
+                    <path
+                      fill="#1687F8"
+                      d="M23 12l-2.44-2.79.34-3.69-3.61-.82L15.4 1.5 12 2.96 8.6 1.5 6.71 4.69 3.1 5.51l.34 3.69L1 12l2.44 2.8-.34 3.69 3.61.82L8.6 22.5 12 21.04l3.4 1.46 1.89-3.19 3.61-.82-.34-3.69L23 12z"
+                    />
+                    <path
+                      d="m8.6 12.2 2.15 2.15 4.65-4.7"
+                      fill="none"
+                      stroke="#FFFFFF"
+                      strokeWidth="2.1"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                </div>
+              ) : (
+                <h1 className="profile-header-rise max-w-full truncate text-base font-semibold text-white">
+                  {publicProfileUsername(profile.username)}
+                </h1>
+              )
             ) : null}
 
-            {!loading && profile?.is_official === true ? (
-              <div className="profile-header-rise flex items-center gap-1 text-xs font-medium text-primary">
-                <BadgeCheck className="h-3.5 w-3.5" strokeWidth={2} aria-hidden />
-                <span>{t("profile.officialProfile")}</span>
-              </div>
-            ) : null}
-
-            {session?.user && !loading && !error ? (
+            {session?.user && !loading && !error && profile?.is_official !== true ? (
               <div className="profile-header-rise-delay mt-2 grid w-full grid-cols-3 items-center">
                 <button
                   type="button"
@@ -552,9 +580,15 @@ export default function ProfilePage() {
             ) : null}
 
             {profile?.bio ? (
-              <p className="profile-header-rise-delay max-w-sm line-clamp-1 text-[11px] leading-snug text-slate-400">
-                {profile.bio}
-              </p>
+              profile?.is_official === true ? (
+                <p className="profile-header-rise-delay mx-auto mt-3 max-w-[340px] text-center text-[17px] leading-6 text-slate-300">
+                  {profile.bio}
+                </p>
+              ) : (
+                <p className="profile-header-rise-delay max-w-sm line-clamp-1 text-[11px] leading-snug text-slate-400">
+                  {profile.bio}
+                </p>
+              )
             ) : null}
 
             {locationLine ? (
@@ -588,7 +622,13 @@ export default function ProfilePage() {
                 </Link>
               </div>
             ) : (
-              <div className="profile-header-rise-delay-2 flex flex-wrap items-center justify-center gap-1.5">
+              <div
+                className={
+                  profile?.is_official === true
+                    ? "profile-header-rise-delay-2 mt-5 flex flex-wrap items-center justify-center gap-4"
+                    : "profile-header-rise-delay-2 flex flex-wrap items-center justify-center gap-1.5"
+                }
+              >
                 <Link
                   href="/profile/edit"
                   className="inline-flex shrink-0 items-center justify-center rounded-full border border-white/15 px-3 py-1 text-[11px] font-medium text-slate-200 transition hover:border-white/25 hover:bg-white/5 hover:text-white"
@@ -678,13 +718,35 @@ export default function ProfilePage() {
             <ProfileContentTabs
               stickyTabBar
               compact
-              showPrivateTabs
+              showPrivateTabs={!profile?.is_official}
               activeTab={activeContentTab}
               onTabChange={setActiveContentTab}
               personalPosts={personalPosts}
               spotPosts={spotPosts}
               loading={loadingPosts}
-              emptySpotsMessage={t("profile.noPostsYet")}
+              emptySpotsMessage={profile?.is_official ? t("profile.officialNoPostsYet") : t("profile.noPostsYet")}
+              emptySpotsSubtitle={profile?.is_official ? t("profile.officialNoPostsYetSubtitle") : undefined}
+              emptyState={
+                profile?.is_official === true ? (
+                  <div className="mx-5">
+                    <Link
+                      href="/official-channel"
+                      className="profile-header-enter mx-auto flex max-w-[420px] flex-col items-center justify-center gap-3 rounded-[28px] border border-primary/15 bg-slate-900/60 px-6 py-8 text-center transition active:scale-[0.99] active:bg-slate-900/80"
+                    >
+                      <div className="flex h-14 w-14 items-center justify-center rounded-full bg-primary/10">
+                        <Megaphone className="h-7 w-7 text-primary" strokeWidth={1.75} aria-hidden />
+                      </div>
+                      <p className="text-[15px] font-semibold text-white">{t("profile.officialChannelCardTitle")}</p>
+                      <p className="max-w-[16rem] text-[13px] leading-relaxed text-muted">
+                        {t("profile.officialChannelCardDescription")}
+                      </p>
+                      <span className="mt-1 inline-flex items-center justify-center rounded-full bg-primary px-5 py-2 text-xs font-semibold text-background transition hover:brightness-110">
+                        {t("profile.officialChannelCardButton")}
+                      </span>
+                    </Link>
+                  </div>
+                ) : undefined
+              }
               viewerUserId={session.user.id}
               onPostDeleted={handlePostDeleted}
               viewerAuthor={
