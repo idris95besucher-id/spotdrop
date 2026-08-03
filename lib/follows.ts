@@ -4,6 +4,7 @@ import { supabase } from "@/lib/supabaseClient";
 export type FollowProfile = {
   id: string;
   username: string;
+  name?: string | null;
   avatar_url?: string | null;
 };
 
