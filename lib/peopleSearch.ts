@@ -62,6 +62,18 @@ const PROFILE_SELECT_LEGACY =
 const PROFILE_SELECT_LEGACY_NO_LAST_SEEN =
   "id, username, avatar_url, country_slug, city_slug, city_id, date_of_birth, is_online";
 
+/**
+ * Ranked view (database/add-people-search-ranking.sql): same profile columns plus a
+ * server-computed `ranking_score` (activity/completeness), so browse + username/filter
+ * results surface active, filled-out accounts first — sorted before pagination, not after.
+ * Falls back to the plain `profiles` table (undefined_table, 42P01) when the migration
+ * hasn't been run yet, preserving the previous alphabetical-only behavior.
+ */
+const RANKED_VIEW = "people_search_ranked";
+const RANKED_SELECT =
+  "id, username, avatar_url, bio, country_slug, city_slug, city_id, age_years, is_online, last_seen_at, is_demo";
+const VIEW_MISSING_ERROR_CODE = "42P01";
+
 type RawProfileRow = {
   id: string;
   username?: string | null;
@@ -169,10 +181,92 @@ function buildExcludeIdFilter(excludeUserIds: string[] | undefined) {
   return `(${unique.join(",")})`;
 }
 
+type PeopleQueryFilters = {
+  excludeFilter: string | null;
+  usernameQuery: string;
+  countrySlug: string;
+  cityId: string;
+  citySlug: string;
+  minAge?: number | null;
+  maxAge?: number | null;
+};
+
+function applyPeopleQueryFilters<
+  Q extends {
+    not: (...args: [string, string, string]) => Q;
+    ilike: (...args: [string, string]) => Q;
+    eq: (...args: [string, string | number]) => Q;
+    gte: (...args: [string, number]) => Q;
+    lte: (...args: [string, number]) => Q;
+  },
+>(query: Q, f: PeopleQueryFilters): Q {
+  let next = query;
+
+  if (f.excludeFilter) {
+    next = next.not("id", "in", f.excludeFilter);
+  }
+
+  if (f.usernameQuery) {
+    next = next.ilike("username", `%${escapeIlikePattern(f.usernameQuery)}%`);
+  }
+
+  if (f.countrySlug) {
+    next = next.eq("country_slug", f.countrySlug);
+  }
+
+  if (f.cityId) {
+    // city_id may be int or text in PostgREST — prefer numeric when possible.
+    const asNumber = Number(f.cityId);
+    next = next.eq("city_id", Number.isFinite(asNumber) ? asNumber : f.cityId);
+  } else if (f.citySlug) {
+    next = next.eq("city_slug", f.citySlug);
+  }
+
+  if (typeof f.minAge === "number" && Number.isFinite(f.minAge)) {
+    next = next.gte("age_years", f.minAge);
+  }
+
+  if (typeof f.maxAge === "number" && Number.isFinite(f.maxAge)) {
+    next = next.lte("age_years", f.maxAge);
+  }
+
+  return next;
+}
+
+function buildBrowsePageResult(data: unknown, safeLimit: number) {
+  const rows = ((data as RawProfileRow[]) ?? []).filter((row) => row.is_demo !== true);
+  const profiles = sanitizePublicProfiles(
+    excludeGuideProfiles(
+      rows
+        .map(normalizePeopleSearchProfile)
+        .filter((profile) => {
+          if (!profile.id || !profile.username.trim()) {
+            return false;
+          }
+
+          if (isGuideAccountUsername(profile.username)) {
+            return false;
+          }
+
+          return true;
+        })
+    )
+  );
+
+  return {
+    profiles,
+    fetchedCount: rows.length,
+    hasMore: rows.length >= safeLimit,
+    error: null as string | null,
+  };
+}
+
 /**
  * Paginated People browse query.
  * RLS: profiles SELECT is open (`Allow profile read` using true).
  * Exclusions (self / blocked / guides / demo / empty username) applied here + client post-filter.
+ * Sort: ranking_score DESC, last_seen_at DESC, username ASC — computed server-side by the
+ * people_search_ranked view so `.range()` pagination sees the correct order (see RANKED_VIEW).
  */
 export async function loadPeopleBrowsePage(
   offset: number,
@@ -186,48 +280,55 @@ export async function loadPeopleBrowsePage(
 }> {
   const safeOffset = Math.max(0, Math.floor(offset));
   const safeLimit = Math.max(1, Math.min(100, Math.floor(limit)));
-  const excludeFilter = buildExcludeIdFilter(filters.excludeUserIds);
-  const usernameQuery = filters.usernameQuery?.trim().toLowerCase() ?? "";
-  const countrySlug = normalizePeopleSearchSlug(filters.countrySlug);
-  const cityId = normalizePeopleSearchId(filters.cityId);
-  const citySlug = normalizePeopleSearchSlug(filters.citySlug);
+  const queryFilters: PeopleQueryFilters = {
+    excludeFilter: buildExcludeIdFilter(filters.excludeUserIds),
+    usernameQuery: filters.usernameQuery?.trim().toLowerCase() ?? "",
+    countrySlug: normalizePeopleSearchSlug(filters.countrySlug),
+    cityId: normalizePeopleSearchId(filters.cityId),
+    citySlug: normalizePeopleSearchSlug(filters.citySlug),
+    minAge: filters.minAge,
+    maxAge: filters.maxAge,
+  };
 
+  const rankedQuery = applyPeopleQueryFilters(
+    supabase
+      .from(RANKED_VIEW)
+      .select(RANKED_SELECT)
+      .order("ranking_score", { ascending: false })
+      .order("last_seen_at", { ascending: false, nullsFirst: false })
+      .order("username", { ascending: true })
+      .range(safeOffset, safeOffset + safeLimit - 1),
+    queryFilters
+  );
+
+  const rankedResult = await rankedQuery;
+
+  if (!rankedResult.error) {
+    return buildBrowsePageResult(rankedResult.data, safeLimit);
+  }
+
+  if (rankedResult.error.code !== VIEW_MISSING_ERROR_CODE) {
+    return {
+      profiles: [],
+      fetchedCount: 0,
+      hasMore: false,
+      error: toUserFacingError(rankedResult.error, "Unable to load users."),
+    };
+  }
+
+  // people_search_ranked view not migrated yet — fall back to the plain profiles table,
+  // alphabetical order (previous behavior), same tiered selects for older schemas.
   const selects = [PROFILE_SELECT, PROFILE_SELECT_NO_BIO, PROFILE_SELECT_LEGACY, PROFILE_SELECT_LEGACY_NO_LAST_SEEN];
 
   for (const select of selects) {
-    let query = supabase
-      .from("profiles")
-      .select(select)
-      .order("username", { ascending: true })
-      .range(safeOffset, safeOffset + safeLimit - 1);
-
-    if (excludeFilter) {
-      query = query.not("id", "in", excludeFilter);
-    }
-
-    if (usernameQuery) {
-      query = query.ilike("username", `%${escapeIlikePattern(usernameQuery)}%`);
-    }
-
-    if (countrySlug) {
-      query = query.eq("country_slug", countrySlug);
-    }
-
-    if (cityId) {
-      // city_id may be int or text in PostgREST — prefer numeric when possible.
-      const asNumber = Number(cityId);
-      query = query.eq("city_id", Number.isFinite(asNumber) ? asNumber : cityId);
-    } else if (citySlug) {
-      query = query.eq("city_slug", citySlug);
-    }
-
-    if (typeof filters.minAge === "number" && Number.isFinite(filters.minAge)) {
-      query = query.gte("age_years", filters.minAge);
-    }
-
-    if (typeof filters.maxAge === "number" && Number.isFinite(filters.maxAge)) {
-      query = query.lte("age_years", filters.maxAge);
-    }
+    const query = applyPeopleQueryFilters(
+      supabase
+        .from("profiles")
+        .select(select)
+        .order("username", { ascending: true })
+        .range(safeOffset, safeOffset + safeLimit - 1),
+      queryFilters
+    );
 
     const { data, error } = await query;
 
@@ -244,31 +345,7 @@ export async function loadPeopleBrowsePage(
       };
     }
 
-    const rows = ((data as unknown as RawProfileRow[]) ?? []).filter((row) => row.is_demo !== true);
-    const profiles = sanitizePublicProfiles(
-      excludeGuideProfiles(
-        rows
-          .map(normalizePeopleSearchProfile)
-          .filter((profile) => {
-            if (!profile.id || !profile.username.trim()) {
-              return false;
-            }
-
-            if (isGuideAccountUsername(profile.username)) {
-              return false;
-            }
-
-            return true;
-          })
-      )
-    );
-
-    return {
-      profiles,
-      fetchedCount: rows.length,
-      hasMore: rows.length >= safeLimit,
-      error: null,
-    };
+    return buildBrowsePageResult(data, safeLimit);
   }
 
   return {
@@ -311,6 +388,23 @@ let catalogCache: PeopleSearchCatalog | null = null;
 let catalogPromise: Promise<{ catalog: PeopleSearchCatalog; error: string | null }> | null = null;
 
 async function fetchProfiles(): Promise<{ data: RawProfileRow[]; error: { message?: string; code?: string } | null }> {
+  const ranked = await supabase
+    .from(RANKED_VIEW)
+    .select(RANKED_SELECT)
+    .order("ranking_score", { ascending: false })
+    .order("last_seen_at", { ascending: false, nullsFirst: false })
+    .order("username", { ascending: true });
+
+  if (!ranked.error) {
+    return { data: (ranked.data ?? []) as RawProfileRow[], error: null };
+  }
+
+  if (ranked.error.code !== VIEW_MISSING_ERROR_CODE) {
+    return { data: [], error: ranked.error };
+  }
+
+  // people_search_ranked view not migrated yet — fall back to the plain profiles table,
+  // alphabetical order (previous behavior), same tiered selects for older schemas.
   const modern = await supabase.from("profiles").select(PROFILE_SELECT).order("username", { ascending: true });
 
   if (!modern.error) {
