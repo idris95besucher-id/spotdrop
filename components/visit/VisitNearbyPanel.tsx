@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Loader2, MessageCircle } from "lucide-react";
 import ProfileAvatar from "@/components/ProfileAvatar";
+import UsernameWithVerification from "@/components/UsernameWithVerification";
 import { useI18n } from "@/components/I18nProvider";
 import { localizeError } from "@/lib/i18n/localizeError";
 import { filterRecipientsAllowedToMessage } from "@/lib/messagePrivacy";
@@ -255,7 +256,12 @@ export default function VisitNearbyPanel() {
                   className="border border-cyan-400/30 bg-slate-800"
                 />
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-semibold text-white">@{user.username}</p>
+                  <UsernameWithVerification
+                    username={`@${user.username}`}
+                    isVerified={user.is_verified}
+                    className="text-sm font-semibold text-white"
+                    iconSize={14}
+                  />
                   {place ? <p className="truncate text-xs text-slate-400">{place}</p> : null}
                   <LiveMapUserPresenceLine user={user} screen="visit-nearby" />
                 </div>

@@ -6,6 +6,7 @@ import type { ReactNode } from "react";
 import { ChevronLeft } from "lucide-react";
 import DmHeaderPresenceLabel from "@/components/DmHeaderPresenceLabel";
 import ProfileAvatar from "@/components/ProfileAvatar";
+import UsernameWithVerification from "@/components/UsernameWithVerification";
 import { useI18n } from "@/components/I18nProvider";
 import { MOBILE_SAFE_AREA_INSET_TOP } from "@/lib/mobileLayout";
 import { navigateBack } from "@/lib/navigateBack";
@@ -18,6 +19,7 @@ type DmThreadHeaderProps = {
   partner: {
     username: string;
     avatar_url?: string | null;
+    is_verified?: boolean | null;
   } | null;
   presence: DmPartnerPresenceStatus;
   isSelfConversation: boolean;
@@ -54,8 +56,19 @@ export default function DmThreadHeader({
       />
 
       <div className="min-w-0 flex-1 text-left">
-        <h1 className="truncate text-[15px] font-semibold leading-tight text-white">
-          {partner ? publicProfileUsername(partner.username) : t("dm.chat")}
+        <h1 className="max-w-full">
+          {partner ? (
+            <UsernameWithVerification
+              username={publicProfileUsername(partner.username)}
+              isVerified={partner.is_verified}
+              className="text-[15px] font-semibold leading-tight text-white"
+              iconSize={13}
+            />
+          ) : (
+            <span className="truncate text-[15px] font-semibold leading-tight text-white">
+              {t("dm.chat")}
+            </span>
+          )}
         </h1>
         {partner && !isSelfConversation ? (
           canSeePartnerPresence === false ? (

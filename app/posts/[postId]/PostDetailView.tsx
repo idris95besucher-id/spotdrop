@@ -833,6 +833,7 @@ export default function PostDetailPage({ postIdOverride }: PostDetailPageProps =
                     <PublicationAuthorHeader
                       authorUserId={post.user_id}
                       authorUsername={authorUsername}
+                      authorIsVerified={postAuthor.is_verified}
                       avatarUrl={postAuthor.avatar_url}
                       viewerUserId={userId}
                     />

@@ -6,6 +6,7 @@ export type FollowProfile = {
   username: string;
   name?: string | null;
   avatar_url?: string | null;
+  is_verified?: boolean | null;
 };
 
 export type FollowConnections = {
@@ -37,7 +38,7 @@ async function loadProfilesByIds(ids: string[]) {
 
   const { data, error } = await supabase
     .from("profiles")
-    .select("id, username, name, avatar_url")
+    .select("id, username, name, avatar_url, is_verified")
     .in("id", uniqueIds)
     .order("username", { ascending: true });
 

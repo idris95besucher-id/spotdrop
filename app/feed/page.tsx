@@ -6,6 +6,7 @@ import SpotDropSpotsIcon from "@/components/icons/SpotDropSpotsIcon";
 import ExploreNearbyCard from "@/components/ExploreNearbyCard";
 import PostCardMedia from "@/components/PostCardMedia";
 import ProfileAvatar from "@/components/ProfileAvatar";
+import UsernameWithVerification from "@/components/UsernameWithVerification";
 import SpotCommentsSheet from "@/components/SpotCommentsSheet";
 import SpotPostMeta from "@/components/SpotPostMeta";
 import SpotStatsBar from "@/components/SpotStatsBar";
@@ -191,7 +192,12 @@ export default function FeedPage() {
                         className="border border-white/10 bg-slate-800"
                       />
                       <div className="min-w-0 flex-1 text-left">
-                        <p className="truncate text-sm font-semibold text-white">{username}</p>
+                        <UsernameWithVerification
+                          username={username}
+                          isVerified={post.profiles.is_verified}
+                          className="text-sm font-semibold text-white"
+                          iconSize={14}
+                        />
                       </div>
                     </Link>
                   </header>

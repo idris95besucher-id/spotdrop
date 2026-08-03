@@ -7,6 +7,7 @@ import { toUserFacingError } from "@/lib/userFacingError";
 export type PostCommentProfile = {
   username: string;
   avatar_url: string | null;
+  is_verified: boolean;
 };
 
 export type PostCommentRow = {
@@ -28,7 +29,8 @@ const COMMENT_SELECT = `
   edited_at,
   profiles!post_comments_user_id_fkey (
     username,
-    avatar_url
+    avatar_url,
+    is_verified
   )
 `;
 
@@ -72,6 +74,7 @@ function normalizeCommentRow(
     profiles: {
       username: publicProfileUsername(profile.username),
       avatar_url: profile.avatar_url ?? null,
+      is_verified: profile.is_verified ?? false,
     },
   };
 }

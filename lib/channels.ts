@@ -231,7 +231,7 @@ export async function loadChannelDetail(channelId: string, viewerId: string | nu
   }
 
   const [{ data: profile }, itemsResult] = await Promise.all([
-    supabase.from("profiles").select("id, username, avatar_url").eq("id", channel.user_id).maybeSingle(),
+    supabase.from("profiles").select("id, username, avatar_url, is_verified").eq("id", channel.user_id).maybeSingle(),
     loadChannelItems(channelId),
   ]);
 
@@ -242,6 +242,7 @@ export async function loadChannelDetail(channelId: string, viewerId: string | nu
           id: String(profile.id),
           username: publicProfileUsername(profile.username),
           avatar_url: (profile.avatar_url as string | null) ?? null,
+          is_verified: (profile.is_verified as boolean | null) ?? null,
         }
       : null,
     items: itemsResult.items,

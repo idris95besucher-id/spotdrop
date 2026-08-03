@@ -5,6 +5,7 @@ import { useState } from "react";
 import { Loader2, MapPin, X } from "lucide-react";
 import { useI18n } from "@/components/I18nProvider";
 import ProfileAvatar from "@/components/ProfileAvatar";
+import UsernameWithVerification from "@/components/UsernameWithVerification";
 import { usePostViewerOptional } from "@/components/PostViewerProvider";
 import SpotLocationSummary from "@/components/SpotLocationSummary";
 import type { MapSpotPin } from "@/lib/spots";
@@ -177,7 +178,12 @@ export default function SpotMapPinSheet({ pin, embedded = false, onClose }: Spot
               className="border border-cyan-400/35 bg-slate-800"
             />
             <span className="min-w-0">
-              <span className="block truncate text-sm font-semibold text-white">@{pin.username}</span>
+              <UsernameWithVerification
+                username={`@${pin.username}`}
+                isVerified={pin.is_verified}
+                className="text-sm font-semibold text-white"
+                iconSize={14}
+              />
               {createdLabel ? <span className="block text-xs text-slate-400">{createdLabel}</span> : null}
             </span>
           </Link>

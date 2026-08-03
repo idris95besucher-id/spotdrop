@@ -4,6 +4,7 @@ import Link from "next/link";
 import { forwardRef } from "react";
 import { Check, Loader2, X as XIcon } from "lucide-react";
 import ProfileAvatar from "@/components/ProfileAvatar";
+import UsernameWithVerification from "@/components/UsernameWithVerification";
 import { useI18n } from "@/components/I18nProvider";
 import type { PostCommentRow as PostCommentRowType } from "@/lib/postComments";
 import { formatPostTime } from "@/lib/posts";
@@ -75,8 +76,13 @@ const CommentRow = forwardRef<HTMLLIElement, CommentRowProps>(function CommentRo
       </Link>
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-          <Link href={`/user?id=${comment.user_id}`} className="text-sm font-semibold text-white hover:underline">
-            {publicProfileUsername(comment.profiles.username)}
+          <Link href={`/user?id=${comment.user_id}`} className="min-w-0 hover:underline">
+            <UsernameWithVerification
+              username={publicProfileUsername(comment.profiles.username)}
+              isVerified={comment.profiles.is_verified}
+              className="text-sm font-semibold text-white"
+              iconSize={13}
+            />
           </Link>
           <time className="text-xs text-slate-500">{formatPostTime(comment.created_at)}</time>
           {comment.edited_at ? (

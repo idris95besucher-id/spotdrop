@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useI18n } from "@/components/I18nProvider";
 import ProfileAvatar from "@/components/ProfileAvatar";
+import UsernameWithVerification from "@/components/UsernameWithVerification";
 import type { PeopleSearchProfile } from "@/lib/peopleSearch";
 import { publicProfileUsername } from "@/lib/publicProfile";
 
@@ -40,8 +41,13 @@ export default function PeopleSearchUserCard({
         />
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <h2 className="truncate text-[16px] font-semibold text-white">
-              {publicProfileUsername(profile.username)}
+            <h2 className="min-w-0 max-w-full">
+              <UsernameWithVerification
+                username={publicProfileUsername(profile.username)}
+                isVerified={profile.is_verified}
+                className="text-[16px] font-semibold text-white"
+                iconSize={15}
+              />
             </h2>
             {isOnline ? (
               <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[11px] font-medium text-emerald-300">

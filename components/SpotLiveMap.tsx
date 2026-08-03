@@ -1334,6 +1334,7 @@ export default function SpotLiveMap({
         avatar_url: userAvatarUrl,
         is_online: true,
         last_seen_at: new Date().toISOString(),
+        is_verified: null,
       });
     }
 

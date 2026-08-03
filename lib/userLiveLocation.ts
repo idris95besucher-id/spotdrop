@@ -40,6 +40,7 @@ export type LiveMapUser = UserLiveLocationRow & {
   avatar_url: string | null;
   is_online: boolean | null;
   last_seen_at: string | null;
+  is_verified: boolean | null;
 };
 
 type ProfileJoin = {
@@ -47,6 +48,7 @@ type ProfileJoin = {
   avatar_url: string | null;
   is_online: boolean | null;
   last_seen_at: string | null;
+  is_verified: boolean | null;
 };
 
 export function isLiveMapUserOnlineNow(
@@ -172,7 +174,7 @@ export async function fetchLiveMapUsers(): Promise<{
   const { data, error } = await supabase
     .from("user_live_locations")
     .select(
-      "user_id, latitude, longitude, city, country, is_live, updated_at, profiles(username, avatar_url, is_online, last_seen_at)"
+      "user_id, latitude, longitude, city, country, is_live, updated_at, profiles(username, avatar_url, is_online, last_seen_at, is_verified)"
     )
     .eq("is_live", true)
     .gte("updated_at", liveLocationCutoffIso());
@@ -237,6 +239,7 @@ export async function fetchLiveMapUsers(): Promise<{
       avatar_url: (profileRow.avatar_url as string | null) ?? null,
       is_online: (profileRow.is_online as boolean | null) ?? null,
       last_seen_at: (profileRow.last_seen_at as string | null) ?? null,
+      is_verified: (profileRow.is_verified as boolean | null) ?? null,
     });
   }
 

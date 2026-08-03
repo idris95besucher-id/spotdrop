@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Loader2, Search, X } from "lucide-react";
 import ProfileAvatar from "@/components/ProfileAvatar";
+import UsernameWithVerification from "@/components/UsernameWithVerification";
 import { useI18n } from "@/components/I18nProvider";
 import type { GalleryAllowedViewer } from "@/lib/profileGalleryAllowedViewers";
 import { filterPeopleByUsername, loadPeopleSearchCatalog } from "@/lib/peopleSearch";
@@ -26,7 +27,7 @@ export default function GalleryAllowedUsersPicker({
   const [loadingCatalog, setLoadingCatalog] = useState(true);
   const [catalogError, setCatalogError] = useState<string | null>(null);
   const [profiles, setProfiles] = useState<
-    Array<{ id: string; username: string; avatar_url: string | null }>
+    Array<{ id: string; username: string; avatar_url: string | null; is_verified: boolean | null }>
   >([]);
 
   useEffect(() => {
@@ -49,6 +50,7 @@ export default function GalleryAllowedUsersPicker({
               id: profile.id,
               username: profile.username,
               avatar_url: profile.avatar_url ?? null,
+              is_verified: profile.is_verified ?? null,
             }))
         );
       }
@@ -73,7 +75,12 @@ export default function GalleryAllowedUsersPicker({
       .slice(0, 12);
   }, [ownerUserId, profiles, query]);
 
-  const addViewer = (profile: { id: string; username: string; avatar_url: string | null }) => {
+  const addViewer = (profile: {
+    id: string;
+    username: string;
+    avatar_url: string | null;
+    is_verified: boolean | null;
+  }) => {
     if (disabled || selectedIds.has(profile.id)) {
       return;
     }
@@ -84,6 +91,7 @@ export default function GalleryAllowedUsersPicker({
         id: profile.id,
         username: profile.username,
         avatar_url: profile.avatar_url,
+        is_verified: profile.is_verified,
       },
     ]);
     setQuery("");
@@ -114,7 +122,11 @@ export default function GalleryAllowedUsersPicker({
                 iconClassName="h-3.5 w-3.5"
                 className="bg-slate-800"
               />
-              @{publicProfileUsername(viewer.username)}
+              <UsernameWithVerification
+                username={`@${publicProfileUsername(viewer.username)}`}
+                isVerified={viewer.is_verified}
+                iconSize={12}
+              />
               <button
                 type="button"
                 disabled={disabled}
@@ -174,6 +186,7 @@ export default function GalleryAllowedUsersPicker({
                       id: profile.id,
                       username: profile.username,
                       avatar_url: profile.avatar_url ?? null,
+                      is_verified: profile.is_verified ?? null,
                     })
                   }
                   className="flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left transition hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-50"
@@ -185,9 +198,12 @@ export default function GalleryAllowedUsersPicker({
                     className="bg-slate-800"
                   />
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-medium text-white">
-                      @{publicProfileUsername(profile.username)}
-                    </span>
+                    <UsernameWithVerification
+                      username={`@${publicProfileUsername(profile.username)}`}
+                      isVerified={profile.is_verified}
+                      className="text-sm font-medium text-white"
+                      iconSize={14}
+                    />
                     {isSelected ? (
                       <span className="text-xs text-cyan-300">{t("settings.galleryPrivacy.alreadySelected")}</span>
                     ) : null}

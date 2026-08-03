@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 import { Camera, Check, ChevronLeft, Loader2, Users, X } from "lucide-react";
 import ProfileAvatar from "@/components/ProfileAvatar";
+import UsernameWithVerification from "@/components/UsernameWithVerification";
 import { useAuthSession } from "@/components/AuthSessionProvider";
 import { useI18n } from "@/components/I18nProvider";
 import GroupMemberPicker from "@/components/GroupMemberPicker";
@@ -282,7 +283,11 @@ export default function NewMessageView() {
                         iconStrokeWidth={2}
                         className="bg-slate-800"
                       />
-                      @{recipient.username}
+                      <UsernameWithVerification
+                        username={`@${recipient.username}`}
+                        isVerified={recipient.is_verified}
+                        iconSize={12}
+                      />
                     </span>
                   ))}
                 </div>

@@ -59,6 +59,7 @@ type CityChannel = {
 type SenderProfile = {
   username: string;
   avatar_url?: string | null;
+  is_verified?: boolean | null;
 };
 
 type RawChannelMessage = {
@@ -145,7 +146,7 @@ export default function CityChannelPage() {
     if (uniqueUserIds.length > 0) {
       const { data: profileRows, error: profileError } = await supabase
         .from("profiles")
-        .select("id, username, avatar_url")
+        .select("id, username, avatar_url, is_verified")
         .in("id", uniqueUserIds);
 
       if (profileError) {
@@ -157,6 +158,7 @@ export default function CityChannelPage() {
             {
               username: publicProfileUsername(profile.username),
               avatar_url: profile.avatar_url ?? null,
+              is_verified: profile.is_verified ?? null,
             },
           ])
         );
@@ -271,11 +273,12 @@ export default function CityChannelPage() {
             senderProfile = {
               username: publicProfileUsername(ensuredProfile?.profile?.username),
               avatar_url: ensuredProfile?.profile?.avatar_url ?? null,
+              is_verified: ensuredProfile?.profile?.is_verified ?? null,
             };
           } else {
             const { data: profileRow, error: profileError } = await supabase
               .from("profiles")
-              .select("username, avatar_url")
+              .select("username, avatar_url, is_verified")
               .eq("id", insertedMessage.user_id)
               .maybeSingle();
 
@@ -285,6 +288,7 @@ export default function CityChannelPage() {
               senderProfile = {
                 username: publicProfileUsername(profileRow.username),
                 avatar_url: profileRow.avatar_url ?? null,
+                is_verified: profileRow.is_verified ?? null,
               };
             }
           }

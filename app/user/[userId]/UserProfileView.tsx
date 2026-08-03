@@ -18,6 +18,7 @@ import ProfileSavedTab from "@/components/ProfileSavedTab";
 import ProfileMySpotsTab from "@/components/ProfileMySpotsTab";
 import ProfileGalleryAvatarLink from "@/components/profile/ProfileGalleryAvatarLink";
 import ProfileAvatar from "@/components/ProfileAvatar";
+import UsernameWithVerification from "@/components/UsernameWithVerification";
 import ShareProfileSheet from "@/components/ShareProfileSheet";
 import MobileSecondaryHeader from "@/components/MobileSecondaryHeader";
 import NavigationStackScreen from "@/components/NavigationStackScreen";
@@ -54,6 +55,7 @@ type Profile = {
   city_id?: string | null;
   gallery_visibility?: ProfileGalleryVisibility | null;
   is_official?: boolean | null;
+  is_verified?: boolean | null;
 };
 
 function isUuid(value: string) {
@@ -67,7 +69,7 @@ async function loadPublicProfile(profileParam: string) {
   };
 
   const primaryResult = await loadWithSelect(
-    "id, name, username, avatar_url, bio, country_slug, city_slug, city_id, gallery_visibility, is_official"
+    "id, name, username, avatar_url, bio, country_slug, city_slug, city_id, gallery_visibility, is_official, is_verified"
   );
 
     if (primaryResult.error?.code !== "42703") {
@@ -88,7 +90,7 @@ async function loadPublicProfile(profileParam: string) {
 
   console.error("Public profile guide fields missing:", JSON.stringify(primaryResult.error, null, 2));
 
-  const fallbackResult = await loadWithSelect("id, name, username, avatar_url, bio, country_slug, city_slug, city_id");
+  const fallbackResult = await loadWithSelect("id, name, username, avatar_url, bio, country_slug, city_slug, city_id, is_verified");
 
   return {
     ...fallbackResult,
@@ -459,8 +461,13 @@ export default function UserPage({ userIdOverride }: { userIdOverride?: string }
                 <div className="profile-header-rise min-w-0 w-full space-y-1.5 sm:space-y-2">
                   {profile.is_official === true ? (
                     <div className="flex items-center gap-1.5 sm:justify-center">
-                      <h1 className="truncate text-2xl font-semibold tracking-tight text-white sm:text-4xl">
-                        {profile.name?.trim() || profile.username}
+                      <h1 className="min-w-0 max-w-full">
+                        <UsernameWithVerification
+                          username={profile.name?.trim() || profile.username}
+                          isVerified={profile.is_verified}
+                          className="text-2xl font-semibold tracking-tight text-white sm:text-4xl"
+                          iconSize={18}
+                        />
                       </h1>
                       <svg
                         viewBox="0 0 24 24"
@@ -483,8 +490,13 @@ export default function UserPage({ userIdOverride }: { userIdOverride?: string }
                       </svg>
                     </div>
                   ) : (
-                    <h1 className="truncate text-2xl font-semibold tracking-tight text-white sm:text-center sm:text-4xl">
-                      {profile.name?.trim() || profile.username}
+                    <h1 className="max-w-full sm:mx-auto sm:w-fit">
+                      <UsernameWithVerification
+                        username={profile.name?.trim() || profile.username}
+                        isVerified={profile.is_verified}
+                        className="text-2xl font-semibold tracking-tight text-white sm:text-4xl"
+                        iconSize={18}
+                      />
                     </h1>
                   )}
                   <p className="text-sm font-medium text-slate-500 sm:text-center">@{profile.username}</p>

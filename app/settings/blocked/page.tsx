@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { UserRound } from "lucide-react";
 import ProfileAvatar from "@/components/ProfileAvatar";
 import SettingsScreenLayout from "@/components/settings/SettingsScreenLayout";
+import UsernameWithVerification from "@/components/UsernameWithVerification";
 import { SettingsPageHeader } from "@/components/settings/SettingsUI";
 import { useI18n } from "@/components/I18nProvider";
 import { getSafeAuthSession } from "@/lib/authSession";
@@ -16,6 +17,7 @@ type BlockedProfile = {
   id: string;
   username: string;
   avatar_url: string | null;
+  is_verified: boolean | null;
 };
 
 export default function BlockedUsersPage() {
@@ -49,7 +51,7 @@ export default function BlockedUsersPage() {
 
       const { data } = await supabase
         .from("profiles")
-        .select("id, username, avatar_url")
+        .select("id, username, avatar_url, is_verified")
         .in("id", blockedIds);
 
       if (!active) {
@@ -61,6 +63,7 @@ export default function BlockedUsersPage() {
           id: String(row.id),
           username: String(row.username ?? "user"),
           avatar_url: (row.avatar_url as string | null) ?? null,
+          is_verified: (row.is_verified as boolean | null) ?? null,
         }))
       );
       setLoading(false);
@@ -102,9 +105,12 @@ export default function BlockedUsersPage() {
                     className="bg-white/[0.06]"
                   />
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium text-white">
-                      {publicProfileUsername(profile.username)}
-                    </p>
+                    <UsernameWithVerification
+                      username={publicProfileUsername(profile.username)}
+                      isVerified={profile.is_verified}
+                      className="text-sm font-medium text-white"
+                      iconSize={14}
+                    />
                   </div>
                   <button
                     type="button"

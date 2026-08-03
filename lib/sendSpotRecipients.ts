@@ -8,15 +8,19 @@ export type SendSpotRecipient = {
   id: string;
   username: string;
   avatar_url?: string | null;
+  is_verified?: boolean | null;
 };
 
-const PROFILE_SELECT = "id, username, avatar_url";
+const PROFILE_SELECT = "id, username, avatar_url, is_verified";
 
-function mapProfiles(rows: { id: string; username: string; avatar_url?: string | null }[]): SendSpotRecipient[] {
+function mapProfiles(
+  rows: { id: string; username: string; avatar_url?: string | null; is_verified?: boolean | null }[]
+): SendSpotRecipient[] {
   return sanitizePublicProfiles(excludeGuideProfiles(rows)).map((profile) => ({
     id: profile.id,
     username: publicProfileUsername(profile.username),
     avatar_url: profile.avatar_url,
+    is_verified: profile.is_verified,
   }));
 }
 
@@ -40,6 +44,7 @@ export async function loadSendSpotFriends(userId: string) {
         id: friend.id,
         username: publicProfileUsername(friend.username),
         avatar_url: friend.avatar_url,
+        is_verified: friend.is_verified,
       }))
     ),
     error: null as string | null,

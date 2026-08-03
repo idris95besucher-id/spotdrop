@@ -9,6 +9,7 @@ import GroupMemberPicker from "@/components/GroupMemberPicker";
 import MobileSecondaryHeader from "@/components/MobileSecondaryHeader";
 import ProfileAvatar from "@/components/ProfileAvatar";
 import Shell from "@/components/Shell";
+import UsernameWithVerification from "@/components/UsernameWithVerification";
 import { useAuthSession } from "@/components/AuthSessionProvider";
 import { useI18n } from "@/components/I18nProvider";
 import { bottomSheetLayout, useBottomSheetScrollLock } from "@/lib/bottomSheetScrollLock";
@@ -80,7 +81,12 @@ function MemberActionSheet({
         onClick={(event) => event.stopPropagation()}
       >
         <div className="px-5 pt-4 pb-2">
-          <p className="truncate text-sm font-semibold text-white">@{member.username}</p>
+          <UsernameWithVerification
+            username={`@${member.username}`}
+            isVerified={member.isVerified}
+            className="text-sm font-semibold text-white"
+            iconSize={14}
+          />
         </div>
         <div className="space-y-1 px-2 pb-4">
           {canPromote ? (
@@ -492,8 +498,13 @@ export default function GroupInfoView() {
                           className="border border-white/10"
                         />
                         <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-medium text-white">
-                            @{member.username} {isSelf ? <span className="text-slate-500">({t("group.you")})</span> : null}
+                          <p className="flex items-center gap-1 text-sm font-medium text-white">
+                            <UsernameWithVerification
+                              username={`@${member.username}`}
+                              isVerified={member.isVerified}
+                              iconSize={13}
+                            />
+                            {isSelf ? <span className="shrink-0 text-slate-500">({t("group.you")})</span> : null}
                           </p>
                           <p className="truncate text-xs text-slate-500">
                             {member.role === "owner"

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { useI18n } from "@/components/I18nProvider";
 import ProfileAvatar from "@/components/ProfileAvatar";
+import UsernameWithVerification from "@/components/UsernameWithVerification";
 import {
   acceptConversationRequest,
   declineConversationRequest,
@@ -19,6 +20,7 @@ export type MessageRequestItemData = {
   partnerId: string;
   username: string;
   avatarUrl: string | null;
+  isVerified: boolean | null;
   previewMessage: ChatPreviewMessage | null;
   requestedAt: string;
 };
@@ -105,9 +107,12 @@ export default function MessageRequestItem({ request, viewerUserId, onResolved }
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-2">
             <Link href={dmThreadHref(request.partnerId)} className="min-w-0">
-              <p className="truncate font-semibold text-white">
-                {publicProfileUsername(request.username)}
-              </p>
+              <UsernameWithVerification
+                username={publicProfileUsername(request.username)}
+                isVerified={request.isVerified}
+                className="font-semibold text-white"
+                iconSize={14}
+              />
               <p className="mt-0.5 text-[11px] text-muted">{formatRequestTime(request.requestedAt)}</p>
             </Link>
           </div>

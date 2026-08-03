@@ -48,6 +48,7 @@ export type MapSpotPin = {
   user_id: string;
   username: string;
   avatar_url: string | null;
+  is_verified: boolean | null;
   latitude: number;
   longitude: number;
   spot_name: string | null;
@@ -67,10 +68,10 @@ export type MapSpotPin = {
 };
 
 const MAP_SPOT_SELECT =
-  `id, user_id, content, created_at, media_url, media_type, image_url, video_cover_url, thumbnail_url, spot_name, spot_latitude, spot_longitude, spot_address, spot_city, spot_country, discovery_place_id, visited_count, discovery_places(name), ${POST_AUTHOR_PROFILES_INNER}(username, avatar_url, is_private, is_demo)`;
+  `id, user_id, content, created_at, media_url, media_type, image_url, video_cover_url, thumbnail_url, spot_name, spot_latitude, spot_longitude, spot_address, spot_city, spot_country, discovery_place_id, visited_count, discovery_places(name), ${POST_AUTHOR_PROFILES_INNER}(username, avatar_url, is_private, is_demo, is_verified)`;
 
 const MAP_SPOT_SELECT_LEGACY =
-  `id, user_id, content, created_at, media_url, media_type, image_url, thumbnail_url, spot_name, spot_latitude, spot_longitude, spot_address, spot_city, spot_country, discovery_place_id, ${POST_AUTHOR_PROFILES_INNER}(username, avatar_url, is_private, is_demo)`;
+  `id, user_id, content, created_at, media_url, media_type, image_url, thumbnail_url, spot_name, spot_latitude, spot_longitude, spot_address, spot_city, spot_country, discovery_place_id, ${POST_AUTHOR_PROFILES_INNER}(username, avatar_url, is_private, is_demo, is_verified)`;
 
 export type CreateSpotInput = {
   userId: string;
@@ -1012,8 +1013,20 @@ function mapRowToMapSpotPin(row: Record<string, unknown>): MapSpotPin | null {
   }
 
   const profileJoin = row.profiles as
-    | { username?: string; avatar_url?: string | null; is_private?: boolean; is_demo?: boolean }
-    | { username?: string; avatar_url?: string | null; is_private?: boolean; is_demo?: boolean }[]
+    | {
+        username?: string;
+        avatar_url?: string | null;
+        is_private?: boolean;
+        is_demo?: boolean;
+        is_verified?: boolean | null;
+      }
+    | {
+        username?: string;
+        avatar_url?: string | null;
+        is_private?: boolean;
+        is_demo?: boolean;
+        is_verified?: boolean | null;
+      }[]
     | null;
   const profile = Array.isArray(profileJoin) ? profileJoin[0] : profileJoin;
 
@@ -1039,6 +1052,7 @@ function mapRowToMapSpotPin(row: Record<string, unknown>): MapSpotPin | null {
     user_id: String(row.user_id),
     username: publicProfileUsername(profile?.username),
     avatar_url: profile?.avatar_url ?? null,
+    is_verified: profile?.is_verified ?? null,
     latitude,
     longitude,
     spot_name: spotName,

@@ -50,6 +50,7 @@ export type GroupChatMember = {
   joinedAt: string;
   username: string;
   avatarUrl: string | null;
+  isVerified: boolean | null;
 };
 
 type GroupInboxRpcRow = {
@@ -198,7 +199,7 @@ export async function loadGroupMembers(
 
   const { data: profiles, error: profilesError } = await supabase
     .from("profiles")
-    .select("id, username, avatar_url")
+    .select("id, username, avatar_url, is_verified")
     .in("id", userIds);
 
   if (profilesError) {
@@ -221,6 +222,7 @@ export async function loadGroupMembers(
       joinedAt: row.joined_at,
       username: publicProfileUsername(profile?.username),
       avatarUrl: profile?.avatar_url ?? null,
+      isVerified: profile?.is_verified ?? null,
     };
   });
 

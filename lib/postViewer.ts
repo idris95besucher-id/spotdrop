@@ -7,6 +7,7 @@ import type { ProfileContentPost } from "@/lib/profileContent";
 export type ViewerPostAuthor = {
   username: string;
   avatar_url?: string | null;
+  is_verified?: boolean | null;
 };
 
 /** Minimal post shape for vertical viewer list + preview while detail loads. */
@@ -61,6 +62,7 @@ export function feedRowToViewerItem(row: FeedSpotRow): ViewerPostListItem {
     profiles: {
       username: row.profiles.username,
       avatar_url: row.profiles.avatar_url,
+      is_verified: row.profiles.is_verified,
     },
     discovery_places: row.discovery_places,
   };

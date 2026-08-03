@@ -88,6 +88,7 @@ type PartnerProfile = {
   avatar_url?: string | null;
   isOnline?: boolean;
   lastSeenAt?: string | null;
+  is_verified?: boolean | null;
 };
 
 type DirectMessage = {
@@ -427,7 +428,7 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
 
       const partnerQuery = supabase
         .from("profiles")
-        .select("id, username, avatar_url, is_online, last_seen_at")
+        .select("id, username, avatar_url, is_online, last_seen_at, is_verified")
         .eq("id", partnerId)
         .maybeSingle();
 
@@ -464,6 +465,7 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
             username: partnerRow.username,
           }),
           lastSeenAt: partnerLastSeenAt,
+          is_verified: partnerRow.is_verified,
         } as PartnerProfile);
         setMessages([]);
         setConversation(null);
@@ -532,6 +534,7 @@ export default function DirectMessagePage({ partnerIdOverride }: DmThreadViewPro
         avatar_url: partnerRow.avatar_url,
         isOnline: partnerIsOnline,
         lastSeenAt: partnerLastSeenAt,
+        is_verified: partnerRow.is_verified,
       } as PartnerProfile);
 
       void fetchPartnerProfilePresenceDirect(partnerRow.id, partnerRow.username);

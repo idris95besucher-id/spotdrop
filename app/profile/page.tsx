@@ -4,6 +4,7 @@ import Link from "next/link";
 import { Megaphone, Menu } from "lucide-react";
 import ProfileAvatar from "@/components/ProfileAvatar";
 import ProfileGalleryAvatarLink from "@/components/profile/ProfileGalleryAvatarLink";
+import UsernameWithVerification from "@/components/UsernameWithVerification";
 import { normalizeAvatarUrl } from "@/lib/avatarUrl";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
@@ -51,6 +52,7 @@ type ProfileData = {
   city_slug?: string | null;
   city_id?: string | null;
   is_official?: boolean | null;
+  is_verified?: boolean | null;
 };
 
 function withTimeout<T>(promise: Promise<T>, message: string, timeoutMs = 6000): Promise<T> {
@@ -496,8 +498,13 @@ export default function ProfilePage() {
             {!loading && profile?.username ? (
               profile?.is_official === true ? (
                 <div className="profile-header-rise flex items-center justify-center gap-1.5">
-                  <h1 className="max-w-full truncate text-base font-semibold text-white">
-                    {publicProfileUsername(profile.username)}
+                  <h1 className="max-w-full">
+                    <UsernameWithVerification
+                      username={publicProfileUsername(profile.username)}
+                      isVerified={profile.is_verified}
+                      className="text-base font-semibold text-white"
+                      iconSize={15}
+                    />
                   </h1>
                   <svg
                     viewBox="0 0 24 24"
@@ -520,8 +527,13 @@ export default function ProfilePage() {
                   </svg>
                 </div>
               ) : (
-                <h1 className="profile-header-rise max-w-full truncate text-base font-semibold text-white">
-                  {publicProfileUsername(profile.username)}
+                <h1 className="profile-header-rise max-w-full">
+                  <UsernameWithVerification
+                    username={publicProfileUsername(profile.username)}
+                    isVerified={profile.is_verified}
+                    className="text-base font-semibold text-white"
+                    iconSize={15}
+                  />
                 </h1>
               )
             ) : null}
@@ -689,7 +701,12 @@ export default function ProfilePage() {
                       className="bg-slate-800"
                     />
                     <div className="min-w-0">
-                      <p className="truncate text-base font-semibold text-white">{publicProfileUsername(person.username)}</p>
+                      <UsernameWithVerification
+                        username={publicProfileUsername(person.username)}
+                        isVerified={person.is_verified}
+                        className="text-base font-semibold text-white"
+                        iconSize={15}
+                      />
                       <p className="mt-1 text-sm text-slate-400">
                         {activeProfileSection === "followers" ? t("profile.followsYou") : t("profile.mutualFollow")}
                       </p>

@@ -18,6 +18,7 @@ export type ProfileRecord = {
   city_slug?: string | null;
   city_id?: string | null;
   is_official?: boolean | null;
+  is_verified?: boolean | null;
 };
 
 type EnsureProfileOptions = {
@@ -59,9 +60,9 @@ export type EnsureProfileResult = {
 };
 
 const PROFILE_SELECT_WITH_LOCATION =
-  "id, name, username, gender, avatar_url, cover_url, bio, country_slug, city_slug, city_id, age_years, is_official";
+  "id, name, username, gender, avatar_url, cover_url, bio, country_slug, city_slug, city_id, age_years, is_official, is_verified";
 const PROFILE_SELECT_LEGACY =
-  "id, name, username, gender, date_of_birth, avatar_url, cover_url, bio, country_slug, city_slug, city_id";
+  "id, name, username, gender, date_of_birth, avatar_url, cover_url, bio, country_slug, city_slug, city_id, is_verified";
 
 function normalizeUsername(value: unknown) {
   if (typeof value !== "string") {

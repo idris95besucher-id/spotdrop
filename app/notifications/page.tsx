@@ -10,6 +10,7 @@ import MobileSecondaryHeader from "@/components/MobileSecondaryHeader";
 import { useNotifications } from "@/components/NotificationsProvider";
 import ProfileAvatar from "@/components/ProfileAvatar";
 import Shell from "@/components/Shell";
+import UsernameWithVerification from "@/components/UsernameWithVerification";
 import { getSafeAuthSession } from "@/lib/authSession";
 import {
   buildNotificationCopy,
@@ -109,13 +110,24 @@ function NotificationListItem({
 
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline justify-between gap-2">
-            <p
-              className={`truncate text-[15px] sm:text-base ${
-                unread ? "font-bold text-white" : "font-semibold text-white"
-              }`}
-            >
-              {isComment ? actorName : copy.title}
-            </p>
+            {isComment ? (
+              <UsernameWithVerification
+                username={actorName}
+                isVerified={notification.actorIsVerified}
+                className={`min-w-0 text-[15px] sm:text-base ${
+                  unread ? "font-bold text-white" : "font-semibold text-white"
+                }`}
+                iconSize={14}
+              />
+            ) : (
+              <p
+                className={`truncate text-[15px] sm:text-base ${
+                  unread ? "font-bold text-white" : "font-semibold text-white"
+                }`}
+              >
+                {copy.title}
+              </p>
+            )}
             <time
               className={`shrink-0 text-xs ${unread ? "font-semibold text-primary" : "text-muted"}`}
             >

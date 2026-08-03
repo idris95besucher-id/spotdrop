@@ -745,6 +745,7 @@ export default function PostViewerSlide({
             <PublicationAuthorHeader
               authorUserId={post.user_id}
               authorUsername={authorUsername}
+              authorIsVerified={postAuthor.is_verified}
               avatarUrl={postAuthor.avatar_url}
               viewerUserId={userId}
               onAuthorClick={
@@ -807,7 +808,7 @@ export default function PostViewerSlide({
       </div>
 
       <div
-        className="pointer-events-auto absolute bottom-28 right-2 z-30"
+        className="pointer-events-auto absolute bottom-36 right-1.5 z-30 sm:bottom-40"
         onClick={(event) => event.stopPropagation()}
       >
         <PostDetailActionRail

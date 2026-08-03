@@ -6,6 +6,7 @@ import MobileSecondaryHeader from "@/components/MobileSecondaryHeader";
 import NavigationStackScreen from "@/components/NavigationStackScreen";
 import ProfileAvatar from "@/components/ProfileAvatar";
 import Shell from "@/components/Shell";
+import UsernameWithVerification from "@/components/UsernameWithVerification";
 import { useI18n } from "@/components/I18nProvider";
 import { localizeError } from "@/lib/i18n/localizeError";
 import { loadFollowConnections, type FollowProfile } from "@/lib/follows";
@@ -114,9 +115,12 @@ export default function UserConnectionsListScreen({
                         className="bg-slate-800"
                       />
                       <div className="min-w-0">
-                        <p className="truncate text-[15px] font-semibold text-white">
-                          {publicProfileUsername(person.username)}
-                        </p>
+                        <UsernameWithVerification
+                          username={publicProfileUsername(person.username)}
+                          isVerified={person.is_verified}
+                          className="text-[15px] font-semibold text-white"
+                          iconSize={14}
+                        />
                         {displayName ? (
                           <p className="mt-0.5 truncate text-[13px] text-slate-400">{displayName}</p>
                         ) : null}

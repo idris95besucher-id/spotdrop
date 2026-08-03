@@ -40,6 +40,7 @@ export type PostDetailRow = PostMediaFields & {
   profiles?: {
     username: string;
     avatar_url?: string | null;
+    is_verified?: boolean | null;
   } | null;
   guide_places?: GuidePlace | GuidePlace[] | null;
 };
@@ -82,7 +83,7 @@ export function findDemoPost(postId: string): PostDetailRow | null {
   };
 }
 
-const POST_DETAIL_SELECT = `id, user_id, content, created_at, updated_at, visibility, image_url, video_url, video_cover_url, thumbnail_url, media_url, media_type, content_kind, spot_name, spot_address, spot_city, spot_country, spot_latitude, spot_longitude, visited_count, comments_count, collection_save_count, guide_places(title, location_name, canton, city, description, opening_hours, price_info, official_url, read_more_text, media_url, media_type, source_url), ${POST_AUTHOR_PROFILES_FKEY}(username, avatar_url)`;
+const POST_DETAIL_SELECT = `id, user_id, content, created_at, updated_at, visibility, image_url, video_url, video_cover_url, thumbnail_url, media_url, media_type, content_kind, spot_name, spot_address, spot_city, spot_country, spot_latitude, spot_longitude, visited_count, comments_count, collection_save_count, guide_places(title, location_name, canton, city, description, opening_hours, price_info, official_url, read_more_text, media_url, media_type, source_url), ${POST_AUTHOR_PROFILES_FKEY}(username, avatar_url, is_verified)`;
 
 const POST_DETAIL_SELECT_NO_RANKING = POST_DETAIL_SELECT.replace(
   ", visited_count, comments_count, collection_save_count",

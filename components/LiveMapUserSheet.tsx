@@ -6,6 +6,7 @@ import { X } from "lucide-react";
 import { useI18n } from "@/components/I18nProvider";
 import LiveMapUserPresenceLine from "@/components/LiveMapUserPresenceLine";
 import ProfileAvatar from "@/components/ProfileAvatar";
+import UsernameWithVerification from "@/components/UsernameWithVerification";
 import { localizeCityByEnglishName, localizeCountryByEnglishName } from "@/lib/i18n/localizeGeo";
 import { auditLocationLocaleOutput } from "@/lib/i18n/localizeGeoAudit";
 import type { I18nLocale } from "@/lib/i18n/locales";
@@ -139,11 +140,13 @@ export default function LiveMapUserSheet({
                 className="border border-cyan-400/40 bg-slate-800"
               />
               <div className="min-w-0">
-                <p
-                  id="live-map-user-sheet-title"
-                  className="truncate text-base font-semibold text-white"
-                >
-                  @{user.username}
+                <p id="live-map-user-sheet-title" className="max-w-full">
+                  <UsernameWithVerification
+                    username={`@${user.username}`}
+                    isVerified={user.is_verified}
+                    className="text-base font-semibold text-white"
+                    iconSize={15}
+                  />
                 </p>
                 {place ? <p className="truncate text-sm text-slate-400">{place}</p> : null}
                 <LiveMapUserPresenceLine

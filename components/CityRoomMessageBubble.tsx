@@ -9,6 +9,7 @@ import ChatLocationCardPreview, {
   chatLocationCardPreviewFromPayload,
 } from "@/components/ChatLocationCardPreview";
 import ProfileAvatar from "@/components/ProfileAvatar";
+import UsernameWithVerification from "@/components/UsernameWithVerification";
 import { useI18n } from "@/components/I18nProvider";
 import { usePostViewerOptional } from "@/components/PostViewerProvider";
 import { formatChatMessageTime } from "@/lib/chatDates";
@@ -31,6 +32,7 @@ import ChatLocationBubble from "@/components/chat/ChatLocationBubble";
 export type CityRoomMessageProfile = {
   username: string;
   avatar_url?: string | null;
+  is_verified?: boolean | null;
 };
 
 export type CityRoomMessageBubbleMessage = {
@@ -307,9 +309,14 @@ export default function CityRoomMessageBubble({
             ) : (
               <Link
                 href={`/user?id=${message.user_id}`}
-                className="text-xs font-semibold text-slate-300 hover:text-white"
+                className="min-w-0 hover:text-white"
               >
-                {displayName}
+                <UsernameWithVerification
+                  username={displayName}
+                  isVerified={sender?.is_verified}
+                  className="text-xs font-semibold text-slate-300"
+                  iconSize={12}
+                />
               </Link>
             )}
             {isOwnMessage ? (

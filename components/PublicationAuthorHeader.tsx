@@ -4,11 +4,13 @@ import type { MouseEvent } from "react";
 import Link from "next/link";
 import OwnContentMenu from "@/components/OwnContentMenu";
 import ProfileAvatar from "@/components/ProfileAvatar";
+import UsernameWithVerification from "@/components/UsernameWithVerification";
 import { useI18n } from "@/components/I18nProvider";
 
 type PublicationAuthorHeaderProps = {
   authorUserId: string;
   authorUsername: string;
+  authorIsVerified?: boolean | null;
   avatarUrl?: string | null;
   viewerUserId: string | null;
   onEdit?: () => void;
@@ -30,6 +32,7 @@ type PublicationAuthorHeaderProps = {
 export default function PublicationAuthorHeader({
   authorUserId,
   authorUsername,
+  authorIsVerified,
   avatarUrl,
   viewerUserId,
   onEdit,
@@ -55,7 +58,12 @@ export default function PublicationAuthorHeader({
           iconClassName="h-4 w-4"
           className="border border-white/15"
         />
-        <span className="truncate text-sm font-semibold text-white">{authorUsername}</span>
+        <UsernameWithVerification
+          username={authorUsername}
+          isVerified={authorIsVerified}
+          className="text-sm font-semibold text-white"
+          iconSize={14}
+        />
       </Link>
 
       {isOwner && onDelete ? (

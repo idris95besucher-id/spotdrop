@@ -2,6 +2,7 @@
 
 import { MessageCircle, X } from "lucide-react";
 import ProfileAvatar from "@/components/ProfileAvatar";
+import UsernameWithVerification from "@/components/UsernameWithVerification";
 import { useI18n } from "@/components/I18nProvider";
 import type { MapMark } from "@/lib/mapMarks";
 
@@ -79,7 +80,12 @@ export default function MapMarkClusterSheet({
                   </span>
                 </span>
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm font-semibold text-white">@{mark.username}</span>
+                  <UsernameWithVerification
+                    username={`@${mark.username}`}
+                    isVerified={mark.is_verified}
+                    className="text-sm font-semibold text-white"
+                    iconSize={14}
+                  />
                   <span className="mt-0.5 line-clamp-2 text-xs leading-snug text-slate-300">{mark.text}</span>
                 </span>
               </button>

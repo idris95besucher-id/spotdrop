@@ -22,6 +22,7 @@ export type FeedSpotProfile = {
   avatar_url?: string | null;
   is_private: boolean;
   is_demo: boolean;
+  is_verified?: boolean | null;
 };
 
 export type FeedSpotRow = PostMediaFields & {
@@ -76,7 +77,8 @@ const FEED_SPOT_SELECT = `
     username,
     avatar_url,
     is_private,
-    is_demo
+    is_demo,
+    is_verified
   )
 `;
 
@@ -107,7 +109,8 @@ const FEED_SPOT_SELECT_NO_THUMBNAIL = `
     username,
     avatar_url,
     is_private,
-    is_demo
+    is_demo,
+    is_verified
   )
 `;
 

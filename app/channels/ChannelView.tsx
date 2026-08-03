@@ -8,6 +8,7 @@ import PostCardMedia from "@/components/PostCardMedia";
 import PostMediaLink from "@/components/PostMediaLink";
 import ProfileAvatar from "@/components/ProfileAvatar";
 import Shell from "@/components/Shell";
+import UsernameWithVerification from "@/components/UsernameWithVerification";
 import { useI18n } from "@/components/I18nProvider";
 import { getSafeAuthSession } from "@/lib/authSession";
 import { loadChannelDetail, type ChannelVisibility, type SpotChannel } from "@/lib/channels";
@@ -24,7 +25,12 @@ export default function ChannelView({ channelId }: { channelId: string }) {
   const { t } = useI18n();
   const [viewerId, setViewerId] = useState<string | null>(null);
   const [channel, setChannel] = useState<SpotChannel | null>(null);
-  const [owner, setOwner] = useState<{ id: string; username: string; avatar_url: string | null } | null>(null);
+  const [owner, setOwner] = useState<{
+    id: string;
+    username: string;
+    avatar_url: string | null;
+    is_verified?: boolean | null;
+  } | null>(null);
   const [items, setItems] = useState<ProfileContentPost[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -98,7 +104,12 @@ export default function ChannelView({ channelId }: { channelId: string }) {
                     iconClassName="h-4 w-4"
                     className="bg-slate-800"
                   />
-                  <span className="text-sm font-semibold text-white">{owner.username}</span>
+                  <UsernameWithVerification
+                    username={owner.username}
+                    isVerified={owner.is_verified}
+                    className="text-sm font-semibold text-white"
+                    iconSize={14}
+                  />
                 </Link>
               ) : null}
 

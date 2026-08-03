@@ -81,6 +81,7 @@ type City = {
 type SenderProfile = {
   username: string;
   avatar_url?: string | null;
+  is_verified?: boolean | null;
 };
 
 type RawCityMessage = {
@@ -357,7 +358,7 @@ export default function RoomChatPage() {
       if (uniqueUserIds.length > 0) {
         const { data: profileRows, error: profileError } = await supabase
           .from("profiles")
-          .select("id, username, avatar_url")
+          .select("id, username, avatar_url, is_verified")
           .in("id", uniqueUserIds);
 
         if (profileError) {
@@ -369,6 +370,7 @@ export default function RoomChatPage() {
               {
                 username: publicProfileUsername(profile.username),
                 avatar_url: profile.avatar_url ?? null,
+                is_verified: profile.is_verified ?? null,
               },
             ])
           );
@@ -432,7 +434,7 @@ export default function RoomChatPage() {
             } else {
               const { data: profileRow, error: profileError } = await supabase
                 .from("profiles")
-                .select("username, avatar_url")
+                .select("username, avatar_url, is_verified")
                 .eq("id", insertedMessage.user_id)
                 .maybeSingle();
 
@@ -446,6 +448,7 @@ export default function RoomChatPage() {
                 senderProfile = {
                   username: publicProfileUsername(profileRow.username),
                   avatar_url: profileRow.avatar_url ?? null,
+                  is_verified: profileRow.is_verified ?? null,
                 };
               }
 

@@ -19,7 +19,7 @@ export type StoryRow = {
   expires_at: string;
   archived_at: string | null;
   created_at: string;
-  profiles?: { username: string; avatar_url: string | null } | null;
+  profiles?: { username: string; avatar_url: string | null; is_verified: boolean | null } | null;
 };
 
 export type PlaceFeedItem = {
@@ -31,13 +31,13 @@ export type PlaceFeedItem = {
   media_type: StoryMediaType | null;
   created_at: string;
   is_archived_story: boolean;
-  profiles: { username: string; avatar_url: string | null } | null;
+  profiles: { username: string; avatar_url: string | null; is_verified: boolean | null } | null;
   post_id?: string;
   story_id?: string;
 };
 
 const POST_STORY_SELECT =
-  `id, user_id, content, visibility, content_kind, media_url, media_type, image_url, video_url, discovery_place_id, expires_at, created_at, ${POST_AUTHOR_PROFILES_FKEY}(username, avatar_url)`;
+  `id, user_id, content, visibility, content_kind, media_url, media_type, image_url, video_url, discovery_place_id, expires_at, created_at, ${POST_AUTHOR_PROFILES_FKEY}(username, avatar_url, is_verified)`;
 
 function normalizeProfileJoin<T extends { username: string; avatar_url: string | null }>(
   value: T | T[] | null | undefined
@@ -80,7 +80,9 @@ function mapStoryRow(row: Record<string, unknown>): StoryRow {
     expires_at: String(row.expires_at),
     archived_at: (row.archived_at as string | null) ?? null,
     created_at: String(row.created_at),
-    profiles: normalizeProfileJoin(row.profiles as { username: string; avatar_url: string | null } | null),
+    profiles: normalizeProfileJoin(
+      row.profiles as { username: string; avatar_url: string | null; is_verified: boolean | null } | null
+    ),
   };
 }
 
@@ -102,7 +104,9 @@ function mapPostToStoryRow(row: Record<string, unknown>, nowIso: string): StoryR
     expires_at: expiresAt,
     archived_at: expiresAt && expiresAt <= nowIso ? expiresAt : null,
     created_at: String(row.created_at),
-    profiles: normalizeProfileJoin(row.profiles as { username: string; avatar_url: string | null } | null),
+    profiles: normalizeProfileJoin(
+      row.profiles as { username: string; avatar_url: string | null; is_verified: boolean | null } | null
+    ),
   };
 }
 
@@ -305,7 +309,7 @@ export async function loadPlaceFeed(placeId: string) {
   const { data, error } = await supabase
     .from("posts")
     .select(
-      `id, user_id, content, content_kind, media_url, media_type, image_url, video_url, created_at, expires_at, ${POST_AUTHOR_PROFILES_FKEY}(username, avatar_url)`
+      `id, user_id, content, content_kind, media_url, media_type, image_url, video_url, created_at, expires_at, ${POST_AUTHOR_PROFILES_FKEY}(username, avatar_url, is_verified)`
     )
     .eq("discovery_place_id", placeId)
     .eq("visibility", "public")
@@ -326,7 +330,7 @@ export async function loadPlaceFeed(placeId: string) {
   for (const row of data ?? []) {
     const record = row as Record<string, unknown>;
     const profile = normalizeProfileJoin(
-      record.profiles as { username: string; avatar_url: string | null } | null
+      record.profiles as { username: string; avatar_url: string | null; is_verified: boolean | null } | null
     );
 
     if (isGuideAccountProfile(profile)) {
@@ -356,6 +360,7 @@ export async function loadPlaceFeed(placeId: string) {
         ? {
             username: profile.username,
             avatar_url: profile.avatar_url,
+            is_verified: profile.is_verified,
           }
         : null,
       post_id: String(record.id),

@@ -8,6 +8,7 @@ import { loadPlaceSaved, togglePlaceSaved } from "@/lib/discoveryPlaces";
 import { loadPlaceFeed, type PlaceFeedItem, type StoryRow } from "@/lib/stories";
 import { formatPostTime } from "@/lib/posts";
 import { publicProfileUsername } from "@/lib/publicProfile";
+import UsernameWithVerification from "@/components/UsernameWithVerification";
 
 type DiscoveryPlaceDetailProps = {
   place: DiscoveryPlace;
@@ -173,9 +174,12 @@ export default function DiscoveryPlaceDetail({ place, userId, onClose }: Discove
                       )}
                       <div className="space-y-1 border-t border-white/10 p-2.5">
                         <div className="flex flex-wrap items-center gap-1.5">
-                          <span className="truncate text-xs font-semibold text-cyan-200">
-                            {publicProfileUsername(item.profiles?.username)}
-                          </span>
+                          <UsernameWithVerification
+                            username={publicProfileUsername(item.profiles?.username)}
+                            isVerified={item.profiles?.is_verified}
+                            className="text-xs font-semibold text-cyan-200"
+                            iconSize={12}
+                          />
                           {item.kind === "story" ? (
                             <span className="rounded-full bg-fuchsia-500/20 px-1.5 py-0.5 text-[9px] font-bold uppercase text-fuchsia-200">
                               Story

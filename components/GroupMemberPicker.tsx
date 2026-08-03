@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Check, Loader2, Search, X } from "lucide-react";
 import ProfileAvatar from "@/components/ProfileAvatar";
+import UsernameWithVerification from "@/components/UsernameWithVerification";
 import { useI18n } from "@/components/I18nProvider";
 import { localizeUserMessage } from "@/lib/i18n/localizeUserMessage";
 import {
@@ -50,7 +51,12 @@ function RecipientRow({
         iconClassName="h-4 w-4"
         className="border border-white/10"
       />
-      <span className="min-w-0 flex-1 truncate text-sm font-medium text-white">@{recipient.username}</span>
+      <UsernameWithVerification
+        username={`@${recipient.username}`}
+        isVerified={recipient.is_verified}
+        className="min-w-0 flex-1 text-sm font-medium text-white"
+        iconSize={14}
+      />
       {showCheckmark ? (
         <span
           className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border ${
@@ -170,8 +176,12 @@ export default function GroupMemberPicker({
               onClick={() => toggleRecipient(recipient)}
               className="inline-flex items-center gap-1.5 rounded-full border border-cyan-400/30 bg-cyan-400/10 px-2.5 py-1.5 text-xs font-medium text-cyan-100 transition hover:bg-cyan-400/15"
             >
-              @{recipient.username}
-              <X className="h-3 w-3" strokeWidth={2.5} aria-hidden />
+              <UsernameWithVerification
+                username={`@${recipient.username}`}
+                isVerified={recipient.is_verified}
+                iconSize={12}
+              />
+              <X className="h-3 w-3 shrink-0" strokeWidth={2.5} aria-hidden />
             </button>
           ))}
         </div>

@@ -15,7 +15,11 @@ import {
 export type ChatPreviewMessage = Pick<
   DirectMessageRow,
   "body" | "message_type" | "spot_share_id" | "post_id"
->;
+> & {
+  sender_id?: string;
+  delivered_at?: string | null;
+  read_at?: string | null;
+};
 import { loadDmInboxPreferences } from "@/lib/chatInboxPreferences";
 import { formatUnreadBadge, markAllPendingDirectMessagesDelivered } from "@/lib/chatNotifications";
 import { getOptimisticReadExcludes, roomUnreadKey } from "@/lib/chatUnreadSync";
@@ -73,6 +77,7 @@ export type InboxChatRow = {
   conversationId: string | null;
   username: string;
   avatarUrl: string | null;
+  isVerified: boolean | null;
   lastSeenAt: string | null;
   lastMessage: ChatPreviewMessage | null;
   lastAt: string;
@@ -121,6 +126,7 @@ type PartnerProfile = {
   username: string;
   avatar_url?: string | null;
   last_seen_at?: string | null;
+  is_verified?: boolean | null;
 };
 
 async function loadProfilesByIds(partnerIds: string[]): Promise<{
@@ -133,7 +139,7 @@ async function loadProfilesByIds(partnerIds: string[]): Promise<{
 
   const { data, error } = await supabase
     .from("profiles")
-    .select("id, username, avatar_url, last_seen_at")
+    .select("id, username, avatar_url, last_seen_at, is_verified")
     .in("id", partnerIds);
 
   if (error) {
@@ -315,6 +321,7 @@ export async function loadChatsInbox(userId: string) {
         partnerId,
         username: publicProfileUsername(profile?.username),
         avatarUrl: profile?.avatar_url ?? null,
+        isVerified: profile?.is_verified ?? null,
         previewMessage: firstMessage ?? requestLatest ?? null,
         requestedAt: firstMessage?.created_at ?? requestLatest?.created_at ?? row.created_at,
       });
@@ -340,6 +347,7 @@ export async function loadChatsInbox(userId: string) {
       conversationId: row.id,
       username: publicProfileUsername(profile?.username),
       avatarUrl: profile?.avatar_url ?? null,
+      isVerified: profile?.is_verified ?? null,
       lastSeenAt: profile?.last_seen_at ?? null,
       lastMessage: latest ?? null,
       lastAt: latest?.created_at ?? row.updated_at,
@@ -390,6 +398,7 @@ export async function loadChatsInbox(userId: string) {
       conversationId: null,
       username: publicProfileUsername(profile?.username),
       avatarUrl: profile?.avatar_url ?? null,
+      isVerified: profile?.is_verified ?? null,
       lastSeenAt: profile?.last_seen_at ?? null,
       lastMessage: latest,
       lastAt: latest.created_at,

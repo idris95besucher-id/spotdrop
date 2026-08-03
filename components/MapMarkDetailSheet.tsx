@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Loader2, MapPinned, Share2, X } from "lucide-react";
 import ProfileAvatar from "@/components/ProfileAvatar";
 import ShareMapMarkSheet from "@/components/ShareMapMarkSheet";
+import UsernameWithVerification from "@/components/UsernameWithVerification";
 import { useI18n } from "@/components/I18nProvider";
 import { usePostViewerOptional } from "@/components/PostViewerProvider";
 import { mapMarkToSharePayload } from "@/lib/cityRoomMapMarkMessage";
@@ -297,7 +298,12 @@ export default function MapMarkDetailSheet({
               className="border border-cyan-400/35 bg-slate-800"
             />
             <span className="min-w-0">
-              <span className="block truncate text-sm font-semibold text-white">@{mark.username}</span>
+              <UsernameWithVerification
+                username={`@${mark.username}`}
+                isVerified={mark.is_verified}
+                className="text-sm font-semibold text-white"
+                iconSize={14}
+              />
               {createdLabel ? <span className="block text-xs text-slate-400">{createdLabel}</span> : null}
             </span>
           </Link>

@@ -10,6 +10,7 @@ import GroupMessagePlaceCard from "@/components/GroupMessagePlaceCard";
 import GroupMessageMapMarkCard from "@/components/GroupMessageMapMarkCard";
 import GroupThreadHeader from "@/components/GroupThreadHeader";
 import Shell from "@/components/Shell";
+import UsernameWithVerification from "@/components/UsernameWithVerification";
 import { useAuthSession } from "@/components/AuthSessionProvider";
 import { useI18n } from "@/components/I18nProvider";
 import { formatChatMessageTime, shouldShowChatDateSeparator } from "@/lib/chatDates";
@@ -87,6 +88,7 @@ export default function GroupThreadView() {
   const openBottomSequenceStartedRef = useRef<string | null>(null);
 
   const usernameById = new Map(members.map((member) => [member.userId, member.username]));
+  const memberById = new Map(members.map((member) => [member.userId, member]));
   const isMember = members.some((member) => member.userId === currentUserId);
   const canSend = Boolean(currentUserId) && isMember && !removed;
 
@@ -606,7 +608,12 @@ export default function GroupThreadView() {
                 const localizedEditError = isEditingThis ? editError : null;
 
                 const senderNameLabel = !isOwnMessage ? (
-                  <p className="mb-1 ml-1 truncate text-[11px] font-medium text-slate-500">{senderName}</p>
+                  <UsernameWithVerification
+                    username={senderName}
+                    isVerified={memberById.get(message.sender_id)?.isVerified}
+                    className="mb-1 ml-1 text-[11px] font-medium text-slate-500"
+                    iconSize={12}
+                  />
                 ) : null;
 
                 const timestampRow = (

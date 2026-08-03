@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { Check, ChevronLeft, Loader2, Search, Send, Users } from "lucide-react";
 import ProfileAvatar from "@/components/ProfileAvatar";
+import UsernameWithVerification from "@/components/UsernameWithVerification";
 import { useI18n } from "@/components/I18nProvider";
 import { localizeUserMessage } from "@/lib/i18n/localizeUserMessage";
 import type { CityRoomMapMarkPayload } from "@/lib/cityRoomMapMarkMessage";
@@ -59,7 +60,12 @@ function RecipientSelectRow({
         iconClassName="h-4 w-4"
         className="border border-white/10"
       />
-      <span className="min-w-0 flex-1 truncate text-sm font-medium text-white">@{recipient.username}</span>
+      <UsernameWithVerification
+        username={`@${recipient.username}`}
+        isVerified={recipient.is_verified}
+        className="min-w-0 flex-1 text-sm font-medium text-white"
+        iconSize={14}
+      />
       <span
         className={`inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full border ${
           selected ? "border-cyan-300 bg-cyan-400 text-slate-950" : "border-white/20 bg-transparent"

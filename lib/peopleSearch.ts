@@ -21,6 +21,7 @@ export type PeopleSearchProfile = {
   age_years?: number | null;
   is_online?: boolean | null;
   last_seen_at?: string | null;
+  is_verified?: boolean | null;
 };
 
 export type PeopleBrowseFilters = {
@@ -54,13 +55,13 @@ export type PeopleSearchCatalog = {
 };
 
 const PROFILE_SELECT =
-  "id, username, avatar_url, bio, country_slug, city_slug, city_id, age_years, is_online, last_seen_at, is_demo";
+  "id, username, avatar_url, bio, country_slug, city_slug, city_id, age_years, is_online, last_seen_at, is_demo, is_verified";
 const PROFILE_SELECT_NO_BIO =
-  "id, username, avatar_url, country_slug, city_slug, city_id, age_years, is_online, last_seen_at, is_demo";
+  "id, username, avatar_url, country_slug, city_slug, city_id, age_years, is_online, last_seen_at, is_demo, is_verified";
 const PROFILE_SELECT_LEGACY =
-  "id, username, avatar_url, country_slug, city_slug, city_id, date_of_birth, is_online, last_seen_at";
+  "id, username, avatar_url, country_slug, city_slug, city_id, date_of_birth, is_online, last_seen_at, is_verified";
 const PROFILE_SELECT_LEGACY_NO_LAST_SEEN =
-  "id, username, avatar_url, country_slug, city_slug, city_id, date_of_birth, is_online";
+  "id, username, avatar_url, country_slug, city_slug, city_id, date_of_birth, is_online, is_verified";
 
 /**
  * Ranked view (database/add-people-search-ranking.sql): same profile columns plus a
@@ -71,7 +72,7 @@ const PROFILE_SELECT_LEGACY_NO_LAST_SEEN =
  */
 const RANKED_VIEW = "people_search_ranked";
 const RANKED_SELECT =
-  "id, username, avatar_url, bio, country_slug, city_slug, city_id, age_years, is_online, last_seen_at, is_demo";
+  "id, username, avatar_url, bio, country_slug, city_slug, city_id, age_years, is_online, last_seen_at, is_demo, is_verified";
 const VIEW_MISSING_ERROR_CODE = "42P01";
 
 type RawProfileRow = {
@@ -87,6 +88,7 @@ type RawProfileRow = {
   is_online?: boolean | null;
   last_seen_at?: string | null;
   is_demo?: boolean | null;
+  is_verified?: boolean | null;
 };
 
 /** Trim + lowercase for slug comparisons (country_slug / city_slug). */
@@ -162,6 +164,7 @@ export function normalizePeopleSearchProfile(row: RawProfileRow): PeopleSearchPr
     age_years: ageYears,
     is_online: row.is_online ?? null,
     last_seen_at: row.last_seen_at ?? null,
+    is_verified: row.is_verified ?? null,
   };
 }
 

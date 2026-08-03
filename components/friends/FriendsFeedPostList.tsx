@@ -7,6 +7,7 @@ import SpotStatsBar from "@/components/SpotStatsBar";
 import PostCardMedia from "@/components/PostCardMedia";
 import PostMediaLink from "@/components/PostMediaLink";
 import ProfileAvatar from "@/components/ProfileAvatar";
+import UsernameWithVerification from "@/components/UsernameWithVerification";
 import { useI18n } from "@/components/I18nProvider";
 import { getFeedSpotPublicStats, type FeedSpotRow } from "@/lib/feed";
 import { feedRowsToViewerItems } from "@/lib/postViewer";
@@ -70,7 +71,12 @@ export default function FriendsFeedPostList({
                   className="border border-white/10 bg-slate-800"
                 />
                 <div className="min-w-0 flex-1 text-left">
-                  <p className="truncate text-sm font-semibold text-white">{username}</p>
+                  <UsernameWithVerification
+                    username={username}
+                    isVerified={post.profiles.is_verified}
+                    className="text-sm font-semibold text-white"
+                    iconSize={14}
+                  />
                 </div>
               </Link>
             </header>

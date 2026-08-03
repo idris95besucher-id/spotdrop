@@ -2,6 +2,7 @@
 
 import PublicationAuthorHeader from "@/components/PublicationAuthorHeader";
 import ProfileAvatar from "@/components/ProfileAvatar";
+import UsernameWithVerification from "@/components/UsernameWithVerification";
 import SpotPostMeta from "@/components/SpotPostMeta";
 import SpotStatsBar from "@/components/SpotStatsBar";
 import PostCardMedia from "@/components/PostCardMedia";
@@ -63,6 +64,7 @@ export default function ProfilePostFeedCard({
           <PublicationAuthorHeader
             authorUserId={post.user_id}
             authorUsername={username}
+            authorIsVerified={post.profiles?.is_verified}
             avatarUrl={post.profiles?.avatar_url}
             viewerUserId={viewerUserId}
             menuTriggerClassName="bg-white/5 ring-1 ring-white/10"
@@ -79,7 +81,12 @@ export default function ProfilePostFeedCard({
               iconClassName="h-4 w-4"
               className="border border-white/10 bg-slate-800"
             />
-            <p className="min-w-0 flex-1 truncate text-sm font-semibold text-white">{username}</p>
+            <UsernameWithVerification
+              username={username}
+              isVerified={post.profiles?.is_verified}
+              className="min-w-0 flex-1 text-sm font-semibold text-white"
+              iconSize={14}
+            />
           </div>
         )}
       </header>

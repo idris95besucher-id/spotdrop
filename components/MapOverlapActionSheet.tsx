@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { ChevronLeft, MapPinned, Users, X } from "lucide-react";
 import ProfileAvatar from "@/components/ProfileAvatar";
+import UsernameWithVerification from "@/components/UsernameWithVerification";
 import { useI18n } from "@/components/I18nProvider";
 import { getMapSpotPinPreviewUrl, getMapSpotPinTitle } from "@/lib/mapSpotPin";
 import type { MapSpotPin } from "@/lib/spots";
@@ -160,7 +161,12 @@ export default function MapOverlapActionSheet({
                   />
                   <span className="min-w-0 flex-1">
                     <span className="block text-sm font-semibold text-white">{t("map.overlapOpenUser")}</span>
-                    <span className="block truncate text-xs text-slate-400">@{users[0]!.username}</span>
+                    <UsernameWithVerification
+                      username={`@${users[0]!.username}`}
+                      isVerified={users[0]!.is_verified}
+                      className="text-xs text-slate-400"
+                      iconSize={12}
+                    />
                   </span>
                 </button>
               ) : users.length > 1 ? (
@@ -206,9 +212,12 @@ export default function MapOverlapActionSheet({
                       iconClassName="h-4 w-4"
                       className="border-2 border-violet-400/80 bg-slate-800"
                     />
-                    <span className="min-w-0 flex-1 truncate text-sm font-semibold text-white">
-                      @{user.username}
-                    </span>
+                    <UsernameWithVerification
+                      username={`@${user.username}`}
+                      isVerified={user.is_verified}
+                      className="min-w-0 flex-1 text-sm font-semibold text-white"
+                      iconSize={14}
+                    />
                   </button>
                 </li>
               ))}
@@ -239,7 +248,12 @@ export default function MapOverlapActionSheet({
                           {getMapSpotPinTitle(pin)}
                         </span>
                         {pin.username ? (
-                          <span className="block truncate text-xs text-slate-400">@{pin.username}</span>
+                          <UsernameWithVerification
+                            username={`@${pin.username}`}
+                            isVerified={pin.is_verified}
+                            className="text-xs text-slate-400"
+                            iconSize={12}
+                          />
                         ) : null}
                       </span>
                     </button>

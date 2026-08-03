@@ -10,6 +10,7 @@ export type GalleryAllowedViewer = {
   id: string;
   username: string;
   avatar_url: string | null;
+  is_verified: boolean | null;
 };
 
 function isBenignAllowlistSchemaError(error: { code?: string; message?: string } | null) {
@@ -43,7 +44,7 @@ export async function loadProfileGalleryAllowedViewers(ownerId: string): Promise
 
   const { data: profiles, error: profilesError } = await supabase
     .from("profiles")
-    .select("id, username, avatar_url")
+    .select("id, username, avatar_url, is_verified")
     .in("id", viewerIds);
 
   if (profilesError) {
@@ -64,6 +65,7 @@ export async function loadProfileGalleryAllowedViewers(ownerId: string): Promise
       id: String(profile.id),
       username: String(profile.username ?? ""),
       avatar_url: (profile.avatar_url as string | null) ?? null,
+      is_verified: (profile.is_verified as boolean | null) ?? null,
     }));
 
   return {

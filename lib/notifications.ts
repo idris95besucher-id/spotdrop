@@ -22,6 +22,7 @@ export type NotificationRow = {
   created_at: string;
   actorUsername?: string | null;
   actorAvatarUrl?: string | null;
+  actorIsVerified?: boolean | null;
   postThumbnailUrl?: string | null;
 };
 
@@ -272,18 +273,22 @@ export async function fetchNotifications(userId: string, limit = 50) {
   });
 
   const actorIds = [...new Set(base.map((row) => row.actor_id).filter(Boolean))] as string[];
-  const actorById = new Map<string, { username: string | null; avatar_url: string | null }>();
+  const actorById = new Map<
+    string,
+    { username: string | null; avatar_url: string | null; is_verified: boolean | null }
+  >();
 
   if (actorIds.length > 0) {
     const { data: profiles } = await supabase
       .from("profiles")
-      .select("id, username, avatar_url")
+      .select("id, username, avatar_url, is_verified")
       .in("id", actorIds);
 
     for (const profile of profiles ?? []) {
       actorById.set(String(profile.id), {
         username: (profile.username as string | null) ?? null,
         avatar_url: (profile.avatar_url as string | null) ?? null,
+        is_verified: (profile.is_verified as boolean | null) ?? null,
       });
     }
   }
@@ -332,6 +337,7 @@ export async function fetchNotifications(userId: string, limit = 50) {
       actorUsername:
         actor?.username ?? (metadataString(row.metadata, "commenterUsername") || null),
       actorAvatarUrl: actor?.avatar_url ?? null,
+      actorIsVerified: actor?.is_verified ?? null,
       postThumbnailUrl:
         row.postThumbnailUrl || (postId ? (thumbByPostId.get(postId) ?? null) : null),
     };

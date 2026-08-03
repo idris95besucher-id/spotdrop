@@ -54,6 +54,7 @@ export type MapMark = {
   expires_at: string | null;
   username: string;
   avatar_url: string | null;
+  is_verified: boolean | null;
 };
 
 /** True once a mark has passed its 24h expiry — used as a client-side belt-and-suspenders check on top of the RLS policy that already hides expired rows. */
@@ -106,7 +107,7 @@ const MAP_MARK_SELECT = `
   created_at,
   updated_at,
   expires_at,
-  ${MAP_MARK_AUTHOR_PROFILES}(username, avatar_url, is_private, is_demo)
+  ${MAP_MARK_AUTHOR_PROFILES}(username, avatar_url, is_private, is_demo, is_verified)
 `;
 
 const RELATED_SPOT_COORD_EPS = 0.00005; // ~5.5m — matches near-identical map taps
@@ -223,8 +224,20 @@ function mapRowToMark(row: Record<string, unknown>): MapMark | null {
   }
 
   const profileJoin = row.profiles as
-    | { username?: string; avatar_url?: string | null; is_private?: boolean; is_demo?: boolean }
-    | { username?: string; avatar_url?: string | null; is_private?: boolean; is_demo?: boolean }[]
+    | {
+        username?: string;
+        avatar_url?: string | null;
+        is_private?: boolean;
+        is_demo?: boolean;
+        is_verified?: boolean | null;
+      }
+    | {
+        username?: string;
+        avatar_url?: string | null;
+        is_private?: boolean;
+        is_demo?: boolean;
+        is_verified?: boolean | null;
+      }[]
     | null;
   const profile = Array.isArray(profileJoin) ? profileJoin[0] : profileJoin;
 
@@ -255,6 +268,7 @@ function mapRowToMark(row: Record<string, unknown>): MapMark | null {
     expires_at: (row.expires_at as string | null) ?? null,
     username: publicProfileUsername(profile?.username),
     avatar_url: profile?.avatar_url ?? null,
+    is_verified: profile?.is_verified ?? null,
   };
 }
 
@@ -275,7 +289,7 @@ export async function loadMapMarks(limit = 400) {
     const fallback = await supabase
       .from("map_marks")
       .select(
-        `id, user_id, text, photo_url, latitude, longitude, place_name, address, created_at, updated_at, ${MAP_MARK_AUTHOR_PROFILES}(username, avatar_url, is_private, is_demo)`
+        `id, user_id, text, photo_url, latitude, longitude, place_name, address, created_at, updated_at, ${MAP_MARK_AUTHOR_PROFILES}(username, avatar_url, is_private, is_demo, is_verified)`
       )
       .order("created_at", { ascending: false })
       .limit(limit);
@@ -320,7 +334,7 @@ export async function loadMapMarkById(markId: string) {
     const fallback = await supabase
       .from("map_marks")
       .select(
-        `id, user_id, text, photo_url, latitude, longitude, place_name, address, created_at, updated_at, ${MAP_MARK_AUTHOR_PROFILES}(username, avatar_url, is_private, is_demo)`
+        `id, user_id, text, photo_url, latitude, longitude, place_name, address, created_at, updated_at, ${MAP_MARK_AUTHOR_PROFILES}(username, avatar_url, is_private, is_demo, is_verified)`
       )
       .eq("id", id)
       .maybeSingle();
@@ -696,7 +710,7 @@ export async function createMapMark(input: MapMarkInput) {
         address: resolvedLocation.address?.trim() || null,
       })
       .select(
-        `id, user_id, text, photo_url, latitude, longitude, place_name, address, created_at, updated_at, ${MAP_MARK_AUTHOR_PROFILES}(username, avatar_url, is_private, is_demo)`
+        `id, user_id, text, photo_url, latitude, longitude, place_name, address, created_at, updated_at, ${MAP_MARK_AUTHOR_PROFILES}(username, avatar_url, is_private, is_demo, is_verified)`
       )
       .single();
     data = legacy.data as typeof data;
@@ -802,7 +816,7 @@ export async function updateMapMark(
       .eq("id", markId)
       .eq("user_id", userId)
       .select(
-        `id, user_id, text, photo_url, latitude, longitude, place_name, address, created_at, updated_at, ${MAP_MARK_AUTHOR_PROFILES}(username, avatar_url, is_private, is_demo)`
+        `id, user_id, text, photo_url, latitude, longitude, place_name, address, created_at, updated_at, ${MAP_MARK_AUTHOR_PROFILES}(username, avatar_url, is_private, is_demo, is_verified)`
       )
       .single();
     data = legacy.data;
