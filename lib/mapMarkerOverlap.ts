@@ -21,6 +21,14 @@ export const MAP_MARKER_OVERLAP_THRESHOLD_PX =
   MAP_LIVE_USER_MARKER_HALF_PX + MAP_SPOT_MARKER_HALF_PX + MAP_MARKER_MIN_GAP_PX;
 
 /**
+ * At low zoom, `thresholdPx` alone stops meaning "visually touching" — many
+ * real-world-distant Spots can land within a few screen pixels of a live
+ * user. A user<->Spot pair must also be within this real-world distance
+ * before they're allowed to merge into a mixed cluster.
+ */
+export const MAP_USER_SPOT_OVERLAP_MAX_METERS = 150;
+
+/**
  * Horizontal offset from the shared point for each marker so the gap between
  * tap areas is at least {@link MAP_MARKER_MIN_GAP_PX}.
  * Center distance = 2 * offset = userHalf + spotHalf + gap.
@@ -72,6 +80,24 @@ function pixelDistance(
   const dx = pa.x - pb.x;
   const dy = pa.y - pb.y;
   return Math.hypot(dx, dy);
+}
+
+/** Local haversine (meters) — kept minimal here to avoid pulling the heavier
+ * geocoding-oriented `lib/spotLocation.ts` module into this pure/lean utility. */
+function haversineDistanceMeters(
+  a: { longitude: number; latitude: number },
+  b: { longitude: number; latitude: number }
+) {
+  const toRad = (value: number) => (value * Math.PI) / 180;
+  const earthRadiusMeters = 6_371_000;
+  const dLat = toRad(b.latitude - a.latitude);
+  const dLon = toRad(b.longitude - a.longitude);
+  const sinLat = Math.sin(dLat / 2);
+  const sinLon = Math.sin(dLon / 2);
+  const h =
+    sinLat * sinLat + Math.cos(toRad(a.latitude)) * Math.cos(toRad(b.latitude)) * sinLon * sinLon;
+
+  return earthRadiusMeters * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
 }
 
 function findRoot(parent: number[], index: number) {
@@ -173,9 +199,33 @@ export function buildMixedMapOverlapClusters(
       const left = points[i]!;
       const right = points[j]!;
 
-      if (pixelDistance(map, left, right) <= thresholdPx) {
-        union(parent, rank, i, j);
+      // Never bridge a mixed cluster through spot<->spot proximity alone —
+      // that lets a long chain of merely-adjacent spots drag in a live user
+      // from one end and turn the whole chain into one "mixed" group, even
+      // though the chain's extremes may be hundreds of pixels apart on
+      // screen. A spot may only join a mixed cluster via a *direct* overlap
+      // with a user (see buildSideBySideClusterLayout below).
+      if (left.kind === "spot" && right.kind === "spot") {
+        continue;
       }
+
+      if (pixelDistance(map, left, right) > thresholdPx) {
+        continue;
+      }
+
+      // At a zoomed-out view, screen-pixel proximity no longer implies real
+      // proximity — a user and a Spot kilometers apart can still land within
+      // thresholdPx of each other. Require them to also be genuinely close
+      // on the ground before merging a user with a Spot.
+      const isUserSpotPair =
+        (left.kind === "user" && right.kind === "spot") ||
+        (left.kind === "spot" && right.kind === "user");
+
+      if (isUserSpotPair && haversineDistanceMeters(left, right) > MAP_USER_SPOT_OVERLAP_MAX_METERS) {
+        continue;
+      }
+
+      union(parent, rank, i, j);
     }
   }
 
