@@ -524,14 +524,26 @@ export default function UserPage({ userIdOverride }: { userIdOverride?: string }
                     <p className="text-[17px] font-bold leading-none tabular-nums text-white">{spotPosts.length}</p>
                     <p className="text-[12px] leading-none text-muted">{t("profile.posts")}</p>
                   </div>
-                  <div className="flex flex-col items-center justify-center gap-0.5 py-1">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      router.push(`/user/followers?id=${encodeURIComponent(profile.id)}`)
+                    }
+                    className="flex flex-col items-center justify-center gap-0.5 py-1 transition active:opacity-70"
+                  >
                     <p className="text-[17px] font-bold leading-none tabular-nums text-white">{followersCount}</p>
                     <p className="text-[12px] leading-none text-muted">{t("profile.followers")}</p>
-                  </div>
-                  <div className="flex flex-col items-center justify-center gap-0.5 py-1">
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      router.push(`/user/friends?id=${encodeURIComponent(profile.id)}`)
+                    }
+                    className="flex flex-col items-center justify-center gap-0.5 py-1 transition active:opacity-70"
+                  >
                     <p className="text-[17px] font-bold leading-none tabular-nums text-white">{friendsCount}</p>
                     <p className="text-[12px] leading-none text-muted">{t("profile.friends")}</p>
-                  </div>
+                  </button>
                 </div>
               ) : null}
 
