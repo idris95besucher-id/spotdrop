@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { Loader2, Megaphone, RefreshCw } from "lucide-react";
+import { Loader2, Megaphone, Plus, RefreshCw } from "lucide-react";
 import { useAuthSession } from "@/components/AuthSessionProvider";
 import { useI18n } from "@/components/I18nProvider";
 import MobileSecondaryHeader from "@/components/MobileSecondaryHeader";
@@ -15,7 +15,7 @@ import {
   markOfficialChannelReadUpTo,
   type OfficialChannelPostRow,
 } from "@/lib/officialChannel";
-import { MOBILE_BOTTOM_NAV_PADDING, MOBILE_MAIN_SCROLL_CLASS } from "@/lib/mobileLayout";
+import { MOBILE_MAIN_SCROLL_CLASS } from "@/lib/mobileLayout";
 import { supabase } from "@/lib/supabaseClient";
 
 function OfficialChannelContent() {
@@ -29,6 +29,7 @@ function OfficialChannelContent() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isOfficial, setIsOfficial] = useState(false);
+  const [composerOpen, setComposerOpen] = useState(false);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const documentVisibleRef = useRef(
@@ -99,25 +100,25 @@ function OfficialChannelContent() {
   );
 
   useEffect(() => {
-    if (loading || error || !newestPublishedAt) {
+    if (loading || error || !newestPublishedAt || composerOpen) {
       return;
     }
 
     void markReadIfVisible(newestPublishedAt);
-  }, [loading, error, newestPublishedAt, markReadIfVisible, reloadKey]);
+  }, [loading, error, newestPublishedAt, markReadIfVisible, reloadKey, composerOpen]);
 
   useEffect(() => {
     const onVisibility = () => {
       documentVisibleRef.current = document.visibilityState === "visible";
 
-      if (documentVisibleRef.current && newestPublishedAt) {
+      if (documentVisibleRef.current && newestPublishedAt && !composerOpen) {
         void markReadIfVisible(newestPublishedAt);
       }
     };
 
     document.addEventListener("visibilitychange", onVisibility);
     return () => document.removeEventListener("visibilitychange", onVisibility);
-  }, [markReadIfVisible, newestPublishedAt]);
+  }, [markReadIfVisible, newestPublishedAt, composerOpen]);
 
   useEffect(() => {
     const channel = supabase
@@ -144,7 +145,7 @@ function OfficialChannelContent() {
             return [row, ...current];
           });
 
-          if (documentVisibleRef.current && row.published_at) {
+          if (documentVisibleRef.current && row.published_at && !composerOpen) {
             void markReadIfVisible(row.published_at);
           }
         }
@@ -154,10 +155,10 @@ function OfficialChannelContent() {
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, [userId, markReadIfVisible]);
+  }, [userId, markReadIfVisible, composerOpen]);
 
   useEffect(() => {
-    if (!highlightPostId || loading || posts.length === 0) {
+    if (!highlightPostId || loading || posts.length === 0 || composerOpen) {
       return;
     }
 
@@ -183,24 +184,41 @@ function OfficialChannelContent() {
       window.cancelAnimationFrame(frame);
       window.clearTimeout(clearHighlight);
     };
-  }, [highlightPostId, loading, posts]);
+  }, [highlightPostId, loading, posts, composerOpen]);
 
   return (
-    <Shell showHeader={false} flushTop fixedLayout>
+    <Shell
+      showHeader={false}
+      flushTop
+      fixedLayout
+      topBar={
+        <MobileSecondaryHeader
+          title={t("profile.officialChannelCardTitle")}
+          backHref="/profile"
+          trailing={
+            isOfficial ? (
+              <button
+                type="button"
+                onClick={() => setComposerOpen(true)}
+                className="inline-flex h-11 w-11 items-center justify-center rounded-full text-white transition hover:bg-white/10 active:scale-95"
+                aria-label={t("officialChannel.createAnnouncement")}
+              >
+                <Plus className="h-5 w-5" strokeWidth={2} aria-hidden />
+              </button>
+            ) : null
+          }
+        />
+      }
+    >
       <NavigationStackScreen fallbackHref="/profile">
-        <MobileSecondaryHeader title={t("profile.officialChannelCardTitle")} backHref="/profile" />
-
-        <div
-          data-mobile-main-scroll=""
-          className={`${MOBILE_MAIN_SCROLL_CLASS} ${MOBILE_BOTTOM_NAV_PADDING}`}
-        >
-          <div className="mx-auto flex w-full max-w-lg flex-col px-4 py-6">
-            <div className="mb-6 flex flex-col items-center text-center">
+        <div data-mobile-main-scroll="" className={MOBILE_MAIN_SCROLL_CLASS}>
+          <div className="mx-auto flex w-full max-w-lg flex-col px-4 pb-8 pt-4">
+            <div className="mb-5 flex flex-col items-center text-center">
               <p className="text-2xl font-bold tracking-tight text-white">
                 Spot<span className="text-primary">Drop</span>
               </p>
 
-              <div className="mt-4 flex items-center gap-1.5">
+              <div className="mt-3 flex items-center gap-1.5">
                 <p className="text-lg font-semibold text-white">
                   {t("profile.officialChannelCardTitle")}
                 </p>
@@ -225,28 +243,21 @@ function OfficialChannelContent() {
                 </svg>
               </div>
 
-              <p className="mt-2 text-xs font-medium uppercase tracking-wide text-muted">
+              <p className="mt-2 max-w-xs text-xs font-medium leading-relaxed text-muted">
                 {t("officialChannel.postingRestriction")}
               </p>
+
+              {isOfficial ? (
+                <button
+                  type="button"
+                  onClick={() => setComposerOpen(true)}
+                  className="mt-4 inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-4 py-2 text-xs font-semibold text-primary transition hover:bg-primary/15"
+                >
+                  <Plus className="h-3.5 w-3.5" strokeWidth={2.25} aria-hidden />
+                  {t("officialChannel.createAnnouncement")}
+                </button>
+              ) : null}
             </div>
-
-            {isOfficial ? (
-              <OfficialChannelComposer
-                onPublished={(post) => {
-                  setPosts((current) => {
-                    if (current.some((item) => item.id === post.id)) {
-                      return current;
-                    }
-
-                    return [post, ...current];
-                  });
-
-                  if (post.published_at) {
-                    void markReadIfVisible(post.published_at);
-                  }
-                }}
-              />
-            ) : null}
 
             {loading ? (
               <div className="flex flex-col items-center gap-3 py-16 text-muted">
@@ -289,6 +300,24 @@ function OfficialChannelContent() {
           </div>
         </div>
       </NavigationStackScreen>
+
+      <OfficialChannelComposer
+        open={composerOpen}
+        onClose={() => setComposerOpen(false)}
+        onPublished={(post) => {
+          setPosts((current) => {
+            if (current.some((item) => item.id === post.id)) {
+              return current;
+            }
+
+            return [post, ...current];
+          });
+
+          if (post.published_at) {
+            void markReadIfVisible(post.published_at);
+          }
+        }}
+      />
     </Shell>
   );
 }
