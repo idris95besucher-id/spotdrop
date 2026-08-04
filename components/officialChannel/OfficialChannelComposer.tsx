@@ -74,7 +74,7 @@ export default function OfficialChannelComposer({
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [clientRequestId, setClientRequestId] = useState(() => crypto.randomUUID());
-  const { overlayStyle, footerPadding } = useKeyboardViewportFrame();
+  const { overlayStyle } = useKeyboardViewportFrame();
   const { isKeyboardOpen } = useKeyboard();
 
   useChromeNavHidden("sheet-input", open);
@@ -397,11 +397,11 @@ export default function OfficialChannelComposer({
       </div>
 
       <div
-        className="shrink-0 border-t border-white/[0.08] bg-[#050816]/98 px-4 pt-3 backdrop-blur-xl"
+        className="shrink-0 border-t border-white/[0.08] bg-[#050816]/98 px-4 pt-4 backdrop-blur-xl"
         style={{
           paddingBottom: isKeyboardOpen
             ? composerPaddingBottom("sheet", true)
-            : footerPadding,
+            : "calc(env(safe-area-inset-bottom, 0px) + 18px)",
         }}
       >
         <div className="mx-auto flex w-full max-w-lg gap-2">
