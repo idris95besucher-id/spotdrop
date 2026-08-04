@@ -17,7 +17,7 @@ import {
   useKeyboard,
   useKeyboardViewportFrame,
 } from "@/lib/keyboardSystem";
-import { MOBILE_SAFE_AREA_INSET_TOP, MOBILE_WIDTH_SAFE_CLASS } from "@/lib/mobileLayout";
+import { MOBILE_WIDTH_SAFE_CLASS } from "@/lib/mobileLayout";
 
 type ComposerState = {
   titleEn: string;
@@ -242,29 +242,29 @@ export default function OfficialChannelComposer({
 
   return createPortal(
     <div
-      className={`fixed inset-x-0 z-[210] flex flex-col bg-[#050816] text-white ${MOBILE_WIDTH_SAFE_CLASS}`}
+      className={`fixed inset-x-0 z-[210] flex flex-col overflow-hidden bg-[#050816] text-white ${MOBILE_WIDTH_SAFE_CLASS}`}
       style={overlayStyle}
       role="dialog"
       aria-modal="true"
       aria-label={t("officialChannel.composerTitle")}
     >
-      <header
-        className={`flex shrink-0 items-center gap-2 border-b border-white/[0.08] bg-[#050816] px-3 pb-2.5 ${MOBILE_SAFE_AREA_INSET_TOP}`}
-      >
+      <header className="sticky top-0 z-10 flex shrink-0 items-center gap-2 border-b border-white/[0.08] bg-[#050816] px-3 pb-2.5 pt-[calc(env(safe-area-inset-top,0px)+12px)]">
         <button
           type="button"
           onClick={handleClose}
           disabled={publishing}
-          className="inline-flex h-11 w-11 items-center justify-center rounded-full text-white transition hover:bg-white/10 disabled:opacity-50"
+          className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-white transition hover:bg-white/10 disabled:opacity-50"
           aria-label={t("common.close")}
         >
           <X className="h-5 w-5" strokeWidth={2} aria-hidden />
         </button>
-        <div className="min-w-0 flex-1">
-          <h2 className="truncate text-base font-semibold text-white">
+        <div className="min-w-0 flex-1 py-0.5">
+          <h2 className="text-base font-semibold leading-snug text-white">
             {t("officialChannel.composerTitle")}
           </h2>
-          <p className="truncate text-[11px] text-muted">{t("officialChannel.officialOnly")}</p>
+          <p className="mt-0.5 text-[11px] leading-snug text-muted">
+            {t("officialChannel.officialOnly")}
+          </p>
         </div>
       </header>
 
