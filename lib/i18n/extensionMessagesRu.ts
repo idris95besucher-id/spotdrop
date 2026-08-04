@@ -1027,6 +1027,8 @@ export const EXTENSION_RU: Record<ExtensionKey, string> = {
   "officialChannel.field.linkLabelDe": "Текст кнопки (DE)",
   "officialChannel.error.englishRequired": "Английский текст обязателен.",
   "officialChannel.error.uploadFailed": "Не удалось загрузить изображение.",
+  "officialChannel.error.uploadTimeout":
+    "Время загрузки изображения истекло. Попробуйте ещё раз.",
   "officialChannel.error.publishFailed": "Не удалось опубликовать. Попробуйте ещё раз.",
   "officialChannel.error.translationFailed":
     "Автоматический перевод не удался. Попробуйте ещё раз.",

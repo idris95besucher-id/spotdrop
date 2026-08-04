@@ -321,51 +321,180 @@ export async function publishOfficialChannelPost(
   }
 }
 
-export async function uploadOfficialChannelMedia(file: File) {
-  const { Authorization } = await authHeaders();
-  const base = getHostedApiBaseUrl().replace(/\/$/, "");
-  const form = new FormData();
-  form.append("file", file);
+const OFFICIAL_CHANNEL_UPLOAD_TIMEOUT_MS = 30_000;
 
-  const response = await fetch(`${base}/api/official-channel/media`, {
-    method: "POST",
-    headers: { Authorization },
-    body: form,
-  });
+function sniffClientImageMime(bytes: Uint8Array): string | null {
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
+    return "image/jpeg";
+  }
+  if (
+    bytes.length >= 8 &&
+    bytes[0] === 0x89 &&
+    bytes[1] === 0x50 &&
+    bytes[2] === 0x4e &&
+    bytes[3] === 0x47
+  ) {
+    return "image/png";
+  }
+  if (
+    bytes.length >= 12 &&
+    bytes[0] === 0x52 &&
+    bytes[1] === 0x49 &&
+    bytes[2] === 0x46 &&
+    bytes[3] === 0x46 &&
+    bytes[8] === 0x57 &&
+    bytes[9] === 0x45 &&
+    bytes[10] === 0x42 &&
+    bytes[11] === 0x50
+  ) {
+    return "image/webp";
+  }
+  return null;
+}
 
-  const payload = (await response.json().catch(() => null)) as {
-    imagePath?: string;
-    error?: string;
-  } | null;
+function extensionForClientMime(mime: string) {
+  if (mime === "image/png") return "png";
+  if (mime === "image/webp") return "webp";
+  return "jpg";
+}
 
-  if (!response.ok || !payload?.imagePath) {
-    return {
-      imagePath: null as string | null,
-      error: payload?.error ?? "Upload failed.",
-      status: response.status,
-    };
+/**
+ * Normalize photo-library Files for Capacitor/WKWebView:
+ * read bytes once, attach an explicit MIME + filename so FormData is a real multipart body
+ * (empty type / missing name is common on iOS and can stall or fail server parsing).
+ */
+async function prepareOfficialChannelUploadBlob(file: File | Blob): Promise<{
+  blob: Blob;
+  fileName: string;
+  mime: string;
+  size: number;
+}> {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const reported =
+    typeof file.type === "string" ? file.type.trim().toLowerCase() : "";
+  const sniffed = sniffClientImageMime(bytes);
+  const mime =
+    (OFFICIAL_CHANNEL_ALLOWED_IMAGE_TYPES as readonly string[]).includes(reported)
+      ? reported
+      : sniffed;
+
+  if (!mime) {
+    throw new Error("Only JPEG, PNG, and WebP are allowed.");
   }
 
-  return { imagePath: payload.imagePath, error: null as string | null, status: response.status };
+  const originalName =
+    file instanceof File && typeof file.name === "string" && file.name.trim()
+      ? file.name.trim()
+      : `image.${extensionForClientMime(mime)}`;
+  const fileName = /\.(jpe?g|png|webp)$/i.test(originalName)
+    ? originalName
+    : `${originalName.replace(/\.[^.]+$/, "") || "image"}.${extensionForClientMime(mime)}`;
+
+  return {
+    blob: new Blob([bytes], { type: mime }),
+    fileName,
+    mime,
+    size: bytes.byteLength,
+  };
+}
+
+export async function uploadOfficialChannelMedia(file: File | Blob) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), OFFICIAL_CHANNEL_UPLOAD_TIMEOUT_MS);
+
+  try {
+    console.info("[official-channel-upload] start");
+    const { Authorization } = await authHeaders();
+    const prepared = await prepareOfficialChannelUploadBlob(file);
+    console.info(
+      `[official-channel-upload] prepared mime=${prepared.mime} size=${prepared.size} name=${prepared.fileName}`
+    );
+
+    const base = getHostedApiBaseUrl().replace(/\/$/, "");
+    const form = new FormData();
+    // Explicit filename is required for reliable multipart parsing on iOS / Vercel.
+    form.append("file", prepared.blob, prepared.fileName);
+
+    console.info(`[official-channel-upload] fetch ${base}/api/official-channel/media`);
+    const response = await fetch(`${base}/api/official-channel/media`, {
+      method: "POST",
+      headers: { Authorization },
+      body: form,
+      signal: controller.signal,
+    });
+
+    const payload = (await response.json().catch(() => null)) as {
+      imagePath?: string;
+      error?: string;
+    } | null;
+
+    console.info(
+      `[official-channel-upload] response status=${response.status} hasPath=${Boolean(payload?.imagePath)}`
+    );
+
+    if (!response.ok || !payload?.imagePath) {
+      return {
+        imagePath: null as string | null,
+        error: payload?.error ?? "Upload failed.",
+        status: response.status,
+      };
+    }
+
+    return {
+      imagePath: payload.imagePath,
+      error: null as string | null,
+      status: response.status,
+    };
+  } catch (caught) {
+    const timedOut =
+      (caught instanceof Error && caught.name === "AbortError") ||
+      (typeof DOMException !== "undefined" &&
+        caught instanceof DOMException &&
+        caught.name === "AbortError");
+
+    console.error(
+      `[official-channel-upload] ${timedOut ? "timeout" : "failed"}`,
+      caught instanceof Error ? caught.name : "unknown"
+    );
+
+    return {
+      imagePath: null as string | null,
+      error: timedOut
+        ? "Image upload timed out. Please try again."
+        : caught instanceof Error
+          ? caught.message
+          : "Upload failed.",
+      status: timedOut ? 504 : 0,
+    };
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 export async function deleteOfficialChannelMedia(imagePath: string) {
-  const { Authorization } = await authHeaders();
-  const base = getHostedApiBaseUrl().replace(/\/$/, "");
-  const response = await fetch(`${base}/api/official-channel/media`, {
-    method: "DELETE",
-    headers: {
-      Authorization,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ imagePath }),
-  });
+  try {
+    const { Authorization } = await authHeaders();
+    const base = getHostedApiBaseUrl().replace(/\/$/, "");
+    const response = await fetch(`${base}/api/official-channel/media`, {
+      method: "DELETE",
+      headers: {
+        Authorization,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ imagePath }),
+    });
 
-  const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+    const payload = (await response.json().catch(() => null)) as { error?: string } | null;
 
-  if (!response.ok) {
-    return { error: payload?.error ?? "Delete failed.", status: response.status };
+    if (!response.ok) {
+      return { error: payload?.error ?? "Delete failed.", status: response.status };
+    }
+
+    return { error: null as string | null, status: response.status };
+  } catch (caught) {
+    return {
+      error: caught instanceof Error ? caught.message : "Delete failed.",
+      status: 0,
+    };
   }
-
-  return { error: null as string | null, status: response.status };
 }

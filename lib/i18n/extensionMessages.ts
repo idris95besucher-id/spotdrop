@@ -1026,6 +1026,7 @@ export const EXTENSION_EN = {
   "officialChannel.field.linkLabelDe": "Button label (DE)",
   "officialChannel.error.englishRequired": "English text is required.",
   "officialChannel.error.uploadFailed": "Unable to upload image.",
+  "officialChannel.error.uploadTimeout": "Image upload timed out. Please try again.",
   "officialChannel.error.publishFailed": "Unable to publish. Please try again.",
   "officialChannel.error.translationFailed":
     "Automatic translation failed. Please try again.",

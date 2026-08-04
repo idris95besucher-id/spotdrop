@@ -1027,6 +1027,8 @@ export const EXTENSION_DE: Record<ExtensionKey, string> = {
   "officialChannel.field.linkLabelDe": "Button-Text (DE)",
   "officialChannel.error.englishRequired": "Englischer Text ist erforderlich.",
   "officialChannel.error.uploadFailed": "Bild konnte nicht hochgeladen werden.",
+  "officialChannel.error.uploadTimeout":
+    "Zeitüberschreitung beim Bild-Upload. Bitte erneut versuchen.",
   "officialChannel.error.publishFailed": "Veröffentlichen fehlgeschlagen. Bitte erneut versuchen.",
   "officialChannel.error.translationFailed":
     "Automatische Übersetzung fehlgeschlagen. Bitte erneut versuchen.",

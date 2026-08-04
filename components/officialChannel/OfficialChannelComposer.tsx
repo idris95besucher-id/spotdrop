@@ -111,19 +111,44 @@ export default function OfficialChannelComposer({
     setUploading(true);
     setError(null);
 
-    if (form.imagePath) {
-      await deleteOfficialChannelMedia(form.imagePath);
+    // Keep announcement text; only clear previous uploaded path after a successful replace.
+    const previousImagePath = form.imagePath;
+
+    try {
+      console.info(
+        `[official-channel-composer] upload pick mime=${file.type || "(empty)"} size=${file.size}`
+      );
+
+      const result = await uploadOfficialChannelMedia(file);
+
+      if (result.error || !result.imagePath) {
+        const timedOut =
+          result.status === 504 ||
+          /timed out/i.test(result.error ?? "");
+        setError(
+          timedOut
+            ? t("officialChannel.error.uploadTimeout")
+            : result.error ?? t("officialChannel.error.uploadFailed")
+        );
+        return;
+      }
+
+      update("imagePath", result.imagePath);
+
+      if (previousImagePath && previousImagePath !== result.imagePath) {
+        void deleteOfficialChannelMedia(previousImagePath);
+      }
+    } catch (caught) {
+      console.error(
+        "[official-channel-composer] upload threw",
+        caught instanceof Error ? caught.name : "unknown"
+      );
+      setError(
+        caught instanceof Error ? caught.message : t("officialChannel.error.uploadFailed")
+      );
+    } finally {
+      setUploading(false);
     }
-
-    const result = await uploadOfficialChannelMedia(file);
-    setUploading(false);
-
-    if (result.error || !result.imagePath) {
-      setError(result.error ?? t("officialChannel.error.uploadFailed"));
-      return;
-    }
-
-    update("imagePath", result.imagePath);
   };
 
   const handleRemoveImage = async () => {
