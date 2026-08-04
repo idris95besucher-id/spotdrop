@@ -1,0 +1,32 @@
+---
+description: Protect the locked SpotDrop native camera (SpotDropCamera + Photo/Video/Text) from unrelated changes
+alwaysApply: true
+---
+
+# Protected SpotDrop camera
+
+**Baseline commit (do not regress):** `a38c02d357dc3cb822a7aecf9ca2388947f52c1f`
+
+This is the permanent protected SpotDrop camera implementation. Change it **only** when the user gives an explicit, separate request to modify the camera.
+
+## Locked surface
+
+- Native plugin: `packages/spotdrop-camera` (`SpotDropCamera`)
+- Bridge / open path: `lib/spotDropCamera.ts`, `components/SpotInstagramCamera.tsx`
+- Modes: Photo, Video, Text (native tabs + publish handoff)
+- Features: front/back switch, flash, zoom, video recording, geolocation, existing publish flow
+- `packages/spotdrop-pano` (`SpotDropPano`)
+- iOS SPM: `ios/App/CapApp-SPM/Package.swift` entries for SpotDropCamera + SpotDropPano
+- `package.json` → `capacitor:sync:after` (and related ensure/verify scripts) that restore plugins after `cap sync`
+
+## Rules for every task
+
+1. Do **not** change, replace, simplify, or refactor SpotDropCamera without an explicit user request about the camera.
+2. In tasks **not** about the camera, do not touch:
+   - camera components / native camera plugin / SpotDropPano
+   - iOS SPM camera dependencies
+   - `package.json` hooks that restore plugins after `cap sync`
+   - fallback UI that makes **Take Photo** or **Enable camera** the main iPhone create-Spot flow
+3. If another change would affect the camera or its dependencies: **stop**, do not apply it, and tell the user about the conflict.
+4. Before every commit, run `git diff --name-only`. If camera / native-integration files appear and the task is not about the camera, **exclude** those files from the commit.
+5. After `npm run build:capacitor` and `npx cap sync ios`, `scripts/verify-spotdrop-camera.mjs` must pass. Do not open Xcode if verification fails.

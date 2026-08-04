@@ -56,6 +56,10 @@ try {
     cwd: root,
     stdio: "inherit",
   });
+  execSync("node scripts/verify-spotdrop-camera.mjs", {
+    cwd: root,
+    stdio: "inherit",
+  });
 } finally {
   restoreApiRoutes();
 }

@@ -31,5 +31,6 @@ function run(command, args) {
 run("npx", ["cap", "sync", "ios"]);
 run(process.execPath, [path.join(root, "scripts/ensure-spotdrop-camera-spm.mjs")]);
 run(process.execPath, [path.join(root, "scripts/ensure-spotdrop-pano-spm.mjs")]);
+run(process.execPath, [path.join(root, "scripts/verify-spotdrop-camera.mjs")]);
 
 console.log("[cap-sync-ios] Sync finished with SpotDropCamera + SpotDropPano ensured.");
