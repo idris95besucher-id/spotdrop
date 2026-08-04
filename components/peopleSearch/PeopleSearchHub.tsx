@@ -19,7 +19,7 @@ import {
   loadFiltersSearchState,
   saveFiltersSearchState,
 } from "@/lib/peopleSearchSession";
-import { loadUserSettingsPreferences } from "@/lib/settingsPreferences";
+import { loadBlockedUserIds } from "@/lib/userBlocks";
 import { isOnlineNow } from "@/lib/userPresence";
 import { usePresenceOnlineIds } from "@/lib/usePresenceOnlineIds";
 
@@ -68,10 +68,16 @@ export default function PeopleSearchHub() {
   const requestIdRef = useRef(0);
 
   useEffect(() => {
-    void getSafeAuthSession().then((result) => {
-      setSessionUserId(result.session?.user?.id ?? null);
+    void getSafeAuthSession().then(async (result) => {
+      const userId = result.session?.user?.id ?? null;
+      setSessionUserId(userId);
+
+      if (userId) {
+        setBlockedUserIds(await loadBlockedUserIds(userId));
+      } else {
+        setBlockedUserIds([]);
+      }
     });
-    setBlockedUserIds(loadUserSettingsPreferences().blockedUserIds);
   }, []);
 
   useEffect(() => {

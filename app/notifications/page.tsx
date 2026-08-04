@@ -49,6 +49,7 @@ function notificationIcon(type: NotificationRow["type"]) {
 
   switch (type) {
     case "direct_message":
+    case "message_request":
       return <MessageCircle className={className} strokeWidth={1.75} aria-hidden />;
     case "new_follower":
       return <UserPlus className={className} strokeWidth={1.75} aria-hidden />;

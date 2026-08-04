@@ -10,7 +10,7 @@ import { SettingsPageHeader } from "@/components/settings/SettingsUI";
 import { useI18n } from "@/components/I18nProvider";
 import { getSafeAuthSession } from "@/lib/authSession";
 import { publicProfileUsername } from "@/lib/publicProfile";
-import { loadUserSettingsPreferences, unblockUser } from "@/lib/settingsPreferences";
+import { syncLocalBlocksToServer, unblockUserOnServer } from "@/lib/userBlocks";
 import { supabase } from "@/lib/supabaseClient";
 
 type BlockedProfile = {
@@ -23,8 +23,10 @@ type BlockedProfile = {
 export default function BlockedUsersPage() {
   const router = useRouter();
   const { t } = useI18n();
+  const [viewerId, setViewerId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [blockedProfiles, setBlockedProfiles] = useState<BlockedProfile[]>([]);
+  const [actingId, setActingId] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -37,8 +39,12 @@ export default function BlockedUsersPage() {
         return;
       }
 
-      const prefs = loadUserSettingsPreferences();
-      const blockedIds = prefs.blockedUserIds;
+      const blockerId = session.user.id;
+      if (active) {
+        setViewerId(blockerId);
+      }
+
+      const blockedIds = await syncLocalBlocksToServer(blockerId);
 
       if (blockedIds.length === 0) {
         if (active) {
@@ -76,8 +82,19 @@ export default function BlockedUsersPage() {
     };
   }, [router]);
 
-  const handleUnblock = (userId: string) => {
-    unblockUser(userId);
+  const handleUnblock = async (userId: string) => {
+    if (!viewerId) {
+      return;
+    }
+
+    setActingId(userId);
+    const result = await unblockUserOnServer(viewerId, userId);
+    setActingId(null);
+
+    if (result.error) {
+      return;
+    }
+
     setBlockedProfiles((current) => current.filter((profile) => profile.id !== userId));
   };
 
@@ -114,8 +131,9 @@ export default function BlockedUsersPage() {
                   </div>
                   <button
                     type="button"
-                    onClick={() => handleUnblock(profile.id)}
-                    className="shrink-0 rounded-full border border-white/15 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-white/5"
+                    onClick={() => void handleUnblock(profile.id)}
+                    disabled={actingId === profile.id}
+                    className="shrink-0 rounded-full border border-white/15 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-white/5 disabled:opacity-50"
                   >
                     {t("settings.blocked.unblock")}
                   </button>

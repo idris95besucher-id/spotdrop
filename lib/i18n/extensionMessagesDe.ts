@@ -671,6 +671,8 @@ export const EXTENSION_DE: Record<ExtensionKey, string> = {
   "notifications.emptyBody": "Nachrichten, Follower, Kommentare und Stadträume erscheinen hier.",
   "notifications.markAllRead": "Alle als gelesen markieren",
   "notifications.newMessage": "Neue Nachricht",
+  "notifications.messageRequestTitle": "Neue Nachrichtenanfrage",
+  "notifications.messageRequestBody": "{name} möchte dir eine Nachricht senden.",
   "notifications.newFollower": "Neuer Follower",
   "notifications.newComment": "Neuer Kommentar",
   "notifications.commentedOnSpot": "hat deinen Spot kommentiert",

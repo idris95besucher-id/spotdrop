@@ -92,7 +92,11 @@ export default function MessageRequestItem({ request, viewerUserId, onResolved }
   };
 
   return (
-    <li className="rounded-2xl border border-white/[0.08] bg-[#0B1026] p-4">
+    <li
+      id={`message-request-${request.conversationId}`}
+      data-request-id={request.conversationId}
+      className="rounded-2xl border border-white/[0.08] bg-[#0B1026] p-4"
+    >
       <div className="flex items-start gap-3">
         <Link href={dmThreadHref(request.partnerId)} className="shrink-0">
           <ProfileAvatar

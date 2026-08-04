@@ -77,6 +77,7 @@ export function shouldAllowPushForType(
 
   switch (type) {
     case "direct_message":
+    case "message_request":
       return prefs.direct_messages;
     case "group_message":
       return prefs.group_messages;

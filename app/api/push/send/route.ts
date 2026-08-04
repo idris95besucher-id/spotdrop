@@ -86,6 +86,7 @@ function isWebhookAuthorized(request: Request) {
 function shouldSendPushForType(type: NotificationRow["type"]) {
   return (
     type === "direct_message" ||
+    type === "message_request" ||
     type === "room_message" ||
     type === "room_mention" ||
     type === "group_message" ||
@@ -394,8 +395,22 @@ export async function POST(request: Request) {
     return NextResponse.json({ sent: 0, skipped: "user_prefs_disabled" });
   }
 
+  let recipientLanguage: string | null = null;
+
+  if (notification?.type === "message_request" && targetUserId) {
+    const { data: languageRow } = await admin
+      .from("profiles")
+      .select("language")
+      .eq("id", targetUserId)
+      .maybeSingle();
+    recipientLanguage =
+      typeof (languageRow as { language?: unknown } | null)?.language === "string"
+        ? String((languageRow as { language: string }).language)
+        : null;
+  }
+
   const payload = notification
-    ? buildNotificationPushPayload(notification)
+    ? buildNotificationPushPayload(notification, recipientLanguage)
     : { title: "SpotDrop", body: "You have a new notification" };
 
   const href = notification?.href ?? "/notifications";

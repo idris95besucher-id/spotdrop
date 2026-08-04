@@ -20,6 +20,16 @@ function buildPushPayload(notification: Pick<NotificationRow, "type" | "metadata
   const metadata = notification.metadata ?? {};
 
   switch (notification.type) {
+    case "message_request": {
+      const name =
+        metadataString(metadata, "senderDisplayName") ||
+        metadataString(metadata, "senderUsername") ||
+        "Someone";
+      return {
+        title: "New message request",
+        body: `${name} wants to message you.`,
+      };
+    }
     case "direct_message": {
       const name = metadataString(metadata, "senderUsername") || "Someone";
       const preview = metadataString(metadata, "preview");
@@ -58,6 +68,7 @@ function buildPushPayload(notification: Pick<NotificationRow, "type" | "metadata
 function shouldSendPush(type: string) {
   return (
     type === "direct_message" ||
+    type === "message_request" ||
     type === "room_message" ||
     type === "room_mention" ||
     type === "group_message" ||

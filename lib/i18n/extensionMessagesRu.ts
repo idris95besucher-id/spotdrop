@@ -671,6 +671,8 @@ export const EXTENSION_RU: Record<ExtensionKey, string> = {
   "notifications.emptyBody": "Здесь появятся сообщения, подписчики, комментарии и комнаты городов.",
   "notifications.markAllRead": "Прочитать все",
   "notifications.newMessage": "Новое сообщение",
+  "notifications.messageRequestTitle": "Новый запрос на сообщение",
+  "notifications.messageRequestBody": "{name} хочет написать вам сообщение.",
   "notifications.newFollower": "Новый подписчик",
   "notifications.newComment": "Новый комментарий",
   "notifications.commentedOnSpot": "прокомментировал(а) ваш Spot",

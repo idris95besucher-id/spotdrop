@@ -3,10 +3,11 @@ import {
   checkCanMessageUser,
   type MessagePrivacyBlockReasonKey,
 } from "@/lib/messagePrivacy";
+import { isLocationCardShareMessage } from "@/lib/locationCardShareMessage";
+import { areUsersBlocked } from "@/lib/userBlocks";
+import { toUserFacingError } from "@/lib/userFacingError";
 import { isProfileUserId } from "@/lib/userPresence";
 import { supabase } from "@/lib/supabaseClient";
-import { isLocationCardShareMessage } from "@/lib/locationCardShareMessage";
-import { toUserFacingError } from "@/lib/userFacingError";
 
 const MESSAGE_PRIVACY_BLOCK_EN: Record<MessagePrivacyBlockReasonKey, string> = {
   "messagePrivacy.blocked.nobody": "This user isn't accepting messages.",
@@ -551,6 +552,14 @@ export async function ensureConversationForOutgoingMessage(
   error: string | null;
   sendBlockedReason: string | null;
 }> {
+  if (await areUsersBlocked(senderId, recipientId)) {
+    return {
+      conversation: null,
+      error: null,
+      sendBlockedReason: "You can't message this user.",
+    };
+  }
+
   const messagePermission = await checkCanMessageUser(senderId, recipientId);
 
   if (!messagePermission.allowed) {

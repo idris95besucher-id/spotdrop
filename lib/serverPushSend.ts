@@ -268,8 +268,10 @@ export async function sendFcmToUser(input: {
   href: string;
   type: string;
   apnsSound?: string;
+  /** Extra string data fields merged into FCM `data` (message_request ids, etc.). */
+  dataExtras?: Record<string, string>;
 }): Promise<PushSendResult> {
-  const { admin, userId, notification, title, body, href, type, apnsSound } = input;
+  const { admin, userId, notification, title, body, href, type, apnsSound, dataExtras } = input;
   const { count: badgeCount } = await countUnreadInboxMessagesAdmin(admin, userId);
   const errors: PushSendResult["errors"] = [];
   const messageIds: string[] = [];
@@ -402,6 +404,7 @@ export async function sendFcmToUser(input: {
       notificationId: notification?.id ?? "",
       title,
       body,
+      ...(dataExtras ?? {}),
     },
     apns: {
       headers: {
@@ -623,11 +626,36 @@ export async function deliverNotificationPush(
     };
   }
 
-  const payload = buildNotificationPushPayload(notification);
+  let recipientLanguage: string | null = null;
+
+  if (notification.type === "message_request") {
+    const { data: languageRow } = await admin
+      .from("profiles")
+      .select("language")
+      .eq("id", tokenQueryUserId)
+      .maybeSingle();
+    recipientLanguage =
+      typeof (languageRow as { language?: unknown } | null)?.language === "string"
+        ? String((languageRow as { language: string }).language)
+        : null;
+  }
+
+  const payload = buildNotificationPushPayload(notification, recipientLanguage);
   pushServerLog("2", "Built push payload", {
     title: payload.title,
     bodyPreview: payload.body.slice(0, 80),
+    recipientLanguage,
   });
+
+  const metadata = notification.metadata ?? {};
+  const dataExtras =
+    notification.type === "message_request"
+      ? {
+          request_id: String(metadata.requestId ?? notification.source_id ?? ""),
+          sender_id: notification.actor_id ?? String(metadata.senderId ?? ""),
+          conversation_id: String(metadata.conversationId ?? notification.source_id ?? ""),
+        }
+      : undefined;
 
   return sendFcmToUser({
     admin,
@@ -638,6 +666,7 @@ export async function deliverNotificationPush(
     href: notification.href,
     type: notification.type,
     apnsSound: prefs.sound ? PUSH_SOUND : undefined,
+    dataExtras,
   });
 }
 

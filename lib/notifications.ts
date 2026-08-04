@@ -1,4 +1,5 @@
 import type { TranslationKey } from "@/lib/i18n/messages";
+import { buildMessageRequestPushCopy } from "@/lib/messageRequestPushCopy";
 import { publicProfileUsername } from "@/lib/publicProfile";
 import { supabase } from "@/lib/supabaseClient";
 
@@ -8,7 +9,8 @@ export type NotificationType =
   | "post_comment"
   | "room_message"
   | "room_mention"
-  | "group_message";
+  | "group_message"
+  | "message_request";
 
 export type NotificationRow = {
   id: string;
@@ -151,6 +153,17 @@ export function buildNotificationCopy(
           : t("chats.toast.message", { name: `${name} · ${groupName}` }),
       };
     }
+    case "message_request": {
+      const name = publicProfileUsername(
+        metadataString(metadata, "senderDisplayName") ||
+          metadataString(metadata, "senderUsername") ||
+          "Someone"
+      );
+      return {
+        title: t("notifications.messageRequestTitle"),
+        body: t("notifications.messageRequestBody", { name }),
+      };
+    }
     default:
       return {
         title: t("notifications.title"),
@@ -159,11 +172,21 @@ export function buildNotificationCopy(
   }
 }
 
-/** English copy for server-side Web Push delivery. */
-export function buildNotificationPushPayload(notification: Pick<NotificationRow, "type" | "metadata">) {
+/** Server-side APNs/FCM copy. Message requests honor recipient `profiles.language`. */
+export function buildNotificationPushPayload(
+  notification: Pick<NotificationRow, "type" | "metadata">,
+  recipientLanguage?: string | null
+) {
   const metadata = notification.metadata ?? {};
 
   switch (notification.type) {
+    case "message_request": {
+      const name =
+        metadataString(metadata, "senderDisplayName") ||
+        metadataString(metadata, "senderUsername") ||
+        "Someone";
+      return buildMessageRequestPushCopy(name, recipientLanguage);
+    }
     case "direct_message": {
       const name = publicProfileUsername(metadataString(metadata, "senderUsername") || "Someone");
       const preview = metadataString(metadata, "preview");

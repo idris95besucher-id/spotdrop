@@ -671,6 +671,8 @@ export const EXTENSION_EN = {
   "notifications.emptyBody": "Messages, followers, comments, and city rooms will show up here.",
   "notifications.markAllRead": "Mark all as read",
   "notifications.newMessage": "New message",
+  "notifications.messageRequestTitle": "New message request",
+  "notifications.messageRequestBody": "{name} wants to message you.",
   "notifications.newFollower": "New follower",
   "notifications.newComment": "New comment",
   "notifications.commentedOnSpot": "commented on your Spot",

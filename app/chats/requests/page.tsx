@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { useI18n } from "@/components/I18nProvider";
 import MessageRequestItem, { type MessageRequestItemData } from "@/components/MessageRequestItem";
@@ -17,8 +18,10 @@ import { localizeUserMessage } from "@/lib/i18n/localizeUserMessage";
 import { MOBILE_WIDTH_SAFE_CLASS } from "@/lib/mobileLayout";
 import { supabase } from "@/lib/supabaseClient";
 
-export default function ChatRequestsPage() {
+function ChatRequestsContent() {
   const { t } = useI18n();
+  const searchParams = useSearchParams();
+  const highlightRequestId = searchParams.get("requestId")?.trim() || null;
   const [session, setSession] = useState<Session | null>(null);
   const [loadingSession, setLoadingSession] = useState(true);
   const [loadingRequests, setLoadingRequests] = useState(false);
@@ -89,6 +92,31 @@ export default function ChatRequestsPage() {
     void loadRequests();
   }, [session?.user?.id, reloadKey]);
 
+  const orderedRequests = useMemo(() => {
+    if (!highlightRequestId) {
+      return requests;
+    }
+
+    const highlighted = requests.filter((request) => request.conversationId === highlightRequestId);
+    const rest = requests.filter((request) => request.conversationId !== highlightRequestId);
+    return [...highlighted, ...rest];
+  }, [highlightRequestId, requests]);
+
+  useEffect(() => {
+    if (!highlightRequestId || loadingRequests || orderedRequests.length === 0) {
+      return;
+    }
+
+    const frame = window.requestAnimationFrame(() => {
+      document.getElementById(`message-request-${highlightRequestId}`)?.scrollIntoView({
+        block: "center",
+        behavior: "smooth",
+      });
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [highlightRequestId, loadingRequests, orderedRequests.length]);
+
   return (
     <Shell showHeader={false} flushTop>
       <div className={`mx-auto flex min-h-0 w-full max-w-lg flex-1 flex-col ${MOBILE_WIDTH_SAFE_CLASS}`}>
@@ -112,14 +140,14 @@ export default function ChatRequestsPage() {
           <div className="mx-4 my-6 rounded-2xl border border-red-500/20 bg-red-500/5 p-4 text-sm text-red-200">
             {localizeUserMessage(t, error) ?? error}
           </div>
-        ) : requests.length === 0 ? (
+        ) : orderedRequests.length === 0 ? (
           <div className="px-4 py-16 text-center">
             <p className="text-lg font-semibold text-white">{t("chats.noRequests")}</p>
             <p className="mt-2 text-sm text-muted">{t("chats.noRequestsBody")}</p>
           </div>
         ) : (
           <ul className="min-h-0 flex-1 divide-y divide-white/[0.06] overflow-y-auto px-2 py-1 sm:px-3">
-            {requests.map((request) => (
+            {orderedRequests.map((request) => (
               <MessageRequestItem
                 key={request.conversationId}
                 request={request}
@@ -131,5 +159,15 @@ export default function ChatRequestsPage() {
         )}
       </div>
     </Shell>
+  );
+}
+
+export default function ChatRequestsPage() {
+  const { t } = useI18n();
+
+  return (
+    <Suspense fallback={<div className="px-4 py-12 text-center text-sm text-muted">{t("common.loading")}</div>}>
+      <ChatRequestsContent />
+    </Suspense>
   );
 }
