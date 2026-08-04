@@ -43,6 +43,7 @@ import { supabase } from "@/lib/supabaseClient";
 import { dispatchProfileFollowersRefresh } from "@/lib/profileContentRefresh";
 import { MOBILE_BOTTOM_NAV_PADDING, MOBILE_MAIN_SCROLL_CLASS } from "@/lib/mobileLayout";
 import { navigateBack } from "@/lib/navigateBack";
+import { fetchOfficialChannelUnreadState } from "@/lib/officialChannel";
 
 type Profile = {
   id: string;
@@ -129,12 +130,32 @@ export default function UserPage({ userIdOverride }: { userIdOverride?: string }
   const [relationshipError, setRelationshipError] = useState<string | null>(null);
   const [canMessageTarget, setCanMessageTarget] = useState(false);
   const [postsError, setPostsError] = useState<string | null>(null);
+  const [officialChannelUnread, setOfficialChannelUnread] = useState(false);
 
   const isOwnProfile = Boolean(viewerId && profile?.id && viewerId === profile.id);
   const canSeeProfilePresence = useCanSeeOnlineStatus(viewerId, profile?.id ?? null);
   const { lastSeenAt: profileLastSeenAt } = useUserPresence(
     canSeeProfilePresence && profile?.id && !isOwnProfile ? profile.id : null
   );
+
+  useEffect(() => {
+    if (!viewerId || profile?.is_official !== true) {
+      setOfficialChannelUnread(false);
+      return;
+    }
+
+    let active = true;
+
+    void fetchOfficialChannelUnreadState(viewerId).then((result) => {
+      if (active) {
+        setOfficialChannelUnread(result.unread);
+      }
+    });
+
+    return () => {
+      active = false;
+    };
+  }, [viewerId, profile?.is_official, profile?.id]);
 
   const handlePostDeleted = (postId: string) => {
     setPersonalPosts((current) => current.filter((post) => post.id !== postId));
@@ -604,8 +625,13 @@ export default function UserPage({ userIdOverride }: { userIdOverride?: string }
                     <div className="mx-5">
                       <Link
                         href="/official-channel"
-                        className="profile-header-enter mx-auto flex max-w-[420px] flex-col items-center justify-center gap-3 rounded-[28px] border border-primary/15 bg-slate-900/60 px-6 py-8 text-center transition active:scale-[0.99] active:bg-slate-900/80"
+                        className="profile-header-enter relative mx-auto flex max-w-[420px] flex-col items-center justify-center gap-3 rounded-[28px] border border-primary/15 bg-slate-900/60 px-6 py-8 text-center transition active:scale-[0.99] active:bg-slate-900/80"
                       >
+                        {officialChannelUnread ? (
+                          <span className="absolute right-4 top-4 inline-flex items-center rounded-full bg-primary px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-background">
+                            {t("officialChannel.unread")}
+                          </span>
+                        ) : null}
                         <div className="flex h-14 w-14 items-center justify-center rounded-full bg-primary/10">
                           <Megaphone className="h-7 w-7 text-primary" strokeWidth={1.75} aria-hidden />
                         </div>

@@ -43,6 +43,7 @@ import { PROFILE_CONTENT_REFRESH_EVENT, PROFILE_FOLLOWERS_REFRESH_EVENT, PROFILE
 import { postIdsEqual } from "@/lib/postIds";
 import { useNotifications } from "@/components/NotificationsProvider";
 import { buildProfileMenuItems } from "@/lib/profileMenuItems";
+import { fetchOfficialChannelUnreadState } from "@/lib/officialChannel";
 
 type ProfileData = {
   username?: string | null;
@@ -88,6 +89,7 @@ export default function ProfilePage() {
   const [shareProfileOpen, setShareProfileOpen] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [galleryVisibility, setGalleryVisibility] = useState<ProfileGalleryVisibility>("everyone");
+  const [officialChannelUnread, setOfficialChannelUnread] = useState(false);
   const successTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const showSuccessMessage = useCallback((message: string) => {
@@ -98,6 +100,25 @@ export default function ProfilePage() {
     setSuccessMessage(message);
     successTimeoutRef.current = setTimeout(() => setSuccessMessage(null), 2000);
   }, []);
+
+  useEffect(() => {
+    if (!session?.user?.id || profile?.is_official !== true) {
+      setOfficialChannelUnread(false);
+      return;
+    }
+
+    let active = true;
+
+    void fetchOfficialChannelUnreadState(session.user.id).then((result) => {
+      if (active) {
+        setOfficialChannelUnread(result.unread);
+      }
+    });
+
+    return () => {
+      active = false;
+    };
+  }, [session?.user?.id, profile?.is_official, loadAttempt]);
 
   useEffect(() => {
     const tab = window.sessionStorage.getItem("spotdrop:profile-tab");
@@ -716,8 +737,13 @@ export default function ProfilePage() {
                   <div className="mx-5">
                     <Link
                       href="/official-channel"
-                      className="profile-header-enter mx-auto flex max-w-[420px] flex-col items-center justify-center gap-3 rounded-[28px] border border-primary/15 bg-slate-900/60 px-6 py-8 text-center transition active:scale-[0.99] active:bg-slate-900/80"
+                      className="profile-header-enter relative mx-auto flex max-w-[420px] flex-col items-center justify-center gap-3 rounded-[28px] border border-primary/15 bg-slate-900/60 px-6 py-8 text-center transition active:scale-[0.99] active:bg-slate-900/80"
                     >
+                      {officialChannelUnread ? (
+                        <span className="absolute right-4 top-4 inline-flex items-center rounded-full bg-primary px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-background">
+                          {t("officialChannel.unread")}
+                        </span>
+                      ) : null}
                       <div className="flex h-14 w-14 items-center justify-center rounded-full bg-primary/10">
                         <Megaphone className="h-7 w-7 text-primary" strokeWidth={1.75} aria-hidden />
                       </div>
