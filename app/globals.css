@@ -306,8 +306,13 @@ body:has([data-profile-post-feed-screen]) [data-mobile-bottom-nav] {
   height: 100%;
 }
 
-[data-spot-viewer-media] video,
+/* Photos: show the full frame (letterboxed). Videos keep cover fill. */
 [data-spot-viewer-media] img {
+  object-fit: contain;
+  object-position: center;
+}
+
+[data-spot-viewer-media] video {
   object-fit: cover;
   object-position: center;
 }

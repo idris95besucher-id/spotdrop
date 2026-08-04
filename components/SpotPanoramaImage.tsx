@@ -17,7 +17,7 @@ type SpotPanoramaImageProps = {
 };
 
 /**
- * Full-bleed image that switches to object-contain + horizontal pan for wide panoramas.
+ * Full-frame image (object-contain) that switches to horizontal pan for wide panoramas.
  * Nested scroll prevents the parent media carousel from stealing horizontal swipes
  * while the user is panning inside a panorama.
  */
@@ -83,7 +83,7 @@ export default function SpotPanoramaImage({
           alt={alt}
           draggable={false}
           decoding="async"
-          className="h-full w-full object-cover"
+          className="h-full w-full object-contain"
           onLoad={(event) => {
             const img = event.currentTarget;
             if (img.naturalWidth > 0 && img.naturalHeight > 0) {

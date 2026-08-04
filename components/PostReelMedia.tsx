@@ -643,7 +643,7 @@ function PostReelMediaImage({
 
   return (
     <div
-      className="absolute inset-0 z-0 h-full w-full bg-slate-950"
+      className="absolute inset-0 z-0 h-full w-full bg-black"
       onClick={isVideo ? handleVideoTap : undefined}
       role={isVideo ? "button" : undefined}
       tabIndex={isVideo ? -1 : undefined}
@@ -682,7 +682,7 @@ function PostReelMediaImage({
               alt={alt}
               className="h-full w-full"
               imageClassName="h-full w-full"
-              objectFit="cover"
+              objectFit="contain"
               draggable={false}
               loading={loadHeavyMedia ? "eager" : "lazy"}
               decoding="async"

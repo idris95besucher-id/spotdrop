@@ -401,7 +401,7 @@ export default function SpotMediaCarousel({
                   src={slide.mediaUrl}
                   className="h-full w-full"
                   imageClassName="h-full w-full"
-                  objectFit="cover"
+                  objectFit="contain"
                   draggable={false}
                 />
               ) : (
