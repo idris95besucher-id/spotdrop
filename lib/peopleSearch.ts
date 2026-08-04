@@ -268,8 +268,10 @@ function buildBrowsePageResult(data: unknown, safeLimit: number) {
  * Paginated People browse query.
  * RLS: profiles SELECT is open (`Allow profile read` using true).
  * Exclusions (self / blocked / guides / demo / empty username) applied here + client post-filter.
- * Sort: ranking_score DESC, last_seen_at DESC, username ASC — computed server-side by the
- * people_search_ranked view so `.range()` pagination sees the correct order (see RANKED_VIEW).
+ * Sort: has_avatar DESC, ranking_score DESC, last_seen_at DESC, username ASC — computed
+ * server-side by the people_search_ranked view so `.range()` pagination sees the correct
+ * order (see RANKED_VIEW). has_avatar sorts first and separately from ranking_score so an
+ * active account with no photo can never rank above a less-active account with one.
  */
 export async function loadPeopleBrowsePage(
   offset: number,
@@ -297,6 +299,7 @@ export async function loadPeopleBrowsePage(
     supabase
       .from(RANKED_VIEW)
       .select(RANKED_SELECT)
+      .order("has_avatar", { ascending: false })
       .order("ranking_score", { ascending: false })
       .order("last_seen_at", { ascending: false, nullsFirst: false })
       .order("username", { ascending: true })
@@ -394,6 +397,7 @@ async function fetchProfiles(): Promise<{ data: RawProfileRow[]; error: { messag
   const ranked = await supabase
     .from(RANKED_VIEW)
     .select(RANKED_SELECT)
+    .order("has_avatar", { ascending: false })
     .order("ranking_score", { ascending: false })
     .order("last_seen_at", { ascending: false, nullsFirst: false })
     .order("username", { ascending: true });
