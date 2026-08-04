@@ -996,11 +996,15 @@ export const EXTENSION_EN = {
   "officialChannel.preview": "Preview",
   "officialChannel.previewHasImage": "Includes an image attachment.",
   "officialChannel.confirmTitle": "Confirm publication",
-  "officialChannel.confirmBody": "Publish this message to all SpotDrop users?",
+  "officialChannel.confirmBody":
+    "Publish this English message to all SpotDrop users? Russian and German translations will be created automatically.",
   "officialChannel.composerTitle": "New official announcement",
   "officialChannel.createAnnouncement": "Create announcement",
   "officialChannel.officialOnly": "Official only",
   "officialChannel.optional": "Optional",
+  "officialChannel.autoTranslateNote":
+    "The message will be automatically translated for users.",
+  "officialChannel.previewSourceNote": "Preview shows the English source text.",
   "officialChannel.tab.en": "English",
   "officialChannel.tab.ru": "Русский",
   "officialChannel.tab.de": "Deutsch",
@@ -1023,6 +1027,8 @@ export const EXTENSION_EN = {
   "officialChannel.error.englishRequired": "English text is required.",
   "officialChannel.error.uploadFailed": "Unable to upload image.",
   "officialChannel.error.publishFailed": "Unable to publish. Please try again.",
+  "officialChannel.error.translationFailed":
+    "Automatic translation failed. Please try again.",
 } as const;
 
 export type ExtensionKey = keyof typeof EXTENSION_EN;

@@ -997,11 +997,15 @@ export const EXTENSION_DE: Record<ExtensionKey, string> = {
   "officialChannel.preview": "Vorschau",
   "officialChannel.previewHasImage": "Enthält ein Bild.",
   "officialChannel.confirmTitle": "Veröffentlichung bestätigen",
-  "officialChannel.confirmBody": "Diese Nachricht an alle SpotDrop-Nutzer veröffentlichen?",
+  "officialChannel.confirmBody":
+    "Diese englische Nachricht an alle SpotDrop-Nutzer veröffentlichen? Russische und deutsche Übersetzungen werden automatisch erstellt.",
   "officialChannel.composerTitle": "Neue offizielle Ankündigung",
   "officialChannel.createAnnouncement": "Ankündigung erstellen",
   "officialChannel.officialOnly": "Nur offiziell",
   "officialChannel.optional": "Optional",
+  "officialChannel.autoTranslateNote":
+    "Die Nachricht wird automatisch für Nutzer übersetzt.",
+  "officialChannel.previewSourceNote": "Die Vorschau zeigt den englischen Quelltext.",
   "officialChannel.tab.en": "English",
   "officialChannel.tab.ru": "Русский",
   "officialChannel.tab.de": "Deutsch",
@@ -1024,4 +1028,6 @@ export const EXTENSION_DE: Record<ExtensionKey, string> = {
   "officialChannel.error.englishRequired": "Englischer Text ist erforderlich.",
   "officialChannel.error.uploadFailed": "Bild konnte nicht hochgeladen werden.",
   "officialChannel.error.publishFailed": "Veröffentlichen fehlgeschlagen. Bitte erneut versuchen.",
+  "officialChannel.error.translationFailed":
+    "Automatische Übersetzung fehlgeschlagen. Bitte erneut versuchen.",
 };

@@ -22,30 +22,16 @@ import { MOBILE_WIDTH_SAFE_CLASS } from "@/lib/mobileLayout";
 type ComposerState = {
   titleEn: string;
   bodyEn: string;
-  titleRu: string;
-  bodyRu: string;
-  titleDe: string;
-  bodyDe: string;
   linkUrl: string;
   linkLabelEn: string;
-  linkLabelRu: string;
-  linkLabelDe: string;
   imagePath: string | null;
 };
-
-type LocaleTab = "en" | "ru" | "de";
 
 const EMPTY_STATE: ComposerState = {
   titleEn: "",
   bodyEn: "",
-  titleRu: "",
-  bodyRu: "",
-  titleDe: "",
-  bodyDe: "",
   linkUrl: "",
   linkLabelEn: "",
-  linkLabelRu: "",
-  linkLabelDe: "",
   imagePath: null,
 };
 
@@ -67,7 +53,6 @@ export default function OfficialChannelComposer({
   const scrollRef = useRef<HTMLDivElement>(null);
   const [mounted, setMounted] = useState(false);
   const [form, setForm] = useState<ComposerState>(EMPTY_STATE);
-  const [localeTab, setLocaleTab] = useState<LocaleTab>("en");
   const [previewOpen, setPreviewOpen] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [publishing, setPublishing] = useState(false);
@@ -89,7 +74,6 @@ export default function OfficialChannelComposer({
       return;
     }
 
-    setLocaleTab("en");
     setPreviewOpen(false);
     setConfirmOpen(false);
     setError(null);
@@ -104,7 +88,6 @@ export default function OfficialChannelComposer({
 
   const resetComposer = () => {
     setForm(EMPTY_STATE);
-    setLocaleTab("en");
     setPreviewOpen(false);
     setConfirmOpen(false);
     setClientRequestId(crypto.randomUUID());
@@ -161,7 +144,6 @@ export default function OfficialChannelComposer({
     if (!form.bodyEn.trim()) {
       setError(t("officialChannel.error.englishRequired"));
       setConfirmOpen(false);
-      setLocaleTab("en");
       return;
     }
 
@@ -172,15 +154,9 @@ export default function OfficialChannelComposer({
       clientRequestId,
       titleEn: form.titleEn,
       bodyEn: form.bodyEn,
-      titleRu: form.titleRu,
-      bodyRu: form.bodyRu,
-      titleDe: form.titleDe,
-      bodyDe: form.bodyDe,
       imagePath: form.imagePath,
       linkUrl: form.linkUrl,
       linkLabelEn: form.linkLabelEn,
-      linkLabelRu: form.linkLabelRu,
-      linkLabelDe: form.linkLabelDe,
     });
 
     setPublishing(false);
@@ -204,41 +180,6 @@ export default function OfficialChannelComposer({
   if (!open || !mounted || typeof document === "undefined") {
     return null;
   }
-
-  const tabs: { id: LocaleTab; label: string; optional: boolean }[] = [
-    { id: "en", label: t("officialChannel.tab.en"), optional: false },
-    { id: "ru", label: t("officialChannel.tab.ru"), optional: true },
-    { id: "de", label: t("officialChannel.tab.de"), optional: true },
-  ];
-
-  const titleValue =
-    localeTab === "en" ? form.titleEn : localeTab === "ru" ? form.titleRu : form.titleDe;
-  const bodyValue =
-    localeTab === "en" ? form.bodyEn : localeTab === "ru" ? form.bodyRu : form.bodyDe;
-  const linkLabelValue =
-    localeTab === "en"
-      ? form.linkLabelEn
-      : localeTab === "ru"
-        ? form.linkLabelRu
-        : form.linkLabelDe;
-
-  const setTitleValue = (value: string) => {
-    if (localeTab === "en") update("titleEn", value);
-    else if (localeTab === "ru") update("titleRu", value);
-    else update("titleDe", value);
-  };
-
-  const setBodyValue = (value: string) => {
-    if (localeTab === "en") update("bodyEn", value);
-    else if (localeTab === "ru") update("bodyRu", value);
-    else update("bodyDe", value);
-  };
-
-  const setLinkLabelValue = (value: string) => {
-    if (localeTab === "en") update("linkLabelEn", value);
-    else if (localeTab === "ru") update("linkLabelRu", value);
-    else update("linkLabelDe", value);
-  };
 
   return createPortal(
     <div
@@ -273,39 +214,17 @@ export default function OfficialChannelComposer({
         className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch]"
       >
         <div className="mx-auto w-full max-w-lg space-y-4 px-4 py-4 pb-6">
-          <div className="flex rounded-2xl border border-white/10 bg-black/25 p-1">
-            {tabs.map((tab) => {
-              const active = localeTab === tab.id;
-              return (
-                <button
-                  key={tab.id}
-                  type="button"
-                  onClick={() => setLocaleTab(tab.id)}
-                  className={`flex min-w-0 flex-1 flex-col items-center rounded-xl px-2 py-2 transition ${
-                    active ? "bg-primary text-background" : "text-muted hover:text-white"
-                  }`}
-                >
-                  <span className="truncate text-xs font-semibold">{tab.label}</span>
-                  {tab.optional ? (
-                    <span
-                      className={`text-[10px] ${active ? "text-background/80" : "text-muted"}`}
-                    >
-                      {t("officialChannel.optional")}
-                    </span>
-                  ) : null}
-                </button>
-              );
-            })}
-          </div>
+          <p className="rounded-2xl border border-white/10 bg-white/[0.03] px-3 py-2.5 text-[12px] leading-relaxed text-muted">
+            {t("officialChannel.autoTranslateNote")}
+          </p>
 
           <label className="block space-y-1">
             <span className="text-[11px] font-medium text-muted">
-              {t("officialChannel.field.title")}
-              {localeTab !== "en" ? ` · ${t("officialChannel.optional")}` : ""}
+              {t("officialChannel.field.title")} · {t("officialChannel.optional")}
             </span>
             <input
-              value={titleValue}
-              onChange={(event) => setTitleValue(event.target.value)}
+              value={form.titleEn}
+              onChange={(event) => update("titleEn", event.target.value)}
               onFocus={(event) => bindFocus(event.currentTarget)}
               className={inputClassName}
             />
@@ -313,12 +232,11 @@ export default function OfficialChannelComposer({
 
           <label className="block space-y-1">
             <span className="text-[11px] font-medium text-muted">
-              {t("officialChannel.field.body")}
-              {localeTab === "en" ? " *" : ` · ${t("officialChannel.optional")}`}
+              {t("officialChannel.field.body")} *
             </span>
             <textarea
-              value={bodyValue}
-              onChange={(event) => setBodyValue(event.target.value)}
+              value={form.bodyEn}
+              onChange={(event) => update("bodyEn", event.target.value)}
               onFocus={(event) => bindFocus(event.currentTarget)}
               rows={6}
               className={`${inputClassName} resize-none`}
@@ -327,12 +245,11 @@ export default function OfficialChannelComposer({
 
           <label className="block space-y-1">
             <span className="text-[11px] font-medium text-muted">
-              {t("officialChannel.field.linkLabel")}
-              {localeTab !== "en" ? ` · ${t("officialChannel.optional")}` : ""}
+              {t("officialChannel.field.linkLabel")} · {t("officialChannel.optional")}
             </span>
             <input
-              value={linkLabelValue}
-              onChange={(event) => setLinkLabelValue(event.target.value)}
+              value={form.linkLabelEn}
+              onChange={(event) => update("linkLabelEn", event.target.value)}
               onFocus={(event) => bindFocus(event.currentTarget)}
               className={inputClassName}
             />
@@ -340,7 +257,7 @@ export default function OfficialChannelComposer({
 
           <label className="block space-y-1">
             <span className="text-[11px] font-medium text-muted">
-              {t("officialChannel.field.linkUrl")}
+              {t("officialChannel.field.linkUrl")} · {t("officialChannel.optional")}
             </span>
             <input
               value={form.linkUrl}
@@ -391,7 +308,6 @@ export default function OfficialChannelComposer({
 
           {error ? <p className="text-sm text-red-300">{error}</p> : null}
 
-          {/* Extra scroll room so last fields clear sticky footer + keyboard */}
           <div aria-hidden className="h-8" />
         </div>
       </div>
@@ -428,6 +344,7 @@ export default function OfficialChannelComposer({
         <div className="absolute inset-0 z-20 flex items-end justify-center bg-black/70 p-4 sm:items-center">
           <div className="w-full max-w-md rounded-[28px] border border-white/10 bg-[#0B1026] p-5">
             <p className="text-sm font-semibold text-white">{t("officialChannel.preview")}</p>
+            <p className="mt-1 text-[11px] text-muted">{t("officialChannel.previewSourceNote")}</p>
             {form.titleEn ? (
               <p className="mt-3 text-base font-semibold text-white">{form.titleEn}</p>
             ) : null}
@@ -435,8 +352,11 @@ export default function OfficialChannelComposer({
             {form.imagePath ? (
               <p className="mt-3 text-xs text-muted">{t("officialChannel.previewHasImage")}</p>
             ) : null}
+            {form.linkLabelEn ? (
+              <p className="mt-2 text-xs text-muted">{form.linkLabelEn}</p>
+            ) : null}
             {form.linkUrl ? (
-              <p className="mt-2 break-all text-xs text-primary">{form.linkUrl}</p>
+              <p className="mt-1 break-all text-xs text-primary">{form.linkUrl}</p>
             ) : null}
             <button
               type="button"

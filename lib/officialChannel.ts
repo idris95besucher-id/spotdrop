@@ -38,15 +38,9 @@ export type OfficialChannelPublishInput = {
   clientRequestId: string;
   titleEn?: string | null;
   bodyEn: string;
-  titleRu?: string | null;
-  bodyRu?: string | null;
-  titleDe?: string | null;
-  bodyDe?: string | null;
   imagePath?: string | null;
   linkUrl?: string | null;
   linkLabelEn?: string | null;
-  linkLabelRu?: string | null;
-  linkLabelDe?: string | null;
 };
 
 export type OfficialChannelPublishResult = {
@@ -257,18 +251,12 @@ export function validatePublishInput(input: OfficialChannelPublishInput) {
     client_request_id: clientRequestId,
     title_en: trimOptionalText(input.titleEn, OFFICIAL_CHANNEL_MAX_TITLE_LENGTH),
     body_en: requireEnglishBody(input.bodyEn, OFFICIAL_CHANNEL_MAX_BODY_LENGTH),
-    title_ru: trimOptionalText(input.titleRu, OFFICIAL_CHANNEL_MAX_TITLE_LENGTH),
-    body_ru: trimOptionalText(input.bodyRu, OFFICIAL_CHANNEL_MAX_BODY_LENGTH),
-    title_de: trimOptionalText(input.titleDe, OFFICIAL_CHANNEL_MAX_TITLE_LENGTH),
-    body_de: trimOptionalText(input.bodyDe, OFFICIAL_CHANNEL_MAX_BODY_LENGTH),
     image_path:
       typeof input.imagePath === "string" && input.imagePath.trim()
         ? input.imagePath.trim()
         : null,
     link_url: normalizeOptionalHttpsUrl(input.linkUrl ?? null),
     link_label_en: trimOptionalText(input.linkLabelEn, OFFICIAL_CHANNEL_MAX_LINK_LABEL_LENGTH),
-    link_label_ru: trimOptionalText(input.linkLabelRu, OFFICIAL_CHANNEL_MAX_LINK_LABEL_LENGTH),
-    link_label_de: trimOptionalText(input.linkLabelDe, OFFICIAL_CHANNEL_MAX_LINK_LABEL_LENGTH),
   };
 }
 
@@ -304,15 +292,9 @@ export async function publishOfficialChannelPost(
         clientRequestId: input.clientRequestId,
         titleEn: input.titleEn ?? null,
         bodyEn: input.bodyEn,
-        titleRu: input.titleRu ?? null,
-        bodyRu: input.bodyRu ?? null,
-        titleDe: input.titleDe ?? null,
-        bodyDe: input.bodyDe ?? null,
         imagePath: input.imagePath ?? null,
         linkUrl: input.linkUrl ?? null,
         linkLabelEn: input.linkLabelEn ?? null,
-        linkLabelRu: input.linkLabelRu ?? null,
-        linkLabelDe: input.linkLabelDe ?? null,
       }),
     });
 
