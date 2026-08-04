@@ -390,15 +390,12 @@ export default function UserPage({ userIdOverride }: { userIdOverride?: string }
   }, [isOwnProfile, t, targetFollowsViewer, viewerId]);
 
   const locationLine = formatProfileLocationLineLocalized(location, locale);
-  const headerTitle = profile
-    ? profile.name?.trim() || `@${profile.username}`
-    : t("profile.viewProfile");
 
   return (
     <Shell showHeader={false} flushTop fixedLayout>
       <NavigationStackScreen fallbackHref="/search/people">
         <MobileSecondaryHeader
-          title={headerTitle}
+          title={t("collectionDetail.backToProfile")}
           backHref="/search/people"
           trailing={
             profileMenuItems.length > 0 ? (
@@ -461,13 +458,12 @@ export default function UserPage({ userIdOverride }: { userIdOverride?: string }
                 <div className="profile-header-rise min-w-0 w-full space-y-1.5 sm:space-y-2">
                   <h1 className="max-w-full sm:mx-auto sm:w-fit">
                     <UsernameWithVerification
-                      username={profile.name?.trim() || profile.username}
+                      username={profile.username}
                       isVerified={profile.is_verified}
                       className="text-2xl font-semibold tracking-tight text-white sm:text-4xl"
                       iconSize={18}
                     />
                   </h1>
-                  <p className="text-sm font-medium text-slate-500 sm:text-center">@{profile.username}</p>
                   {!isOwnProfile && targetFollowsViewer ? (
                     <p className="text-xs font-semibold uppercase tracking-wide text-cyan-300/90 sm:text-center">
                       {t("profile.followsYou")}
