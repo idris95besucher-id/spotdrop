@@ -19,7 +19,7 @@ import {
   freezeCameraSpotLocation,
 } from "@/lib/captureDeviceSpotLocation";
 import type { SpotGeoLocation } from "@/lib/spotLocation";
-import { openSpotDropCamera } from "@/lib/spotDropCamera";
+import { checkSpotDropCameraAvailable, openSpotDropCamera } from "@/lib/spotDropCamera";
 
 export type SpotCreateCameraMode = "photo" | "video" | "text";
 
@@ -49,10 +49,10 @@ type SpotInstagramCameraProps = {
 };
 
 /**
- * Native camera fallback when the unified native camera screen can't be
- * opened (permission denied, plugin unavailable, or a genuine capture
- * failure). Photo capture only, via the system file picker — never opens a
- * video recorder.
+ * Emergency photo-only picker for environments with no SpotDropCamera plugin
+ * (e.g. misconfigured native builds). Kept for diagnostics — the normal iOS
+ * create flow must never land here when the plugin is wired correctly.
+ * Permission failures use `NativeCameraBlockedScreen` instead.
  */
 function NativeCameraFallback({
   onCapture,
@@ -153,6 +153,89 @@ function NativeCameraFallback({
   );
 }
 
+/** Permission / plugin-unavailable UI for the native create flow — not the Take Photo fallback. */
+function NativeCameraBlockedScreen({
+  kind,
+  onRetry,
+  onClose,
+}: {
+  kind: "permission" | "unavailable";
+  onRetry: () => void;
+  onClose: () => void;
+}) {
+  const { t } = useI18n();
+
+  return (
+    <div
+      className="fixed inset-0 z-[130] flex flex-col bg-black text-white select-none touch-manipulation"
+      style={{ WebkitTapHighlightColor: "transparent" }}
+    >
+      <div aria-hidden className="shrink-0 bg-black" style={{ height: "env(safe-area-inset-top)" }} />
+
+      <div
+        className="absolute left-0 right-0 z-10 flex items-center px-4 pt-3"
+        style={{ top: "env(safe-area-inset-top)" }}
+      >
+        <button
+          type="button"
+          onClick={onClose}
+          className="flex h-11 w-11 items-center justify-center rounded-full bg-black/50 text-white"
+          aria-label={t("spotCamera.close")}
+        >
+          <X className="h-7 w-7" strokeWidth={1.75} aria-hidden />
+        </button>
+      </div>
+
+      <div
+        className="flex flex-1 flex-col items-center justify-center gap-6 px-8"
+        style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+      >
+        <div className="flex flex-col items-center gap-3 text-center">
+          <Camera className="h-14 w-14 text-white/25" strokeWidth={1.25} aria-hidden />
+          <p className="max-w-xs text-sm leading-relaxed text-white/80">
+            {kind === "permission"
+              ? t("spotCamera.permissionBody")
+              : t("spotCamera.error.cameraRequired")}
+          </p>
+        </div>
+
+        <button
+          type="button"
+          onClick={onRetry}
+          className="flex w-full max-w-xs items-center justify-center rounded-2xl bg-white py-4 text-[15px] font-semibold text-black transition active:scale-[0.98]"
+        >
+          {t("spotCamera.enableCamera")}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function isNativeCameraPermissionError(caught: unknown) {
+  const code = (caught as { code?: string } | undefined)?.code ?? "";
+  const message = caught instanceof Error ? caught.message : String(caught ?? "");
+  const haystack = `${code} ${message}`.toLowerCase();
+  return (
+    haystack.includes("permission") ||
+    haystack.includes("denied") ||
+    haystack.includes("not authorized") ||
+    haystack.includes("notauthorised") ||
+    haystack.includes("access")
+  );
+}
+
+async function waitForSpotDropCameraPlugin(maxAttempts = 10) {
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    if (await checkSpotDropCameraAvailable()) {
+      return true;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 120 + attempt * 80));
+  }
+
+  return checkSpotDropCameraAvailable();
+}
+
 export default function SpotInstagramCamera({
   onClose,
   onCapture,
@@ -173,13 +256,15 @@ export default function SpotInstagramCamera({
   const [torchSupported, setTorchSupported] = useState(false);
   const [captureBusy, setCaptureBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [nativeFallback, setNativeFallback] = useState(false);
+  /** True only for last-resort photo picker — never set for transient init / permission. */
+  const [nativeEmergencyFallback, setNativeEmergencyFallback] = useState(false);
+  const [nativeBlockKind, setNativeBlockKind] = useState<"permission" | "unavailable" | null>(null);
+  const [nativeOpenGeneration, setNativeOpenGeneration] = useState(0);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const shutterRef = useRef<HTMLButtonElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const startAttemptedRef = useRef(false);
-  const nativeOpenAttemptedRef = useRef(false);
   const shutterPressActiveRef = useRef(false);
   const shutterPointerIdRef = useRef<number | null>(null);
   const shutterDocumentListenersRef = useRef<{
@@ -285,18 +370,32 @@ export default function SpotInstagramCamera({
   // --- Native path -----------------------------------------------------
   //
   // On a native build this is the *only* camera surface: one native
-  // AVCaptureSession, opened once, handling PHOTO and VIDEO internally.
+  // AVCaptureSession, opened once, handling PHOTO / VIDEO / TEXT internally.
   // `getUserMedia` is never started here — there is deliberately no native
   // controller presented on top of a web preview.
+  //
+  // Do not permanently switch to the old Take Photo screen on a single open
+  // failure: wait for plugin registration, then show permission / retry UI.
   useEffect(() => {
-    if (!native || nativeOpenAttemptedRef.current) {
+    if (!native || nativeEmergencyFallback || nativeBlockKind) {
       return;
     }
 
-    nativeOpenAttemptedRef.current = true;
     let cancelled = false;
 
     void (async () => {
+      const pluginReady = await waitForSpotDropCameraPlugin();
+
+      if (cancelled) {
+        return;
+      }
+
+      if (!pluginReady) {
+        console.error("[SpotDrop camera] SpotDropCamera plugin unavailable after retries");
+        setNativeBlockKind("unavailable");
+        return;
+      }
+
       try {
         const outcome = await openSpotDropCamera({
           photoOnly: !showCreateModes,
@@ -344,17 +443,34 @@ export default function SpotInstagramCamera({
         }
 
         console.error("[SpotDrop camera] openSpotDropCamera failed", caught);
-        setNativeFallback(true);
+
+        if (isNativeCameraPermissionError(caught)) {
+          setNativeBlockKind("permission");
+          return;
+        }
+
+        // Plugin missing / not implemented after a bare `cap sync` — retry UI,
+        // never the old Create-a-Spot Take Photo screen on a real iPhone.
+        const pluginMissing =
+          message.toLowerCase().includes("not implemented") ||
+          message.toLowerCase().includes("plugin") ||
+          !(await checkSpotDropCameraAvailable());
+
+        if (pluginMissing) {
+          setNativeBlockKind("unavailable");
+          return;
+        }
+
+        setNativeBlockKind("unavailable");
       }
     })();
 
     return () => {
       cancelled = true;
     };
-    // Intentionally mount-once: the native screen owns PHOTO ⇄ VIDEO
-    // switching internally, so nothing here should re-trigger a re-open.
+    // nativeOpenGeneration lets the user retry without remounting CreateSpotForm.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [native]);
+  }, [native, nativeOpenGeneration, nativeEmergencyFallback, nativeBlockKind]);
 
   // --- Web fallback path -------------------------------------------------
 
@@ -504,8 +620,21 @@ export default function SpotInstagramCamera({
     onClose();
   };
 
-  if (nativeFallback) {
+  if (nativeEmergencyFallback) {
     return <NativeCameraFallback onCapture={onCapture} onClose={onClose} />;
+  }
+
+  if (native && nativeBlockKind) {
+    return (
+      <NativeCameraBlockedScreen
+        kind={nativeBlockKind}
+        onClose={onClose}
+        onRetry={() => {
+          setNativeBlockKind(null);
+          setNativeOpenGeneration((value) => value + 1);
+        }}
+      />
+    );
   }
 
   if (native) {
