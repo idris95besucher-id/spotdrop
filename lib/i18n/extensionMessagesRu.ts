@@ -781,6 +781,8 @@ export const EXTENSION_RU: Record<ExtensionKey, string> = {
   "spotEditor.error.interrupted": "Загрузка была прервана. Нажмите «Повторить», чтобы продолжить.",
   "spotEditor.error.fileTooLarge": "Это видео слишком большое для загрузки. Обрежьте его или выберите более короткий ролик.",
   "spotEditor.error.authExpired": "Сессия истекла. Пожалуйста, войдите снова.",
+  "spotEditor.error.photoRejected": "Эта фотография не подходит для Public Spots. Здесь можно публиковать только красивые и полезные места, которые другие люди могут посетить. Фотографии себя можно публиковать в личном профиле.",
+  "spotEditor.moderatingPhoto": "Проверяем, подходит ли фотография для Public Spots…",
   "spotEditor.retrying": "Повтор… ({attempt} из {max})",
   "spotEditor.exit.title": "Выйти без публикации?",
   "spotEditor.exit.body": "Удалить Spot и вернуться к камере или остаться и продолжить редактирование.",

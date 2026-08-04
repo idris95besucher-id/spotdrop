@@ -9,6 +9,7 @@ export type SpotPublishFailStep =
   | "prepare_media"
   | "upload_primary"
   | "upload_extra"
+  | "moderate_photo"
   | "create_post"
   | "fetch_post"
   | "save_media_items"

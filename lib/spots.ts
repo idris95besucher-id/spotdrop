@@ -37,6 +37,7 @@ import { isGuideAccountUsername, publicProfileUsername } from "@/lib/publicProfi
 import { addSpotToCollection, loadCollectionById, spotVisibilityForCollection } from "@/lib/collections";
 import { removeStorageObjectsForUrls } from "@/lib/deleteContent";
 import { SPOT_MAX_PHOTOS } from "@/lib/spotMaxPhotos";
+import { checkSpotPhotoModeration, SPOT_PHOTO_REJECTED_MESSAGE } from "@/lib/spotPhotoModeration";
 import {
   logSpotPublishStep,
   spotPublishFail,
@@ -672,6 +673,56 @@ export async function createGeoSpot(input: CreateSpotInput): Promise<CreateGeoSp
     } else {
       spotVisibility = "private";
     }
+  }
+
+  // Public Spot photos only — selfies/portraits/group photos where a person is the main
+  // subject don't belong in Public Spots. Runs after upload (we need a fetchable URL) and
+  // before the posts insert (so a rejection never creates a post at all — nothing to hide
+  // or clean up afterward). Videos and non-public destinations (My Spots, collections) are
+  // out of scope for this check.
+  if (spotVisibility === "public" && publishedToSpots === true && upload.mediaType === "image") {
+    logSpotPublishStep("moderate_photo", { mediaUrl: upload.mediaUrl });
+    input.onPublishStage?.("moderating_photo", 73);
+
+    let moderation: Awaited<ReturnType<typeof checkSpotPhotoModeration>>;
+
+    try {
+      const moderationToken = (await getFreshAccessToken()) ?? input.accessToken;
+      moderation = moderationToken
+        ? await checkSpotPhotoModeration(upload.mediaUrl, moderationToken)
+        : { outcome: "error" };
+    } catch (moderationError) {
+      console.error("[UPLOAD] photo moderation threw", moderationError);
+      moderation = { outcome: "error" };
+    }
+
+    // "person" is a confirmed violation — the specific, user-facing rejection message.
+    if (moderation.outcome === "person") {
+      await rollbackUploadedMedia();
+      console.log("UPLOAD FILE RESULT", { step: "createGeoSpot", failed: true, reason: "person" });
+      return {
+        postId: null,
+        matchedPlace: null,
+        error: SPOT_PHOTO_REJECTED_MESSAGE,
+      };
+    }
+
+    // "uncertain" (the AI itself couldn't tell) and "error" (network/timeout/invalid
+    // response) are both treated the same way: never publish, never accuse the user of a
+    // violation, show a generic retryable error like any other publish failure.
+    if (moderation.outcome === "uncertain" || moderation.outcome === "error") {
+      await rollbackUploadedMedia();
+      const message = spotPublishFail(
+        "moderate_photo",
+        moderation.outcome === "uncertain" ? "Unable to verify this photo." : "Photo check failed."
+      );
+      return {
+        postId: null,
+        matchedPlace: null,
+        error: message,
+      };
+    }
+    // moderation.outcome === "place" — fall through and publish.
   }
 
   const canonicalLocation = canonicalizeGeoLocationFields(input.location);

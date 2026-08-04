@@ -781,6 +781,8 @@ export const EXTENSION_DE: Record<ExtensionKey, string> = {
   "spotEditor.error.interrupted": "Der Upload wurde unterbrochen. Tippe auf Wiederholen, um fortzufahren.",
   "spotEditor.error.fileTooLarge": "Dieses Video ist zu groß zum Hochladen. Kürze es oder wähle einen kürzeren Clip.",
   "spotEditor.error.authExpired": "Deine Sitzung ist abgelaufen. Bitte melde dich erneut an.",
+  "spotEditor.error.photoRejected": "Dieses Foto eignet sich nicht für Public Spots. Hier dürfen nur schöne oder nützliche Orte veröffentlicht werden, die andere Menschen besuchen können. Fotos von dir kannst du in deinem privaten Profil teilen.",
+  "spotEditor.moderatingPhoto": "Wir prüfen, ob dieses Foto für Public Spots geeignet ist…",
   "spotEditor.retrying": "Wird wiederholt… ({attempt} von {max})",
   "spotEditor.exit.title": "Ohne Teilen verlassen?",
   "spotEditor.exit.body": "Spot verwerfen und zur Kamera zurückkehren, oder hier bleiben und weiter bearbeiten.",

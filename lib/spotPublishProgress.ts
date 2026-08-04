@@ -2,6 +2,7 @@ export type SpotPublishStage =
   | "preparing"
   | "uploading_primary"
   | "uploading_extra"
+  | "moderating_photo"
   | "creating_post"
   | "saving_media_items"
   | "finalizing";
@@ -18,6 +19,9 @@ export const SPOT_PUBLISH_STAGE_LABELS: Record<SpotPublishStage, string> = {
   preparing: "Preparing...",
   uploading_primary: "Uploading photo...",
   uploading_extra: "Uploading additional media...",
+  // Overridden with a localized string in components/SpotUploadProgressOverlay.tsx —
+  // this is only a defensive fallback if that override is ever bypassed.
+  moderating_photo: "Checking whether this photo is suitable for Public Spots...",
   creating_post: "Creating Spot...",
   saving_media_items: "Saving media...",
   finalizing: "Finishing...",

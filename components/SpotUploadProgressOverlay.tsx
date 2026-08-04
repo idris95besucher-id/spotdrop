@@ -1,6 +1,7 @@
 "use client";
 
 import { Loader2 } from "lucide-react";
+import { useI18n } from "@/components/I18nProvider";
 import { spotUploadDisplayPercent } from "@/lib/spotUploadPipeline";
 import type { SpotUploadProgress } from "@/lib/spotUploadPipeline";
 
@@ -18,13 +19,18 @@ export default function SpotUploadProgressOverlay({
   showDetailed = false,
   retryLabel = null,
 }: SpotUploadProgressOverlayProps) {
+  const { t } = useI18n();
+
   if (!visible) {
     return null;
   }
 
   const rawPercent = progress?.percent ?? 0;
   const barPercent = spotUploadDisplayPercent(rawPercent);
-  const label = progress?.label ?? (showDetailed ? "Preparing..." : "Publishing spot…");
+  const label =
+    progress?.stage === "moderating_photo"
+      ? t("spotEditor.moderatingPhoto")
+      : progress?.label ?? (showDetailed ? "Preparing..." : "Publishing spot…");
   const showBar = showDetailed;
   const isComplete = rawPercent >= 100;
 

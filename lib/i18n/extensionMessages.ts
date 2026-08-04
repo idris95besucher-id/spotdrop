@@ -780,6 +780,8 @@ export const EXTENSION_EN = {
   "spotEditor.error.interrupted": "Upload was interrupted. Tap Retry to continue.",
   "spotEditor.error.fileTooLarge": "This video is too large to upload. Trim it or choose a shorter clip.",
   "spotEditor.error.authExpired": "Your session expired. Please sign in again.",
+  "spotEditor.error.photoRejected": "This photo is not suitable for Public Spots. Only beautiful or useful places that other people can visit may be shared here. You can post photos of yourself on your private profile.",
+  "spotEditor.moderatingPhoto": "Checking whether this photo is suitable for Public Spots…",
   "spotEditor.retrying": "Retrying… ({attempt} of {max})",
   "spotEditor.exit.title": "Leave without sharing?",
   "spotEditor.exit.body": "Discard your spot and return to the camera, or stay here to keep editing.",
