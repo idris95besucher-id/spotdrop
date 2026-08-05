@@ -165,6 +165,7 @@ export const GEO_NAME_DE: Record<string, string> = {
   "Interlaken": "Interlaken",
   "Irkutsk": "Irkutsk",
   "Istaravshan": "Istaravshan",
+  "Istanbul": "Istanbul",
   "Jalal-Abad": "Jalal-Abad",
   "Jelgava": "Jelgava",
   "Jönköping": "Jönköping",

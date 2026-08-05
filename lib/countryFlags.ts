@@ -56,6 +56,7 @@ export const countryFlagBySlug: Record<string, string> = {
   liechtenstein: "🇱🇮",
   kyrgyzstan: "🇰🇬",
   tajikistan: "🇹🇯",
+  turkey: "🇹🇷",
   turkmenistan: "🇹🇲",
   uzbekistan: "🇺🇿",
 };
@@ -79,6 +80,7 @@ export const countryFlagByCode: Record<string, string> = {
   IE: "🇮🇪",
   RU: "🇷🇺",
   UA: "🇺🇦",
+  TR: "🇹🇷",
   XK: KOSOVO_FLAG,
 };
 
@@ -94,8 +96,10 @@ export function getCountryFlag(slug: string, emoji?: string | null, code?: strin
     return KOSOVO_FLAG;
   }
 
-  const normalizedSlug = slug.trim().toLowerCase();
-  const normalizedCode = code?.trim().toUpperCase() || null;
+  const rawSlug = slug.trim();
+  const normalizedSlug = rawSlug.toLowerCase();
+  const slugAsCode = /^[A-Za-z]{2}$/.test(rawSlug) ? rawSlug.toUpperCase() : null;
+  const normalizedCode = code?.trim().toUpperCase() || slugAsCode;
   const normalizedEmoji = emoji?.trim() || null;
   const hasRealFlag = normalizedEmoji && normalizedEmoji !== "🌍";
 

@@ -54,6 +54,7 @@ export const COUNTRY_SLUG_TO_CODE: Record<string, string> = {
   liechtenstein: "LI",
   kyrgyzstan: "KG",
   tajikistan: "TJ",
+  turkey: "TR",
   turkmenistan: "TM",
   uzbekistan: "UZ",
 };
@@ -114,6 +115,7 @@ export const COUNTRY_NAME_TO_SLUG: Record<string, string> = {
   Liechtenstein: "liechtenstein",
   Kyrgyzstan: "kyrgyzstan",
   Tajikistan: "tajikistan",
+  Turkey: "turkey",
   Turkmenistan: "turkmenistan",
   Uzbekistan: "uzbekistan",
 };

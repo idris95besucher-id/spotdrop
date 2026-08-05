@@ -58,7 +58,7 @@ function buildReverseMaps() {
       continue;
     }
 
-    for (const locale of ["ru", "de", "fr", "it", "es"] as const) {
+    for (const locale of ["en", "ru", "de", "fr", "it", "es"] as const) {
       try {
         const intlName = new Intl.DisplayNames([locale], { type: "region" }).of(code);
         registerLocalizedAlias(intlName, englishName);
@@ -67,6 +67,10 @@ function buildReverseMaps() {
       }
     }
   }
+
+  // Official / alternate English spellings that Intl may emit for TR.
+  registerLocalizedAlias("Türkiye", "Turkey");
+  registerLocalizedAlias("Turkiye", "Turkey");
 
   for (const [englishName, localized] of Object.entries(GEO_NAME_RU)) {
     registerLocalizedAlias(localized, englishName);

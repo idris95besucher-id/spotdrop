@@ -165,6 +165,7 @@ export const GEO_NAME_RU: Record<string, string> = {
   "Interlaken": "Интерлакен",
   "Irkutsk": "Иркутск",
   "Istaravshan": "Истаравшан",
+  "Istanbul": "Стамбул",
   "Jalal-Abad": "Жалал-Абад",
   "Jelgava": "Елгава",
   "Jönköping": "Йёнчепинг",
