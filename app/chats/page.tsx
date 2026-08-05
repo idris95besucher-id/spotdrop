@@ -14,6 +14,7 @@ import DmInboxListItem from "@/components/DmInboxListItem";
 import GroupInboxListItem from "@/components/GroupInboxListItem";
 import { useI18n } from "@/components/I18nProvider";
 import type { MessageRequestItemData } from "@/components/MessageRequestItem";
+import OfficialChannelInboxListItem from "@/components/OfficialChannelInboxListItem";
 import RoomInboxListItem from "@/components/RoomInboxListItem";
 import Shell from "@/components/Shell";
 import { hideDmChat, setDmMuted } from "@/lib/chatInboxPreferences";
@@ -52,6 +53,14 @@ import {
   type RoomIncomingDetail,
 } from "@/lib/chatUnreadSync";
 import { deleteGroupChat, leaveGroupChat, type GroupChatSummary } from "@/lib/groupChats";
+import {
+  isOfficialChannelUnread,
+  loadOfficialChannelInboxThread,
+  OFFICIAL_CHANNEL_READ_EVENT,
+  resolveOfficialChannelPreview,
+  type OfficialChannelInboxThread,
+  type OfficialChannelPostRow,
+} from "@/lib/officialChannel";
 import { hideRoomFromMessages, setRoomMuted, type RoomInboxRow } from "@/lib/roomMemberships";
 import { PRESENCE_HEARTBEAT_MS } from "@/lib/userPresence";
 import { supabase } from "@/lib/supabaseClient";
@@ -80,6 +89,7 @@ function ChatsPageContent() {
   const [loadingChats, setLoadingChats] = useState(false);
   const [items, setItems] = useState<InboxItem[]>([]);
   const [requests, setRequests] = useState<MessageRequestItemData[]>([]);
+  const [officialThread, setOfficialThread] = useState<OfficialChannelInboxThread | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [actionTarget, setActionTarget] = useState<ActionTarget | null>(null);
@@ -87,6 +97,13 @@ function ChatsPageContent() {
   const { refreshUnreadCount } = useChatNotifications();
   const silentReloadRef = useRef(false);
   const refreshDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const reloadOfficialThread = useCallback(async (userId: string) => {
+    const result = await loadOfficialChannelInboxThread(userId, locale);
+    if (!result.error) {
+      setOfficialThread(result.thread);
+    }
+  }, [locale]);
 
   const refresh = useCallback(() => {
     setReloadKey((current) => current + 1);
@@ -287,6 +304,7 @@ function ChatsPageContent() {
       if (!userId) {
         setItems([]);
         setRequests([]);
+        setOfficialThread(null);
         setLoadingChats(false);
         setError(null);
         return;
@@ -309,7 +327,10 @@ function ChatsPageContent() {
         setError(null);
       }
 
-      const result = await loadChatsInbox(userId);
+      const [result] = await Promise.all([
+        loadChatsInbox(userId),
+        reloadOfficialThread(userId),
+      ]);
 
       if (result.error) {
         // A background/silent reload failing (transient network hiccup, presence heartbeat,
@@ -334,7 +355,7 @@ function ChatsPageContent() {
     };
 
     void loadInbox();
-  }, [session?.user?.id, reloadKey]);
+  }, [session?.user?.id, reloadKey, reloadOfficialThread]);
 
   useEffect(() => {
     const userId = session?.user?.id;
@@ -424,9 +445,113 @@ function ChatsPageContent() {
     };
   }, [debouncedRefresh, session?.user?.id]);
 
+  // Synthetic SpotDrop Official thread — Realtime only; never touches DMs / Requests.
+  useEffect(() => {
+    const userId = session?.user?.id;
+
+    if (!userId) {
+      return;
+    }
+
+    const channel = supabase
+      .channel(`chats_official_channel_${userId}`)
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "official_channel_posts" },
+        (payload) => {
+          const row = payload.new as OfficialChannelPostRow;
+
+          if (row.status !== "published" || !row.published_at) {
+            return;
+          }
+
+          setOfficialThread((current) => {
+            const base = current ?? {
+              avatarUrl: null,
+              lastAt: null,
+              preview: null,
+              unread: false,
+              postId: null,
+              href: "/official-channel" as const,
+            };
+
+            return {
+              ...base,
+              lastAt: row.published_at,
+              preview: resolveOfficialChannelPreview(row, locale),
+              unread: true,
+              postId: row.id,
+              href: "/official-channel",
+            };
+          });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [locale, session?.user?.id]);
+
+  useEffect(() => {
+    const onOfficialRead = (event: Event) => {
+      const detail = (event as CustomEvent<{ lastReadAt?: string }>).detail;
+      const lastReadAt = detail?.lastReadAt;
+
+      setOfficialThread((current) => {
+        if (!current) {
+          return current;
+        }
+
+        return {
+          ...current,
+          unread: isOfficialChannelUnread(current.lastAt, lastReadAt ?? current.lastAt),
+        };
+      });
+    };
+
+    window.addEventListener(OFFICIAL_CHANNEL_READ_EVENT, onOfficialRead);
+
+    return () => {
+      window.removeEventListener(OFFICIAL_CHANNEL_READ_EVENT, onOfficialRead);
+    };
+  }, []);
+
+  useEffect(() => {
+    const userId = session?.user?.id;
+
+    if (!userId) {
+      return;
+    }
+
+    const refreshOfficial = () => {
+      void reloadOfficialThread(userId);
+    };
+
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") {
+        refreshOfficial();
+      }
+    };
+
+    const onPageShow = () => {
+      refreshOfficial();
+    };
+
+    window.addEventListener("focus", refreshOfficial);
+    window.addEventListener("pageshow", onPageShow);
+    document.addEventListener("visibilitychange", onVisibility);
+
+    return () => {
+      window.removeEventListener("focus", refreshOfficial);
+      window.removeEventListener("pageshow", onPageShow);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [reloadOfficialThread, session?.user?.id]);
+
   const pendingCount = requests.length;
   const requestsBadge = formatUnreadBadge(pendingCount);
-  const hasInboxItems = items.length > 0;
+  const hasInboxItems = items.length > 0 || officialThread != null;
 
   const filteredItems = useMemo(() => {
     return filterInboxItems(items, searchQuery, {
@@ -443,6 +568,24 @@ function ChatsPageContent() {
     () => filteredItems.filter((item) => inboxItemMatchesTab(item.kind, "direct")),
     [filteredItems]
   );
+
+  const showOfficialThread = useMemo(() => {
+    if (!officialThread || activeTab !== "direct") {
+      return false;
+    }
+
+    const query = searchQuery.trim().toLowerCase();
+
+    if (!query) {
+      return true;
+    }
+
+    const preview = (
+      officialThread.preview?.trim() || t("officialChannel.inboxEmptyPreview")
+    ).toLowerCase();
+
+    return `spotdrop official ${preview}`.includes(query);
+  }, [activeTab, officialThread, searchQuery, t]);
   const groupItems = useMemo(
     () => filteredItems.filter((item) => inboxItemMatchesTab(item.kind, "groups")),
     [filteredItems]
@@ -611,8 +754,13 @@ function ChatsPageContent() {
               ] as const
             ).map(({ tab, tabItems }) => {
               const isActive = activeTab === tab;
-              const showEmpty = isActive && !isSearching && tabItems.length === 0;
-              const showNoSearch = isActive && isSearching && tabItems.length === 0;
+              const pinnedOfficial = tab === "direct" && showOfficialThread && officialThread
+                ? officialThread
+                : null;
+              const showEmpty =
+                isActive && !isSearching && tabItems.length === 0 && !pinnedOfficial;
+              const showNoSearch =
+                isActive && isSearching && tabItems.length === 0 && !pinnedOfficial;
 
               return (
                 <div
@@ -652,6 +800,12 @@ function ChatsPageContent() {
                       className="min-h-0 flex-1 divide-y divide-white/[0.06] overflow-y-auto overscroll-y-contain touch-pan-y px-2 pt-1 pb-[calc(54px+var(--sd-safe-bottom,0px)+22px)] [-webkit-overflow-scrolling:touch] select-none sm:px-3"
                       data-swipe-back-disabled
                     >
+                      {pinnedOfficial ? (
+                        <OfficialChannelInboxListItem
+                          key="spotdrop-official-channel"
+                          thread={pinnedOfficial}
+                        />
+                      ) : null}
                       {tabItems.map((item) =>
                         item.kind === "room" ? (
                           <RoomInboxListItem

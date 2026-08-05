@@ -99,6 +99,19 @@ export async function fetchOfficialChannelSignedMediaUrl(imagePath: string) {
   }
 }
 
+/** Fired after a successful official-channel read-state upsert (Chats unread sync). */
+export const OFFICIAL_CHANNEL_READ_EVENT = "spotdrop:official-channel-read";
+
+export type OfficialChannelInboxThread = {
+  avatarUrl: string | null;
+  /** Latest published_at, or null when the channel has no posts yet. */
+  lastAt: string | null;
+  preview: string | null;
+  unread: boolean;
+  postId: string | null;
+  href: "/official-channel";
+};
+
 export function hasOfficialChannelUnread(
   latestPublishedAt: string | null | undefined,
   lastReadAt: string | null | undefined
@@ -124,6 +137,110 @@ export function hasOfficialChannelUnread(
   }
 
   return publishedMs > readMs;
+}
+
+/** Alias used by Chats synthetic thread — same rule as profile unread chip. */
+export function isOfficialChannelUnread(
+  latestPublishedAt: string | null | undefined,
+  lastReadAt: string | null | undefined
+): boolean {
+  return hasOfficialChannelUnread(latestPublishedAt, lastReadAt);
+}
+
+export function resolveOfficialChannelPreview(
+  post: OfficialChannelLocaleSource,
+  language: string | null | undefined
+): string {
+  const fields = resolveOfficialChannelLocalizedFields(post, language);
+  const raw = (fields.title ?? fields.body).replace(/\s+/g, " ").trim();
+  if (!raw) {
+    return "";
+  }
+  return raw.length > 140 ? `${raw.slice(0, 139)}…` : raw;
+}
+
+function dispatchOfficialChannelReadEvent(lastReadAt: string) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.dispatchEvent(
+    new CustomEvent(OFFICIAL_CHANNEL_READ_EVENT, {
+      detail: { lastReadAt },
+    })
+  );
+}
+
+/**
+ * Lightweight Chats-row payload: official profile + latest published post + read state.
+ * Does not load the full channel feed and never touches direct_conversations.
+ */
+export async function loadOfficialChannelInboxThread(
+  userId: string,
+  language: string | null | undefined
+): Promise<{ thread: OfficialChannelInboxThread; error: string | null }> {
+  const emptyThread: OfficialChannelInboxThread = {
+    avatarUrl: null,
+    lastAt: null,
+    preview: null,
+    unread: false,
+    postId: null,
+    href: "/official-channel",
+  };
+
+  if (!userId) {
+    return { thread: emptyThread, error: null };
+  }
+
+  const [profileResult, latestResult, readResult] = await Promise.all([
+    supabase
+      .from("profiles")
+      .select("id, avatar_url, is_verified")
+      .eq("is_official", true)
+      .limit(1)
+      .maybeSingle(),
+    supabase
+      .from("official_channel_posts")
+      .select(POST_SELECT)
+      .eq("status", "published")
+      .order("published_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    fetchOfficialChannelLastReadAt(userId),
+  ]);
+
+  if (profileResult.error) {
+    return { thread: emptyThread, error: profileResult.error.message };
+  }
+
+  if (latestResult.error) {
+    return { thread: emptyThread, error: latestResult.error.message };
+  }
+
+  if (readResult.error) {
+    return { thread: emptyThread, error: readResult.error };
+  }
+
+  const post = (latestResult.data as OfficialChannelPostRow | null) ?? null;
+  const publishedAt =
+    typeof post?.published_at === "string" ? post.published_at : null;
+  const avatarUrl =
+    typeof profileResult.data?.avatar_url === "string" &&
+    profileResult.data.avatar_url.trim()
+      ? profileResult.data.avatar_url.trim()
+      : null;
+
+  return {
+    thread: {
+      avatarUrl,
+      lastAt: publishedAt,
+      preview: post ? resolveOfficialChannelPreview(post, language) : null,
+      unread: isOfficialChannelUnread(publishedAt, readResult.lastReadAt),
+      postId: post?.id ?? null,
+      href: "/official-channel",
+    },
+    error: null,
+  };
 }
 
 export async function fetchOfficialChannelPosts(limit = 50) {
@@ -210,6 +327,8 @@ export async function markOfficialChannelReadUpTo(
     const readMs = Date.parse(lastReadAt);
 
     if (Number.isFinite(readMs) && readMs >= publishedMs) {
+      // Clear stale Chats unread without rewriting read-state.
+      dispatchOfficialChannelReadEvent(lastReadAt);
       return { error: null as string | null };
     }
   }
@@ -223,6 +342,10 @@ export async function markOfficialChannelReadUpTo(
     },
     { onConflict: "user_id" }
   );
+
+  if (!error) {
+    dispatchOfficialChannelReadEvent(publishedAt);
+  }
 
   return { error: error?.message ?? null };
 }
