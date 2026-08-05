@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import { Check, Copy, Loader2, Search, Send, Share2, X } from "lucide-react";
+import { Bookmark, Check, Copy, Loader2, Search, Send, Share2, X } from "lucide-react";
 import ProfileAvatar from "@/components/ProfileAvatar";
 import UsernameWithVerification from "@/components/UsernameWithVerification";
 import { useI18n } from "@/components/I18nProvider";
@@ -14,6 +14,7 @@ import {
   type SendSpotRecipient,
 } from "@/lib/sendSpotRecipients";
 import { sendSpotToRecipient } from "@/lib/sendSpotMessage";
+import { isSpotSavedByUser, toggleSpotSave } from "@/lib/savedSpots";
 import { bottomSheetLayout, useBottomSheetScrollLock } from "@/lib/bottomSheetScrollLock";
 
 type SendSpotSheetProps = {
@@ -24,6 +25,9 @@ type SendSpotSheetProps = {
   onClose: () => void;
   onRequireAuth?: () => void;
   onSent?: () => void;
+  /** Known save state from the viewer; refreshed from the server when the sheet opens. */
+  isSaved?: boolean;
+  onSavedChange?: (saved: boolean, savedCount?: number) => void;
 };
 
 function RecipientRow({
@@ -127,6 +131,8 @@ export default function SendSpotSheet({
   onClose,
   onRequireAuth,
   onSent,
+  isSaved = false,
+  onSavedChange,
 }: SendSpotSheetProps) {
   const { t } = useI18n();
   const [mounted, setMounted] = useState(false);
@@ -141,6 +147,8 @@ export default function SendSpotSheet({
   const [sentToast, setSentToast] = useState(false);
   const [linkCopied, setLinkCopied] = useState(false);
   const [canNativeShare, setCanNativeShare] = useState(false);
+  const [spotSaved, setSpotSaved] = useState(isSaved);
+  const [savePending, setSavePending] = useState(false);
 
   useBottomSheetScrollLock(isOpen);
 
@@ -207,11 +215,60 @@ export default function SendSpotSheet({
       setError(null);
       setSentToast(false);
       setLinkCopied(false);
+      setSavePending(false);
       return;
     }
 
+    setSpotSaved(isSaved);
     void loadRecipients();
-  }, [isOpen, loadRecipients]);
+  }, [isOpen, isSaved, loadRecipients]);
+
+  useEffect(() => {
+    if (!isOpen || !userId || !postId) {
+      return;
+    }
+
+    let cancelled = false;
+
+    void isSpotSavedByUser(userId, postId).then((result) => {
+      if (cancelled || result.error) {
+        return;
+      }
+
+      setSpotSaved(result.saved);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, postId, userId]);
+
+  const handleToggleSave = async () => {
+    if (!userId) {
+      onRequireAuth?.();
+      return;
+    }
+
+    if (savePending || sendingRecipientId) {
+      return;
+    }
+
+    setSavePending(true);
+    setError(null);
+
+    const result = await toggleSpotSave(userId, postId);
+
+    setSavePending(false);
+
+    if (result.error) {
+      setError(result.error);
+      return;
+    }
+
+    setSpotSaved(result.saved);
+    onSavedChange?.(result.saved, result.savedCount);
+    onClose();
+  };
 
   useEffect(() => {
     if (!isOpen || !userId) {
@@ -327,29 +384,50 @@ export default function SendSpotSheet({
           </button>
         </div>
 
-        <div className="flex gap-2 border-b border-white/10 px-4 py-3">
-          <button
-            type="button"
-            onClick={() => void handleCopyLink()}
-            className="inline-flex flex-1 items-center justify-center gap-2 rounded-2xl border border-white/10 bg-[#050816] px-3 py-2.5 text-sm font-semibold text-white transition hover:bg-white/5"
-          >
-            {linkCopied ? (
-              <Check className="h-4 w-4 text-primary" aria-hidden />
-            ) : (
-              <Copy className="h-4 w-4" aria-hidden />
-            )}
-            {linkCopied ? t("share.copied") : t("share.copyLink")}
-          </button>
-          {canNativeShare ? (
+        <div className="space-y-2 border-b border-white/10 px-4 py-3">
+          <div className="flex gap-2">
             <button
               type="button"
-              onClick={() => void handleNativeShare()}
-              className="inline-flex flex-1 items-center justify-center gap-2 rounded-2xl border border-white/10 bg-[#050816] px-3 py-2.5 text-sm font-semibold text-white transition hover:bg-white/5"
+              onClick={() => void handleCopyLink()}
+              className="inline-flex min-h-12 flex-1 items-center justify-center gap-2 rounded-2xl border border-white/10 bg-[#050816] px-3 py-2.5 text-sm font-semibold text-white transition hover:bg-white/5"
             >
-              <Share2 className="h-4 w-4" aria-hidden />
-              {t("share.share")}
+              {linkCopied ? (
+                <Check className="h-4 w-4 text-primary" aria-hidden />
+              ) : (
+                <Copy className="h-4 w-4" aria-hidden />
+              )}
+              {linkCopied ? t("share.copied") : t("share.copyLink")}
             </button>
-          ) : null}
+            {canNativeShare ? (
+              <button
+                type="button"
+                onClick={() => void handleNativeShare()}
+                className="inline-flex min-h-12 flex-1 items-center justify-center gap-2 rounded-2xl border border-white/10 bg-[#050816] px-3 py-2.5 text-sm font-semibold text-white transition hover:bg-white/5"
+              >
+                <Share2 className="h-4 w-4" aria-hidden />
+                {t("share.share")}
+              </button>
+            ) : null}
+          </div>
+
+          <button
+            type="button"
+            disabled={savePending}
+            onClick={() => void handleToggleSave()}
+            className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl border border-white/10 bg-[#050816] px-3 py-2.5 text-sm font-semibold text-white transition hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-60"
+            aria-label={spotSaved ? t("spotShare.removeFromSaved") : t("spotShare.saveToSaved")}
+          >
+            {savePending ? (
+              <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+            ) : (
+              <Bookmark
+                className={`h-4 w-4 shrink-0 ${spotSaved ? "fill-white text-white" : ""}`}
+                strokeWidth={spotSaved ? 0 : 1.75}
+                aria-hidden
+              />
+            )}
+            {spotSaved ? t("spotShare.removeFromSaved") : t("spotShare.saveToSaved")}
+          </button>
         </div>
 
         <div className="border-b border-white/10 px-4 py-3">

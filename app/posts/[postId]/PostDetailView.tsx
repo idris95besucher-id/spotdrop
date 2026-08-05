@@ -976,6 +976,16 @@ export default function PostDetailPage({ postIdOverride }: PostDetailPageProps =
               isOpen={sendSpotSheetOpen}
               onClose={() => setSendSpotSheetOpen(false)}
               onRequireAuth={handleRequireAuth}
+              isSaved={isSpotSaved}
+              onSavedChange={(saved, savedCount) => {
+                setIsSpotSaved(saved);
+
+                if (typeof savedCount === "number") {
+                  setSpotStats((current) => ({ ...current, saved_count: savedCount }));
+                }
+
+                setSaveToast(saved ? t("spotShare.addedToSaved") : t("spotShare.removedFromSaved"));
+              }}
             />
           ) : null}
 
