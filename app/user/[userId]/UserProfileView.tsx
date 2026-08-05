@@ -458,13 +458,11 @@ export default function UserPage({ userIdOverride }: { userIdOverride?: string }
                 <div className="profile-header-avatar mx-auto w-fit">
                   <ProfileAvatarProfileTrigger
                     userId={profile.id}
+                    viewerUserId={viewerId}
                     avatarUrl={profile.avatar_url}
                     sizeClassName="h-24 w-24 sm:h-32 sm:w-32"
                     iconClassName="h-11 w-11 sm:h-12 sm:w-12"
                     className="border border-white/10 shadow-xl shadow-black/50"
-                    onOpenProfile={() => {
-                      // Already on this live profile route — closing the sheet is enough.
-                    }}
                   />
                 </div>
 

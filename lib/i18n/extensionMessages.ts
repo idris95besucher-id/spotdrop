@@ -269,7 +269,7 @@ export const EXTENSION_EN = {
   "profileAvatar.menuTitle": "Profile",
   "profileAvatar.openMenu": "Open profile actions",
   "profileAvatar.viewPhoto": "View profile photo",
-  "profileAvatar.openProfile": "Open profile",
+  "profileAvatar.openPrivateProfile": "Open private profile",
   "profileAvatar.photoTitle": "Profile photo",
 
   "rooms.exploreNearby": "Explore Nearby",

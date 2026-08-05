@@ -7,51 +7,29 @@ import ProfileAvatarActionSheet from "@/components/ProfileAvatarActionSheet";
 import ProfilePhotoViewer from "@/components/ProfilePhotoViewer";
 import { useI18n } from "@/components/I18nProvider";
 import { normalizeAvatarUrl } from "@/lib/avatarUrl";
+import { profileGalleryHref } from "@/lib/profileGalleryVisibility";
 
 type ProfileAvatarProfileTriggerProps = {
   userId: string;
+  /** Current viewer — needed so own Private Profile opens `/profile/gallery` (owner mode). */
+  viewerUserId?: string | null;
   avatarUrl?: string | null;
   sizeClassName?: string;
   iconClassName?: string;
   className?: string;
-  /**
-   * When set, used instead of default `/user?id=` navigation for "Open profile"
-   * (e.g. already on this profile — just close the sheet).
-   */
-  onOpenProfile?: () => void;
 };
 
-function isAlreadyOnUserProfile(userId: string): boolean {
-  if (typeof window === "undefined") {
-    return false;
-  }
-
-  const url = new URL(window.location.href);
-  const path = url.pathname.replace(/\/+$/, "") || "/";
-  const searchId = url.searchParams.get("id");
-
-  if (path === "/user" && searchId === userId) {
-    return true;
-  }
-
-  if (path === `/user/${userId}`) {
-    return true;
-  }
-
-  return false;
-}
-
 /**
- * Tappable profile avatar that opens the avatar action sheet instead of navigating immediately.
+ * Tappable profile avatar that opens the avatar action sheet.
  * Intended for the large avatar on the live `/user?id=...` profile header.
  */
 export default function ProfileAvatarProfileTrigger({
   userId,
+  viewerUserId = null,
   avatarUrl,
   sizeClassName = "h-10 w-10",
   iconClassName = "h-4 w-4",
   className = "",
-  onOpenProfile,
 }: ProfileAvatarProfileTriggerProps) {
   const { t } = useI18n();
   const router = useRouter();
@@ -60,20 +38,10 @@ export default function ProfileAvatarProfileTrigger({
   const normalizedAvatar = normalizeAvatarUrl(avatarUrl);
   const hasAvatar = Boolean(normalizedAvatar);
 
-  const handleOpenProfile = useCallback(() => {
+  const handleOpenPrivateProfile = useCallback(() => {
     setMenuOpen(false);
-
-    if (onOpenProfile) {
-      onOpenProfile();
-      return;
-    }
-
-    if (isAlreadyOnUserProfile(userId)) {
-      return;
-    }
-
-    router.push(`/user?id=${encodeURIComponent(userId)}`);
-  }, [onOpenProfile, router, userId]);
+    router.push(profileGalleryHref(userId, viewerUserId));
+  }, [router, userId, viewerUserId]);
 
   const handleAvatarClick = (event: MouseEvent<HTMLButtonElement>) => {
     event.preventDefault();
@@ -108,7 +76,7 @@ export default function ProfileAvatarProfileTrigger({
 
           setPhotoOpen(true);
         }}
-        onOpenProfile={handleOpenProfile}
+        onOpenPrivateProfile={handleOpenPrivateProfile}
       />
 
       {photoOpen && normalizedAvatar ? (

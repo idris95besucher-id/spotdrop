@@ -11,19 +11,19 @@ export type ProfileAvatarActionSheetProps = {
   onClose: () => void;
   hasAvatar: boolean;
   onViewPhoto: () => void;
-  onOpenProfile: () => void;
+  onOpenPrivateProfile: () => void;
 };
 
 /**
- * Bottom sheet shown when tapping a navigable user avatar:
- * View profile photo / Open profile / Cancel.
+ * Bottom sheet for the large live-profile avatar:
+ * View profile photo / Open private profile / Cancel.
  */
 export default function ProfileAvatarActionSheet({
   isOpen,
   onClose,
   hasAvatar,
   onViewPhoto,
-  onOpenProfile,
+  onOpenPrivateProfile,
 }: ProfileAvatarActionSheetProps) {
   const { t } = useI18n();
   const [mounted, setMounted] = useState(false);
@@ -117,7 +117,7 @@ export default function ProfileAvatarActionSheet({
               type="button"
               onClick={() => {
                 onClose();
-                onOpenProfile();
+                onOpenPrivateProfile();
               }}
               className="flex min-h-12 w-full items-center gap-3 rounded-2xl px-3.5 py-3.5 text-left transition hover:bg-white/5 active:bg-white/8"
             >
@@ -125,7 +125,7 @@ export default function ProfileAvatarActionSheet({
                 <UserRound className="h-4 w-4" strokeWidth={1.75} aria-hidden />
               </span>
               <span className="min-w-0 flex-1 text-sm font-semibold text-white">
-                {t("profileAvatar.openProfile")}
+                {t("profileAvatar.openPrivateProfile")}
               </span>
             </button>
 

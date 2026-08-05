@@ -269,7 +269,7 @@ export const EXTENSION_RU: Record<ExtensionKey, string> = {
   "profileAvatar.menuTitle": "Профиль",
   "profileAvatar.openMenu": "Открыть действия профиля",
   "profileAvatar.viewPhoto": "Посмотреть фото профиля",
-  "profileAvatar.openProfile": "Открыть профиль",
+  "profileAvatar.openPrivateProfile": "Открыть приватный профиль",
   "profileAvatar.photoTitle": "Фото профиля",
 
   "rooms.exploreNearby": "Рядом с вами",
