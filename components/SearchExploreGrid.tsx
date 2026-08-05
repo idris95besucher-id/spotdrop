@@ -61,16 +61,35 @@ export default function SearchExploreGrid({ onPostsChange }: SearchExploreGridPr
     setError(null);
     fetchOffsetRef.current = 0;
 
-    const result = await loadExploreSpotPostsPage(0, EXPLORE_PAGE_SIZE);
+    try {
+      const result = await loadExploreSpotPostsPage(0, EXPLORE_PAGE_SIZE);
 
-    setPosts((current) => mergeFeedSpotPosts(current, result.posts));
-    fetchOffsetRef.current = result.fetchedCount;
-    setHasMore(result.hasMore);
-    setError(result.error);
-    setLoading(false);
+      setPosts((current) => mergeFeedSpotPosts(current, result.posts));
+      fetchOffsetRef.current = result.fetchedCount;
+      setHasMore(result.hasMore);
+      setError(result.error);
 
-    console.log("[Search Grid] visible spots count", result.posts.length);
+      console.info("[Search Grid] visible spots count", result.posts.length);
+    } catch (caught) {
+      console.error(
+        "[Search Grid] initial load failed",
+        caught instanceof Error ? caught.name : "unknown"
+      );
+      setError("Unable to load spots.");
+      setHasMore(false);
+    } finally {
+      setLoading(false);
+    }
   }, []);
+
+  const retryInitial = useCallback(() => {
+    initialLoadStartedRef.current = false;
+    setPosts([]);
+    setHasMore(true);
+    setError(null);
+    setLoading(true);
+    void loadInitial();
+  }, [loadInitial]);
 
   const loadMore = useCallback(async () => {
     if (loadingMore || !hasMore || loading) {
@@ -79,24 +98,32 @@ export default function SearchExploreGrid({ onPostsChange }: SearchExploreGridPr
 
     setLoadingMore(true);
 
-    const offset = fetchOffsetRef.current;
-    const result = await loadExploreSpotPostsPage(offset, EXPLORE_PAGE_SIZE);
+    try {
+      const offset = fetchOffsetRef.current;
+      const result = await loadExploreSpotPostsPage(offset, EXPLORE_PAGE_SIZE);
 
-    if (result.error) {
-      setError(result.error);
+      if (result.error) {
+        setError(result.error);
+        return;
+      }
+
+      setPosts((current) => {
+        const merged = mergeFeedSpotPosts(current, result.posts);
+        console.info("[Search Grid] visible spots count", merged.length);
+        return merged;
+      });
+
+      fetchOffsetRef.current = offset + result.fetchedCount;
+      setHasMore(result.hasMore);
+    } catch (caught) {
+      console.error(
+        "[Search Grid] load more failed",
+        caught instanceof Error ? caught.name : "unknown"
+      );
+      setError("Unable to load spots.");
+    } finally {
       setLoadingMore(false);
-      return;
     }
-
-    setPosts((current) => {
-      const merged = mergeFeedSpotPosts(current, result.posts);
-      console.log("[Search Grid] visible spots count", merged.length);
-      return merged;
-    });
-
-    fetchOffsetRef.current = offset + result.fetchedCount;
-    setHasMore(result.hasMore);
-    setLoadingMore(false);
   }, [hasMore, loading, loadingMore]);
 
   useEffect(() => {
@@ -189,7 +216,14 @@ export default function SearchExploreGrid({ onPostsChange }: SearchExploreGridPr
   if (error && visiblePosts.length === 0) {
     return (
       <div className="rounded-2xl border border-red-500/20 bg-red-500/5 p-5 text-sm text-red-200">
-        {localizeUserMessage(t, error) ?? error}
+        <p>{localizeUserMessage(t, error) ?? error}</p>
+        <button
+          type="button"
+          onClick={retryInitial}
+          className="mt-3 inline-flex select-none touch-manipulation items-center justify-center rounded-full bg-white/10 px-4 py-2 text-sm font-semibold text-white transition hover:bg-white/15"
+        >
+          {t("common.tryAgain")}
+        </button>
       </div>
     );
   }

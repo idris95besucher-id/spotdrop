@@ -86,6 +86,8 @@ export function shouldProbeLegacyTextCard(
   return Boolean(post.media_url?.trim() || post.image_url?.trim());
 }
 
+const LEGACY_CARD_PROBE_TIMEOUT_MS = 4_000;
+
 export async function probeLegacyGeneratedLocationCardImage(mediaUrl: string | null) {
   if (!mediaUrl || typeof window === "undefined") {
     return false;
@@ -93,15 +95,30 @@ export async function probeLegacyGeneratedLocationCardImage(mediaUrl: string | n
 
   return new Promise<boolean>((resolve) => {
     const image = new Image();
+    let settled = false;
+
+    const finish = (value: boolean) => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      window.clearTimeout(timeoutId);
+      image.onload = null;
+      image.onerror = null;
+      resolve(value);
+    };
+
+    const timeoutId = window.setTimeout(() => finish(false), LEGACY_CARD_PROBE_TIMEOUT_MS);
 
     image.onload = () => {
-      resolve(
+      finish(
         image.naturalWidth === GENERATED_LOCATION_CARD_WIDTH &&
           image.naturalHeight === GENERATED_LOCATION_CARD_HEIGHT
       );
     };
 
-    image.onerror = () => resolve(false);
+    image.onerror = () => finish(false);
     image.src = mediaUrl;
   });
 }

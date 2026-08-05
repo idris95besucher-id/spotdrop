@@ -12,6 +12,8 @@ import {
 
 /** Instagram Explore-style clip length for muted grid autoplay. */
 const GRID_VIDEO_CLIP_SECONDS = 3.5;
+/** After play() rejects, do not immediately re-enter the slot retry storm. */
+const PLAY_FAILURE_COOLDOWN_MS = 2_500;
 
 type GridVideoPreviewProps = {
   src: string;
@@ -37,10 +39,13 @@ export default function GridVideoPreview({
   const containerRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const isIntersectingRef = useRef(false);
+  const startingRef = useRef(false);
+  const playBlockedUntilRef = useRef(0);
   const [isPlaying, setIsPlaying] = useState(false);
 
   const pausePreview = useCallback(() => {
     const video = videoRef.current;
+    startingRef.current = false;
 
     if (!video) {
       setIsPlaying(false);
@@ -58,10 +63,19 @@ export default function GridVideoPreview({
       return;
     }
 
+    if (startingRef.current) {
+      return;
+    }
+
+    if (Date.now() < playBlockedUntilRef.current) {
+      return;
+    }
+
     if (!tryPlayGridVideoPreview(video)) {
       return;
     }
 
+    startingRef.current = true;
     video.muted = true;
 
     try {
@@ -79,8 +93,11 @@ export default function GridVideoPreview({
       await video.play();
       setIsPlaying(true);
     } catch {
+      playBlockedUntilRef.current = Date.now() + PLAY_FAILURE_COOLDOWN_MS;
       releaseGridVideoPreview(video);
       setIsPlaying(false);
+    } finally {
+      startingRef.current = false;
     }
   }, [autoplay]);
 
@@ -100,6 +117,7 @@ export default function GridVideoPreview({
     video.setAttribute("playsinline", "true");
     video.setAttribute("webkit-playsinline", "true");
     video.preload = "none";
+    playBlockedUntilRef.current = 0;
 
     const unregister = registerGridVideoPreview(video);
 
@@ -167,13 +185,21 @@ export default function GridVideoPreview({
     }
 
     const retryIfVisible = () => {
-      if (isIntersectingRef.current && !videoRef.current?.paused) {
+      if (!isIntersectingRef.current || startingRef.current) {
         return;
       }
 
-      if (isIntersectingRef.current) {
-        void startPreview();
+      const video = videoRef.current;
+
+      if (video && !video.paused && !video.ended) {
+        return;
       }
+
+      if (Date.now() < playBlockedUntilRef.current) {
+        return;
+      }
+
+      void startPreview();
     };
 
     const unsubscribeFullscreen = subscribeGridPreviewFullscreenClosed(retryIfVisible);

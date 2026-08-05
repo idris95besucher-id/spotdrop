@@ -9,11 +9,31 @@ const activeGridPreviewVideos: HTMLVideoElement[] = [];
 const fullscreenCloseListeners = new Set<() => void>();
 const slotAvailableListeners = new Set<() => void>();
 let fullscreenViewerOpenCount = 0;
+let slotNotifyQueued = false;
 
+/**
+ * Notify listeners asynchronously so release/tryPlay cannot re-enter the same
+ * call stack (sync notify + retry was freezing Search Explore on iOS when
+ * multiple muted grid videos competed for slots / failed play()).
+ */
 function notifyGridPreviewSlotAvailable() {
-  for (const listener of slotAvailableListeners) {
-    listener();
+  if (slotNotifyQueued) {
+    return;
   }
+
+  slotNotifyQueued = true;
+
+  queueMicrotask(() => {
+    slotNotifyQueued = false;
+
+    for (const listener of [...slotAvailableListeners]) {
+      try {
+        listener();
+      } catch {
+        /* ignore listener errors — never break the control plane */
+      }
+    }
+  });
 }
 
 /** Fires when a concurrent-play slot opens (tile left view or viewer closed). */
@@ -65,6 +85,8 @@ export function tryPlayGridVideoPreview(video: HTMLVideoElement) {
   }
 
   if (!activeGridPreviewVideos.includes(video)) {
+    let displaced = false;
+
     while (activeGridPreviewVideos.length >= MAX_CONCURRENT_GRID_PREVIEWS) {
       const oldest = activeGridPreviewVideos.shift();
 
@@ -80,19 +102,27 @@ export function tryPlayGridVideoPreview(video: HTMLVideoElement) {
         /* ignore */
       }
 
-      notifyGridPreviewSlotAvailable();
+      displaced = true;
     }
 
     activeGridPreviewVideos.push(video);
+
+    if (displaced) {
+      notifyGridPreviewSlotAvailable();
+    }
   }
 
   return true;
 }
 
 export function releaseGridVideoPreview(video: HTMLVideoElement) {
+  const wasActive = activeGridPreviewVideos.includes(video);
   video.pause();
   removeActiveGridPreview(video);
-  notifyGridPreviewSlotAvailable();
+
+  if (wasActive) {
+    notifyGridPreviewSlotAvailable();
+  }
 }
 
 export function pauseAllGridVideoPreviews() {
@@ -124,8 +154,12 @@ export function notifySpotFullscreenViewerClosed() {
   fullscreenViewerOpenCount = Math.max(0, fullscreenViewerOpenCount - 1);
 
   if (fullscreenViewerOpenCount === 0) {
-    for (const listener of fullscreenCloseListeners) {
-      listener();
+    for (const listener of [...fullscreenCloseListeners]) {
+      try {
+        listener();
+      } catch {
+        /* ignore */
+      }
     }
 
     notifyGridPreviewSlotAvailable();
