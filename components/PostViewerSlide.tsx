@@ -780,6 +780,14 @@ export default function PostViewerSlide({
               authorIsVerified={postAuthor.is_verified}
               avatarUrl={postAuthor.avatar_url}
               viewerUserId={userId}
+              onOpenProfile={
+                closeBeforeAuthorProfileNavigation
+                  ? () => {
+                      onSuspendForAuthorProfileNavigation?.(post.user_id);
+                      router.push(`/user?id=${encodeURIComponent(post.user_id)}`);
+                    }
+                  : undefined
+              }
               onAuthorClick={
                 closeBeforeAuthorProfileNavigation
                   ? (event: MouseEvent<HTMLAnchorElement>) => {

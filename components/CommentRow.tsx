@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { forwardRef } from "react";
 import { Check, Loader2, X as XIcon } from "lucide-react";
-import ProfileAvatar from "@/components/ProfileAvatar";
+import ProfileAvatarProfileTrigger from "@/components/ProfileAvatarProfileTrigger";
 import UsernameWithVerification from "@/components/UsernameWithVerification";
 import { useI18n } from "@/components/I18nProvider";
 import type { PostCommentRow as PostCommentRowType } from "@/lib/postComments";
@@ -66,14 +66,13 @@ const CommentRow = forwardRef<HTMLLIElement, CommentRowProps>(function CommentRo
         isDeleting ? "opacity-50" : ""
       } ${isHighlighted ? "bg-primary/15 ring-1 ring-primary/40 -mx-2 px-2 py-1.5" : ""}`}
     >
-      <Link href={`/user?id=${comment.user_id}`} className="shrink-0">
-        <ProfileAvatar
-          src={comment.profiles.avatar_url}
-          sizeClassName="h-9 w-9"
-          iconClassName="h-4 w-4"
-          className="bg-slate-800"
-        />
-      </Link>
+      <ProfileAvatarProfileTrigger
+        userId={comment.user_id}
+        avatarUrl={comment.profiles.avatar_url}
+        sizeClassName="h-9 w-9"
+        iconClassName="h-4 w-4"
+        className="bg-slate-800"
+      />
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
           <Link href={`/user?id=${comment.user_id}`} className="min-w-0 hover:underline">

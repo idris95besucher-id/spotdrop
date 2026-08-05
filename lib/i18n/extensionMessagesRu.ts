@@ -266,6 +266,12 @@ export const EXTENSION_RU: Record<ExtensionKey, string> = {
   "spotShare.error.noRecipients": "Выберите хотя бы одного получателя.",
   "spotShare.error.loadFriends": "Не удалось загрузить список друзей.",
 
+  "profileAvatar.menuTitle": "Профиль",
+  "profileAvatar.openMenu": "Открыть действия профиля",
+  "profileAvatar.viewPhoto": "Посмотреть фото профиля",
+  "profileAvatar.openProfile": "Открыть профиль",
+  "profileAvatar.photoTitle": "Фото профиля",
+
   "rooms.exploreNearby": "Рядом с вами",
   "rooms.title": "Комнаты",
   "rooms.chooseCountry": "Выберите страну, чтобы открыть городские комнаты.",

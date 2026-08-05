@@ -266,6 +266,12 @@ export const EXTENSION_DE: Record<ExtensionKey, string> = {
   "spotShare.error.noRecipients": "Wähle mindestens einen Empfänger.",
   "spotShare.error.loadFriends": "Freunde konnten nicht geladen werden.",
 
+  "profileAvatar.menuTitle": "Profil",
+  "profileAvatar.openMenu": "Profilaktionen öffnen",
+  "profileAvatar.viewPhoto": "Profilbild ansehen",
+  "profileAvatar.openProfile": "Profil öffnen",
+  "profileAvatar.photoTitle": "Profilbild",
+
   "rooms.exploreNearby": "In der Nähe entdecken",
   "rooms.title": "Räume",
   "rooms.chooseCountry": "Wähle ein Land, um Stadträume zu erkunden.",

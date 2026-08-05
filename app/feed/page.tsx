@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import SpotDropSpotsIcon from "@/components/icons/SpotDropSpotsIcon";
 import ExploreNearbyCard from "@/components/ExploreNearbyCard";
 import PostCardMedia from "@/components/PostCardMedia";
-import ProfileAvatar from "@/components/ProfileAvatar";
+import ProfileAvatarProfileTrigger from "@/components/ProfileAvatarProfileTrigger";
 import UsernameWithVerification from "@/components/UsernameWithVerification";
 import SpotCommentsSheet from "@/components/SpotCommentsSheet";
 import SpotPostMeta from "@/components/SpotPostMeta";
@@ -181,25 +181,26 @@ export default function FeedPage() {
                   className="select-none touch-manipulation overflow-hidden rounded-2xl border border-white/[0.08] bg-card"
                 >
                   <header className="flex items-center gap-3 px-4 py-3">
-                    <Link
-                      href={`/user?id=${post.user_id}`}
-                      className="flex min-w-0 flex-1 items-center gap-3 transition hover:opacity-90"
-                    >
-                      <ProfileAvatar
-                        src={post.profiles.avatar_url}
+                    <div className="flex min-w-0 flex-1 items-center gap-3">
+                      <ProfileAvatarProfileTrigger
+                        userId={post.user_id}
+                        avatarUrl={post.profiles.avatar_url}
                         sizeClassName="h-10 w-10"
                         iconClassName="h-4 w-4"
                         className="border border-white/10 bg-slate-800"
                       />
-                      <div className="min-w-0 flex-1 text-left">
+                      <Link
+                        href={`/user?id=${post.user_id}`}
+                        className="min-w-0 flex-1 text-left transition hover:opacity-90"
+                      >
                         <UsernameWithVerification
                           username={username}
                           isVerified={post.profiles.is_verified}
                           className="text-sm font-semibold text-white"
                           iconSize={14}
                         />
-                      </div>
-                    </Link>
+                      </Link>
+                    </div>
                   </header>
 
                   {mediaUrl ? (

@@ -266,6 +266,12 @@ export const EXTENSION_EN = {
   "spotShare.error.noRecipients": "Choose at least one recipient.",
   "spotShare.error.loadFriends": "Unable to load friends.",
 
+  "profileAvatar.menuTitle": "Profile",
+  "profileAvatar.openMenu": "Open profile actions",
+  "profileAvatar.viewPhoto": "View profile photo",
+  "profileAvatar.openProfile": "Open profile",
+  "profileAvatar.photoTitle": "Profile photo",
+
   "rooms.exploreNearby": "Explore Nearby",
   "rooms.title": "Rooms",
   "rooms.chooseCountry": "Choose a country to explore city rooms.",
