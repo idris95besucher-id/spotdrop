@@ -276,8 +276,8 @@ function mapFeedSpotRow(row: Record<string, unknown>): FeedSpotRow {
       visited_count: row.visited_count as number | null | undefined,
       comments_count: row.comments_count as number | null | undefined,
       collection_save_count: row.collection_save_count as number | null | undefined,
+      unique_view_count: row.unique_view_count as number | null | undefined,
     }),
-    unique_view_count: Math.max(0, Number(row.unique_view_count ?? 0) || 0),
     profiles: {
       ...profile,
       username: publicProfileUsername(profile.username),

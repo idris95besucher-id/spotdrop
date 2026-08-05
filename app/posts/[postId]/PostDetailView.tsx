@@ -544,6 +544,7 @@ export default function PostDetailPage({ postIdOverride }: PostDetailPageProps =
         visited_count: detail.visited_count ?? current.visited_count,
         comments_count: detail.comments_count ?? current.comments_count,
         saved_count: detail.saved_count ?? current.saved_count,
+        unique_view_count: detail.unique_view_count ?? current.unique_view_count,
       }));
 
       if (detail.comments_count != null) {
@@ -913,13 +914,10 @@ export default function PostDetailPage({ postIdOverride }: PostDetailPageProps =
                   shareUrl={resolvedShareUrl}
                   disabled={engagementDisabled || reactionsLoading}
                   variant={isSpotPost ? "spot" : "default"}
-                  isSpotSaved={isSpotSaved}
-                  savedCount={spotStats.saved_count}
+                  uniqueViewCount={spotStats.unique_view_count}
                   visitedCount={spotStats.visited_count}
-                  savePending={(saveStateLoading || savePending) && isSpotPost}
                   onRequireAuth={handleRequireAuth}
                   onCommentClick={() => setCommentsOpen(true)}
-                  onSaveClick={() => void handleToggleSave()}
                   onVisitedClick={isSpotPost && showSpotLocation ? handleOpenSpotLocation : undefined}
                   onSendSpotClick={isSpotPost ? () => setSendSpotSheetOpen(true) : undefined}
                 />

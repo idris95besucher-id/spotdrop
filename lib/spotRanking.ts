@@ -6,12 +6,15 @@ export type SpotPublicStats = {
   visited_count: number;
   comments_count: number;
   saved_count: number;
+  /** Unique full-Spot opens (auth viewers). */
+  unique_view_count: number;
 };
 
 export const EMPTY_SPOT_PUBLIC_STATS: SpotPublicStats = {
   visited_count: 0,
   comments_count: 0,
   saved_count: 0,
+  unique_view_count: 0,
 };
 
 export function normalizeSpotPublicStats(
@@ -21,6 +24,7 @@ export function normalizeSpotPublicStats(
         comments_count: number | null;
         collection_save_count: number | null;
         saved_count: number | null;
+        unique_view_count: number | null;
       }>
     | null
     | undefined
@@ -32,17 +36,32 @@ export function normalizeSpotPublicStats(
       0,
       Number(row?.collection_save_count ?? row?.saved_count ?? 0) || 0
     ),
+    unique_view_count: Math.max(0, Number(row?.unique_view_count ?? 0) || 0),
   };
 }
 
 export async function loadSpotPublicStats(postId: string): Promise<SpotPublicStats | null> {
   try {
-    const { data, error } = await supabase
+    let result = await supabase
       .from("posts")
-      .select("visited_count, comments_count, collection_save_count")
+      .select("visited_count, comments_count, collection_save_count, unique_view_count")
       .eq("id", postIdForQuery(postId))
       .eq("content_kind", "spot")
       .maybeSingle();
+
+    if (
+      result.error?.code === "42703" &&
+      (result.error.message?.toLowerCase().includes("unique_view_count") ?? false)
+    ) {
+      result = await supabase
+        .from("posts")
+        .select("visited_count, comments_count, collection_save_count")
+        .eq("id", postIdForQuery(postId))
+        .eq("content_kind", "spot")
+        .maybeSingle();
+    }
+
+    const { data, error } = result;
 
     if (error || !data) {
       if (error && !isMissingSpotRankingColumns(error)) {
@@ -70,6 +89,7 @@ export async function refreshSpotPublicStatsEvent(postId: string) {
     visited_count: stats.visited_count,
     comments_count: stats.comments_count,
     saved_count: stats.saved_count,
+    unique_view_count: stats.unique_view_count,
   });
 }
 

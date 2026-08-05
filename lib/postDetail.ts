@@ -37,6 +37,7 @@ export type PostDetailRow = PostMediaFields & {
   visited_count?: number;
   comments_count?: number;
   collection_save_count?: number;
+  unique_view_count?: number;
   profiles?: {
     username: string;
     avatar_url?: string | null;
@@ -83,9 +84,11 @@ export function findDemoPost(postId: string): PostDetailRow | null {
   };
 }
 
-const POST_DETAIL_SELECT = `id, user_id, content, created_at, updated_at, visibility, image_url, video_url, video_cover_url, thumbnail_url, media_url, media_type, content_kind, spot_name, spot_address, spot_city, spot_country, spot_latitude, spot_longitude, visited_count, comments_count, collection_save_count, guide_places(title, location_name, canton, city, description, opening_hours, price_info, official_url, read_more_text, media_url, media_type, source_url), ${POST_AUTHOR_PROFILES_FKEY}(username, avatar_url, is_verified)`;
+const POST_DETAIL_SELECT = `id, user_id, content, created_at, updated_at, visibility, image_url, video_url, video_cover_url, thumbnail_url, media_url, media_type, content_kind, spot_name, spot_address, spot_city, spot_country, spot_latitude, spot_longitude, visited_count, comments_count, collection_save_count, unique_view_count, guide_places(title, location_name, canton, city, description, opening_hours, price_info, official_url, read_more_text, media_url, media_type, source_url), ${POST_AUTHOR_PROFILES_FKEY}(username, avatar_url, is_verified)`;
 
-const POST_DETAIL_SELECT_NO_RANKING = POST_DETAIL_SELECT.replace(
+const POST_DETAIL_SELECT_NO_UNIQUE_VIEWS = POST_DETAIL_SELECT.replace(", unique_view_count", "");
+
+const POST_DETAIL_SELECT_NO_RANKING = POST_DETAIL_SELECT_NO_UNIQUE_VIEWS.replace(
   ", visited_count, comments_count, collection_save_count",
   ""
 );
@@ -103,6 +106,16 @@ function isMissingSpotRankingInSelect(error: { code?: string; message?: string }
       message.includes("comments_count") ||
       message.includes("collection_save_count"))
   );
+}
+
+function isMissingUniqueViewCountInSelect(error: { code?: string; message?: string } | null) {
+  if (!error) {
+    return false;
+  }
+
+  const message = error.message?.toLowerCase() ?? "";
+
+  return error.code === "42703" && message.includes("unique_view_count");
 }
 
 function isMissingGuidePlacesJoin(error: { code?: string; message?: string } | null) {
@@ -129,6 +142,10 @@ function mapPostDetailRow(row: Record<string, unknown>, normalizedId: string): P
 
 async function queryPostDetail(queryId: string, normalizedId: string) {
   let result = await supabase.from("posts").select(POST_DETAIL_SELECT).eq("id", queryId).maybeSingle();
+
+  if (result.error && isMissingUniqueViewCountInSelect(result.error)) {
+    result = await supabase.from("posts").select(POST_DETAIL_SELECT_NO_UNIQUE_VIEWS).eq("id", queryId).maybeSingle();
+  }
 
   if (result.error && isMissingSpotRankingInSelect(result.error)) {
     result = await supabase.from("posts").select(POST_DETAIL_SELECT_NO_RANKING).eq("id", queryId).maybeSingle();

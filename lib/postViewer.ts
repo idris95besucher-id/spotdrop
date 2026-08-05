@@ -29,6 +29,7 @@ export type ViewerPostListItem = PostMediaFields & {
   comments_count?: number;
   collection_save_count?: number;
   saved_count?: number;
+  unique_view_count?: number;
   profiles?: ViewerPostAuthor | null;
   discovery_places?: { name?: string } | { name?: string }[] | null;
 };

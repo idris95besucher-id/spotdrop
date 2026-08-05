@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Bookmark, Footprints, Heart, Loader2, MessageCircle, Send, Share2 } from "lucide-react";
+import { Bookmark, Eye, Footprints, Heart, Loader2, MessageCircle, Send, Share2 } from "lucide-react";
 import { useI18n } from "@/components/I18nProvider";
 import type { PostReactionState, PostReactionType } from "@/lib/postReactions";
 import { togglePostReaction } from "@/lib/postReactions";
@@ -14,6 +14,8 @@ type PostDetailActionRailProps = {
   shareUrl: string;
   disabled?: boolean;
   variant?: "default" | "spot";
+  /** Unique full-Spot opens — spot rail Eye badge only. */
+  uniqueViewCount?: number;
   isSpotSaved?: boolean;
   savedCount?: number;
   visitedCount?: number;
@@ -34,15 +36,12 @@ export default function PostDetailActionRail({
   shareUrl,
   disabled = false,
   variant = "default",
-  isSpotSaved = false,
-  savedCount = 0,
+  uniqueViewCount = 0,
   visitedCount = 0,
   sendCount,
-  savePending = false,
   onRequireAuth,
   onCommentClick,
   onVisitedClick,
-  onSaveClick,
   onSendSpotClick,
 }: PostDetailActionRailProps) {
   const { t } = useI18n();
@@ -50,7 +49,10 @@ export default function PostDetailActionRail({
   const [pending, setPending] = useState<PostReactionType | null>(null);
   const [shareMessage, setShareMessage] = useState<string | null>(null);
   const isSpot = variant === "spot";
-  const actionStackGapClass = isSpot ? "gap-3" : "gap-4";
+  const actionStackGapClass = isSpot ? "gap-3.5" : "gap-4";
+  const views = Math.max(0, Number(uniqueViewCount) || 0);
+  const visits = Math.max(0, Number(visitedCount) || 0);
+  const comments = Math.max(0, Number(commentCount) || 0);
 
   useEffect(() => {
     setReactions(initialReactions);
@@ -115,14 +117,6 @@ export default function PostDetailActionRail({
     }
   };
 
-  const handleSaveClick = () => {
-    if (disabled || !onSaveClick) {
-      return;
-    }
-
-    onSaveClick();
-  };
-
   const handleVisitedClick = () => {
     if (disabled) {
       return;
@@ -140,49 +134,81 @@ export default function PostDetailActionRail({
     onSendSpotClick?.();
   };
 
-  const actionButtonClass =
-    "flex flex-col items-center gap-0.5 rounded-xl px-1 py-1 text-white transition active:scale-95 disabled:opacity-50";
+  const actionButtonClass = isSpot
+    ? "flex min-h-11 min-w-11 flex-col items-center justify-center gap-0.5 rounded-xl px-1 py-1 text-white [filter:drop-shadow(0_1px_2px_rgba(0,0,0,0.65))] transition active:scale-95 disabled:opacity-50"
+    : "flex flex-col items-center gap-0.5 rounded-xl px-1 py-1 text-white transition active:scale-95 disabled:opacity-50";
 
   const actionLabelClass = "text-[11px] font-semibold leading-tight";
-  const actionCountClass = "text-[11px] font-semibold tabular-nums leading-tight text-white/90";
+  const actionCountClass = isSpot
+    ? "text-center text-[11px] font-semibold tabular-nums leading-none text-white"
+    : "text-[11px] font-semibold tabular-nums leading-tight text-white/90";
+
+  if (isSpot) {
+    return (
+      <div className={`flex flex-col items-center ${actionStackGapClass}`}>
+        <div
+          className="flex min-h-11 min-w-11 flex-col items-center justify-center gap-0.5 px-1 py-1 text-white [filter:drop-shadow(0_1px_2px_rgba(0,0,0,0.65))]"
+          aria-label={t("search.uniqueViewsLabel", { count: views })}
+        >
+          <Eye className="h-7 w-7" strokeWidth={1.75} aria-hidden />
+          <span className={actionCountClass}>{views}</span>
+        </div>
+
+        <button
+          type="button"
+          onClick={onCommentClick}
+          disabled={disabled}
+          className={actionButtonClass}
+          aria-label={`${t("postDetail.comments")}, ${comments}`}
+        >
+          <MessageCircle className="h-7 w-7" strokeWidth={1.75} aria-hidden />
+          <span className={actionCountClass}>{comments}</span>
+        </button>
+
+        {onVisitedClick ? (
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={handleVisitedClick}
+            className={actionButtonClass}
+            aria-label={`${t("postDetail.visited")}, ${visits}`}
+          >
+            <Footprints className="h-7 w-7" strokeWidth={1.75} aria-hidden />
+            <span className={actionCountClass}>{visits}</span>
+          </button>
+        ) : null}
+
+        {onSendSpotClick ? (
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={handleSendSpotClick}
+            className={actionButtonClass}
+            aria-label={sendCount != null ? `${t("postDetail.send")}, ${sendCount}` : t("postDetail.send")}
+          >
+            <Send className="h-7 w-7" strokeWidth={1.75} aria-hidden />
+          </button>
+        ) : null}
+      </div>
+    );
+  }
 
   return (
     <div className={`flex flex-col items-center ${actionStackGapClass}`}>
-      {isSpot ? (
-        <button
-          type="button"
-          disabled={disabled}
-          onClick={handleSaveClick}
-          className={`${actionButtonClass} relative min-w-[3rem]`}
-          aria-label={`${t("postDetail.save")}, ${savedCount}`}
-        >
-          {savePending ? (
-            <Loader2 className="absolute top-0 h-7 w-7 animate-spin opacity-40" aria-hidden />
-          ) : null}
-          <Bookmark
-            className={`h-7 w-7 ${isSpotSaved ? "fill-white text-white" : ""}`}
-            strokeWidth={isSpotSaved ? 0 : 1.75}
-            aria-hidden
-          />
-          <span className={actionLabelClass}>{isSpotSaved ? t("postDetail.saved") : t("postDetail.save")}</span>
-          <span className={actionCountClass}>{savedCount}</span>
-        </button>
-      ) : (
-        <button
-          type="button"
-          disabled={disabled || pending !== null}
-          onClick={() => void handleToggle("like")}
-          className={actionButtonClass}
-          aria-label={t("postDetail.like")}
-        >
-          {pending === "like" ? (
-            <Loader2 className="h-7 w-7 animate-spin" aria-hidden />
-          ) : (
-            <Heart className={`h-7 w-7 ${reactions.userLiked ? "fill-rose-500 text-rose-500" : ""}`} aria-hidden />
-          )}
-          <span className="text-[11px] font-semibold tabular-nums">{reactions.likeCount}</span>
-        </button>
-      )}
+      <button
+        type="button"
+        disabled={disabled || pending !== null}
+        onClick={() => void handleToggle("like")}
+        className={actionButtonClass}
+        aria-label={t("postDetail.like")}
+      >
+        {pending === "like" ? (
+          <Loader2 className="h-7 w-7 animate-spin" aria-hidden />
+        ) : (
+          <Heart className={`h-7 w-7 ${reactions.userLiked ? "fill-rose-500 text-rose-500" : ""}`} aria-hidden />
+        )}
+        <span className="text-[11px] font-semibold tabular-nums">{reactions.likeCount}</span>
+      </button>
 
       <button
         type="button"
@@ -192,75 +218,36 @@ export default function PostDetailActionRail({
         aria-label={`${t("postDetail.comments")}, ${commentCount}`}
       >
         <MessageCircle className="h-7 w-7" strokeWidth={1.75} aria-hidden />
-        {isSpot ? (
-          <>
-            <span className={actionLabelClass}>{t("postDetail.comments")}</span>
-            <span className={actionCountClass}>{commentCount}</span>
-          </>
-        ) : (
-          <span className={actionLabelClass}>{commentCount}</span>
-        )}
+        <span className={actionLabelClass}>{commentCount}</span>
       </button>
 
-      {isSpot && onVisitedClick ? (
-        <button
-          type="button"
-          disabled={disabled}
-          onClick={handleVisitedClick}
-          className={`${actionButtonClass} min-w-[3rem]`}
-          aria-label={`${t("postDetail.visited")}, ${visitedCount}`}
-        >
-          <Footprints className="h-7 w-7" strokeWidth={1.75} aria-hidden />
-          <span className={actionLabelClass}>{t("postDetail.visited")}</span>
-          <span className={actionCountClass}>{visitedCount}</span>
-        </button>
-      ) : null}
+      <button
+        type="button"
+        disabled={disabled || pending !== null}
+        onClick={() => void handleToggle("useful")}
+        className={actionButtonClass}
+        aria-label={t("postDetail.save")}
+      >
+        {pending === "useful" ? (
+          <Loader2 className="h-7 w-7 animate-spin" aria-hidden />
+        ) : (
+          <Bookmark
+            className={`h-7 w-7 ${reactions.userMarkedUseful ? "fill-amber-300 text-amber-300" : ""}`}
+            aria-hidden
+          />
+        )}
+        <span className="text-[11px] font-semibold">{t("postDetail.save")}</span>
+      </button>
 
-      {isSpot && onSendSpotClick ? (
-        <button
-          type="button"
-          disabled={disabled}
-          onClick={handleSendSpotClick}
-          className={`${actionButtonClass} min-w-[3rem]`}
-          aria-label={sendCount != null ? `${t("postDetail.send")}, ${sendCount}` : t("postDetail.send")}
-        >
-          <Send className="h-7 w-7" strokeWidth={1.75} aria-hidden />
-          <span className={actionLabelClass}>{t("postDetail.send")}</span>
-          {sendCount != null ? <span className={actionCountClass}>{sendCount}</span> : null}
-        </button>
-      ) : null}
-
-      {!isSpot ? (
-        <button
-          type="button"
-          disabled={disabled || pending !== null}
-          onClick={() => void handleToggle("useful")}
-          className={actionButtonClass}
-          aria-label={t("postDetail.save")}
-        >
-          {pending === "useful" ? (
-            <Loader2 className="h-7 w-7 animate-spin" aria-hidden />
-          ) : (
-            <Bookmark
-              className={`h-7 w-7 ${reactions.userMarkedUseful ? "fill-amber-300 text-amber-300" : ""}`}
-              aria-hidden
-            />
-          )}
-          <span className="text-[11px] font-semibold">{t("postDetail.save")}</span>
-        </button>
-      ) : null}
-
-      {!isSpot ? (
-        <button
-          type="button"
-          onClick={() => void handleShare()}
-          className={`${actionButtonClass} min-w-[3rem]`}
-          aria-label={t("postDetail.share")}
-        >
-          <Share2 className="h-7 w-7" strokeWidth={1.75} aria-hidden />
-          <span className={actionLabelClass}>{shareMessage ?? t("postDetail.share")}</span>
-        </button>
-      ) : null}
+      <button
+        type="button"
+        onClick={() => void handleShare()}
+        className={`${actionButtonClass} min-w-[3rem]`}
+        aria-label={t("postDetail.share")}
+      >
+        <Share2 className="h-7 w-7" strokeWidth={1.75} aria-hidden />
+        <span className={actionLabelClass}>{shareMessage ?? t("postDetail.share")}</span>
+      </button>
     </div>
   );
 }
