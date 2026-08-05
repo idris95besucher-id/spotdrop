@@ -357,8 +357,8 @@ function PostReelMediaImage({
         readyState: video.readyState,
         currentTime: video.currentTime,
       });
-      markFirstFrameReady();
-      // Do not play here — canplay handles start. Dual play()+unmute caused flashes on remote URLs.
+      // Do not hide the poster here — wait for `playing` so iOS never shows a
+      // black undecoded video layer over the fullscreen cover poster.
       refreshDebugSnapshot();
     };
 
@@ -367,7 +367,6 @@ function PostReelMediaImage({
         readyState: video.readyState,
         currentTime: video.currentTime,
       });
-      markFirstFrameReady();
 
       if (isActiveRef.current && (video.paused || video.ended)) {
         requestActivePlay(video, "canplay");
@@ -378,6 +377,7 @@ function PostReelMediaImage({
 
     const handlePlaying = () => {
       markDebugEvent("playing", { currentTime: video.currentTime });
+      // Poster ↔ video swap only after a real painted frame.
       patchVideoFlags({ playing: true, firstFrameReady: true, error: false });
       setPhase("loaded");
       retryCountRef.current = 0;
@@ -560,7 +560,8 @@ function PostReelMediaImage({
 
     requestActivePlay(video, "activated");
 
-    if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+    // If playback was already running (adjacent → active), reveal the video layer.
+    if (!video.paused && !video.ended && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
       markFirstFrameReady();
     }
 
@@ -664,8 +665,11 @@ function PostReelMediaImage({
           aria-hidden
           loading={loadHeavyMedia ? "eager" : "lazy"}
           decoding="async"
-          className={`absolute inset-0 z-[1] h-full w-full object-cover object-center ${
-            showPosterWhileVideo ? "opacity-100" : "pointer-events-none opacity-0"
+          data-spot-viewer-video-poster={mediaType === "video" ? "true" : undefined}
+          className={`absolute inset-0 h-full w-full object-cover object-center transition-opacity duration-150 ${
+            showPosterWhileVideo
+              ? "z-[2] opacity-100"
+              : "pointer-events-none z-[1] opacity-0"
           }`}
         />
       ) : null}
@@ -722,7 +726,11 @@ function PostReelMediaImage({
           disablePictureInPicture
           disableRemotePlayback
           controlsList="nodownload nofullscreen noremoteplayback"
-          className="absolute inset-0 z-[2] h-full w-full object-cover object-center"
+          className={`absolute inset-0 h-full w-full object-cover object-center transition-opacity duration-150 ${
+            videoFlags.firstFrameReady
+              ? "z-[2] opacity-100"
+              : "pointer-events-none z-[1] opacity-0"
+          }`}
           aria-label={alt || "Video"}
         />
       ) : null}

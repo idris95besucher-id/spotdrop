@@ -312,6 +312,13 @@ body:has([data-profile-post-feed-screen]) [data-mobile-bottom-nav] {
   object-position: center;
 }
 
+/* Video posters must match the video layer (cover) — contain caused a
+   letterboxed first paint, then a jump when the cover video started. */
+[data-spot-viewer-media] img[data-spot-viewer-video-poster] {
+  object-fit: cover;
+  object-position: center;
+}
+
 [data-spot-viewer-media] video {
   object-fit: cover;
   object-position: center;

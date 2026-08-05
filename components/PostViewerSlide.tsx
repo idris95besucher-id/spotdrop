@@ -709,7 +709,7 @@ export default function PostViewerSlide({
           />
         </div>
       ) : showMediaLayer && mediaUrl && mediaType ? (
-        <div data-spot-viewer-media>
+        <div data-spot-viewer-media className="absolute inset-0">
           <PostReelMedia
             key={mediaRenderKey}
             mediaUrl={mediaUrl}
@@ -725,7 +725,7 @@ export default function PostViewerSlide({
           />
         </div>
       ) : showMediaLayer && posterUrl ? (
-        <div data-spot-viewer-media>
+        <div data-spot-viewer-media className="absolute inset-0">
           <PostReelMedia
             key={mediaRenderKey}
             mediaUrl={posterUrl}
