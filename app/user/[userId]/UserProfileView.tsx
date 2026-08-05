@@ -16,8 +16,7 @@ import ProfileContentTabs, {
 } from "@/components/ProfileContentTabs";
 import ProfileSavedTab from "@/components/ProfileSavedTab";
 import ProfileMySpotsTab from "@/components/ProfileMySpotsTab";
-import ProfileGalleryAvatarLink from "@/components/profile/ProfileGalleryAvatarLink";
-import ProfileAvatar from "@/components/ProfileAvatar";
+import ProfileAvatarProfileTrigger from "@/components/ProfileAvatarProfileTrigger";
 import UsernameWithVerification from "@/components/UsernameWithVerification";
 import ShareProfileSheet from "@/components/ShareProfileSheet";
 import MobileSecondaryHeader from "@/components/MobileSecondaryHeader";
@@ -456,24 +455,17 @@ export default function UserPage({ userIdOverride }: { userIdOverride?: string }
           <>
             <section className="profile-header-enter w-full space-y-5 bg-slate-900/90 px-1 py-5 sm:space-y-6 sm:rounded-[2rem] sm:border sm:border-white/10 sm:px-6 sm:py-8 sm:shadow-xl sm:shadow-black/40">
               <div className="flex w-full flex-col items-stretch gap-4 sm:items-center sm:text-center">
-                <div className="profile-header-avatar">
-                  {profile.is_official === true ? (
-                    <ProfileAvatar
-                      src={profile.avatar_url}
-                      sizeClassName="h-24 w-24 sm:h-32 sm:w-32"
-                      iconClassName="h-11 w-11 sm:h-12 sm:w-12"
-                      className="border border-white/10 shadow-xl shadow-black/50"
-                    />
-                  ) : (
-                    <ProfileGalleryAvatarLink
-                      avatarUrl={profile.avatar_url}
-                      ownerUserId={profile.id}
-                      viewerUserId={viewerId}
-                      visibility={profile.gallery_visibility ?? "everyone"}
-                      variant="large"
-                      showLabel={false}
-                    />
-                  )}
+                <div className="profile-header-avatar mx-auto w-fit">
+                  <ProfileAvatarProfileTrigger
+                    userId={profile.id}
+                    avatarUrl={profile.avatar_url}
+                    sizeClassName="h-24 w-24 sm:h-32 sm:w-32"
+                    iconClassName="h-11 w-11 sm:h-12 sm:w-12"
+                    className="border border-white/10 shadow-xl shadow-black/50"
+                    onOpenProfile={() => {
+                      // Already on this live profile route — closing the sheet is enough.
+                    }}
+                  />
                 </div>
 
                 <div className="profile-header-rise min-w-0 w-full space-y-1.5 sm:space-y-2">
