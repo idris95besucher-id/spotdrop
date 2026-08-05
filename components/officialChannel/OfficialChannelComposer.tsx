@@ -122,14 +122,29 @@ export default function OfficialChannelComposer({
       const result = await uploadOfficialChannelMedia(file);
 
       if (result.error || !result.imagePath) {
-        const timedOut =
-          result.status === 504 ||
-          /timed out/i.test(result.error ?? "");
-        setError(
-          timedOut
-            ? t("officialChannel.error.uploadTimeout")
-            : result.error ?? t("officialChannel.error.uploadFailed")
-        );
+        if (result.requestId) {
+          console.info(
+            `[official-channel-composer] upload error code=${result.code ?? "unknown"} requestId=${result.requestId}`
+          );
+        }
+
+        const message =
+          result.code === "unauthorized"
+            ? t("officialChannel.error.unauthorized")
+            : result.code === "invalid_image"
+              ? t("officialChannel.error.invalidImage")
+              : result.code === "upload_timed_out" || result.status === 504
+                ? t("officialChannel.error.uploadTimeout")
+                : result.code === "storage_upload_failed"
+                  ? t("officialChannel.error.storageUploadFailed")
+                  : result.code === "network_connection_failed" ||
+                      /load failed|failed to fetch|network connection failed/i.test(
+                        result.error ?? ""
+                      )
+                    ? t("officialChannel.error.networkFailed")
+                    : result.error ?? t("officialChannel.error.uploadFailed");
+
+        setError(message);
         return;
       }
 

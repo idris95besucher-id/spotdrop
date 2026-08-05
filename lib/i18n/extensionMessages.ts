@@ -1030,6 +1030,10 @@ export const EXTENSION_EN = {
   "officialChannel.error.englishRequired": "English text is required.",
   "officialChannel.error.uploadFailed": "Unable to upload image.",
   "officialChannel.error.uploadTimeout": "Image upload timed out. Please try again.",
+  "officialChannel.error.unauthorized": "Session expired. Sign in again and retry.",
+  "officialChannel.error.invalidImage": "Invalid image. Use JPEG, PNG, or WebP under 10 MB.",
+  "officialChannel.error.storageUploadFailed": "Storage upload failed. Please try again.",
+  "officialChannel.error.networkFailed": "Network connection failed. Please try again.",
   "officialChannel.error.publishFailed": "Unable to publish. Please try again.",
   "officialChannel.error.translationFailed":
     "Automatic translation failed. Please try again.",

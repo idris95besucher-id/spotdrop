@@ -383,6 +383,32 @@ export function validatePublishInput(input: OfficialChannelPublishInput) {
   };
 }
 
+export type OfficialChannelApiErrorCode =
+  | "unauthorized"
+  | "invalid_image"
+  | "upload_timed_out"
+  | "storage_upload_failed"
+  | "network_connection_failed";
+
+function newApiRequestId() {
+  return crypto.randomUUID();
+}
+
+function isNetworkFetchFailure(caught: unknown): boolean {
+  if (!(caught instanceof Error)) {
+    return false;
+  }
+
+  const message = caught.message.trim().toLowerCase();
+  return (
+    caught.name === "TypeError" ||
+    message === "load failed" ||
+    message === "failed to fetch" ||
+    message.includes("networkerror") ||
+    message.includes("network request failed")
+  );
+}
+
 async function authHeaders() {
   const {
     data: { session },
@@ -402,6 +428,8 @@ async function authHeaders() {
 export async function publishOfficialChannelPost(
   input: OfficialChannelPublishInput
 ): Promise<OfficialChannelPublishResult> {
+  const requestId = newApiRequestId();
+
   try {
     const { Authorization } = await authHeaders();
     const base = getHostedApiBaseUrl().replace(/\/$/, "");
@@ -410,6 +438,7 @@ export async function publishOfficialChannelPost(
       headers: {
         Authorization,
         "Content-Type": "application/json",
+        "X-Request-Id": requestId,
       },
       body: JSON.stringify({
         clientRequestId: input.clientRequestId,
@@ -424,6 +453,7 @@ export async function publishOfficialChannelPost(
     const payload = (await response.json().catch(() => null)) as {
       post?: OfficialChannelPostRow;
       error?: string;
+      requestId?: string;
     } | null;
 
     if (!response.ok) {
@@ -436,9 +466,17 @@ export async function publishOfficialChannelPost(
 
     return { post: payload?.post ?? null, error: null, status: response.status };
   } catch (caught) {
+    if (caught instanceof Error && caught.message === "UNAUTHORIZED") {
+      return { post: null, error: "Unauthorized.", status: 401 };
+    }
+
     return {
       post: null,
-      error: caught instanceof Error ? caught.message : "Publish failed.",
+      error: isNetworkFetchFailure(caught)
+        ? "Network connection failed."
+        : caught instanceof Error
+          ? caught.message
+          : "Publish failed.",
       status: 0,
     };
   }
@@ -522,26 +560,35 @@ async function prepareOfficialChannelUploadBlob(file: File | Blob): Promise<{
 }
 
 export async function uploadOfficialChannelMedia(file: File | Blob) {
+  const requestId = newApiRequestId();
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), OFFICIAL_CHANNEL_UPLOAD_TIMEOUT_MS);
+  const timeoutId = setTimeout(
+    () => controller.abort(),
+    OFFICIAL_CHANNEL_UPLOAD_TIMEOUT_MS
+  );
 
   try {
-    console.info("[official-channel-upload] start");
+    console.info(`[official-channel-upload] start requestId=${requestId}`);
     const { Authorization } = await authHeaders();
     const prepared = await prepareOfficialChannelUploadBlob(file);
     console.info(
-      `[official-channel-upload] prepared mime=${prepared.mime} size=${prepared.size} name=${prepared.fileName}`
+      `[official-channel-upload] prepared mime=${prepared.mime} size=${prepared.size} name=${prepared.fileName} requestId=${requestId}`
     );
 
     const base = getHostedApiBaseUrl().replace(/\/$/, "");
+    const url = `${base}/api/official-channel/media`;
     const form = new FormData();
     // Explicit filename is required for reliable multipart parsing on iOS / Vercel.
+    // Do not set Content-Type manually — the runtime must attach the multipart boundary.
     form.append("file", prepared.blob, prepared.fileName);
 
-    console.info(`[official-channel-upload] fetch ${base}/api/official-channel/media`);
-    const response = await fetch(`${base}/api/official-channel/media`, {
+    console.info(`[official-channel-upload] fetch ${url} requestId=${requestId}`);
+    const response = await fetch(url, {
       method: "POST",
-      headers: { Authorization },
+      headers: {
+        Authorization,
+        "X-Request-Id": requestId,
+      },
       body: form,
       signal: controller.signal,
     });
@@ -549,16 +596,32 @@ export async function uploadOfficialChannelMedia(file: File | Blob) {
     const payload = (await response.json().catch(() => null)) as {
       imagePath?: string;
       error?: string;
+      code?: OfficialChannelApiErrorCode | string;
+      requestId?: string;
     } | null;
 
+    const resolvedRequestId = payload?.requestId ?? requestId;
+
     console.info(
-      `[official-channel-upload] response status=${response.status} hasPath=${Boolean(payload?.imagePath)}`
+      `[official-channel-upload] response status=${response.status} hasPath=${Boolean(payload?.imagePath)} requestId=${resolvedRequestId}`
     );
 
     if (!response.ok || !payload?.imagePath) {
+      const code =
+        (payload?.code as OfficialChannelApiErrorCode | undefined) ??
+        (response.status === 401
+          ? "unauthorized"
+          : response.status === 504
+            ? "upload_timed_out"
+            : response.status >= 500
+              ? "storage_upload_failed"
+              : "invalid_image");
+
       return {
         imagePath: null as string | null,
         error: payload?.error ?? "Upload failed.",
+        code,
+        requestId: resolvedRequestId,
         status: response.status,
       };
     }
@@ -566,6 +629,8 @@ export async function uploadOfficialChannelMedia(file: File | Blob) {
     return {
       imagePath: payload.imagePath,
       error: null as string | null,
+      code: null as OfficialChannelApiErrorCode | null,
+      requestId: resolvedRequestId,
       status: response.status,
     };
   } catch (caught) {
@@ -575,8 +640,23 @@ export async function uploadOfficialChannelMedia(file: File | Blob) {
         caught instanceof DOMException &&
         caught.name === "AbortError");
 
+    if (caught instanceof Error && caught.message === "UNAUTHORIZED") {
+      console.error(
+        `[official-channel-upload] unauthorized requestId=${requestId}`
+      );
+      return {
+        imagePath: null as string | null,
+        error: "Unauthorized.",
+        code: "unauthorized" as const,
+        requestId,
+        status: 401,
+      };
+    }
+
+    const network = !timedOut && isNetworkFetchFailure(caught);
+
     console.error(
-      `[official-channel-upload] ${timedOut ? "timeout" : "failed"}`,
+      `[official-channel-upload] ${timedOut ? "timeout" : network ? "network" : "failed"} requestId=${requestId}`,
       caught instanceof Error ? caught.name : "unknown"
     );
 
@@ -584,9 +664,17 @@ export async function uploadOfficialChannelMedia(file: File | Blob) {
       imagePath: null as string | null,
       error: timedOut
         ? "Image upload timed out. Please try again."
-        : caught instanceof Error
-          ? caught.message
-          : "Upload failed.",
+        : network
+          ? "Network connection failed."
+          : caught instanceof Error
+            ? caught.message
+            : "Upload failed.",
+      code: (timedOut
+        ? "upload_timed_out"
+        : network
+          ? "network_connection_failed"
+          : "storage_upload_failed") as OfficialChannelApiErrorCode,
+      requestId,
       status: timedOut ? 504 : 0,
     };
   } finally {
@@ -595,6 +683,8 @@ export async function uploadOfficialChannelMedia(file: File | Blob) {
 }
 
 export async function deleteOfficialChannelMedia(imagePath: string) {
+  const requestId = newApiRequestId();
+
   try {
     const { Authorization } = await authHeaders();
     const base = getHostedApiBaseUrl().replace(/\/$/, "");
@@ -603,20 +693,30 @@ export async function deleteOfficialChannelMedia(imagePath: string) {
       headers: {
         Authorization,
         "Content-Type": "application/json",
+        "X-Request-Id": requestId,
       },
       body: JSON.stringify({ imagePath }),
     });
 
-    const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+    const payload = (await response.json().catch(() => null)) as {
+      error?: string;
+    } | null;
 
     if (!response.ok) {
-      return { error: payload?.error ?? "Delete failed.", status: response.status };
+      return {
+        error: payload?.error ?? "Delete failed.",
+        status: response.status,
+      };
     }
 
     return { error: null as string | null, status: response.status };
   } catch (caught) {
     return {
-      error: caught instanceof Error ? caught.message : "Delete failed.",
+      error: isNetworkFetchFailure(caught)
+        ? "Network connection failed."
+        : caught instanceof Error
+          ? caught.message
+          : "Delete failed.",
       status: 0,
     };
   }

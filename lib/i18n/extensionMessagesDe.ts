@@ -1032,6 +1032,14 @@ export const EXTENSION_DE: Record<ExtensionKey, string> = {
   "officialChannel.error.uploadFailed": "Bild konnte nicht hochgeladen werden.",
   "officialChannel.error.uploadTimeout":
     "Zeitüberschreitung beim Bild-Upload. Bitte erneut versuchen.",
+  "officialChannel.error.unauthorized":
+    "Sitzung abgelaufen. Bitte erneut anmelden und versuchen.",
+  "officialChannel.error.invalidImage":
+    "Ungültiges Bild. JPEG, PNG oder WebP unter 10 MB.",
+  "officialChannel.error.storageUploadFailed":
+    "Speicher-Upload fehlgeschlagen. Bitte erneut versuchen.",
+  "officialChannel.error.networkFailed":
+    "Netzwerkverbindung fehlgeschlagen. Bitte erneut versuchen.",
   "officialChannel.error.publishFailed": "Veröffentlichen fehlgeschlagen. Bitte erneut versuchen.",
   "officialChannel.error.translationFailed":
     "Automatische Übersetzung fehlgeschlagen. Bitte erneut versuchen.",

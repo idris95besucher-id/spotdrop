@@ -1032,6 +1032,14 @@ export const EXTENSION_RU: Record<ExtensionKey, string> = {
   "officialChannel.error.uploadFailed": "Не удалось загрузить изображение.",
   "officialChannel.error.uploadTimeout":
     "Время загрузки изображения истекло. Попробуйте ещё раз.",
+  "officialChannel.error.unauthorized":
+    "Сессия истекла. Войдите снова и повторите.",
+  "officialChannel.error.invalidImage":
+    "Некорректное изображение. JPEG, PNG или WebP до 10 МБ.",
+  "officialChannel.error.storageUploadFailed":
+    "Не удалось загрузить в хранилище. Попробуйте ещё раз.",
+  "officialChannel.error.networkFailed":
+    "Нет соединения с сетью. Попробуйте ещё раз.",
   "officialChannel.error.publishFailed": "Не удалось опубликовать. Попробуйте ещё раз.",
   "officialChannel.error.translationFailed":
     "Автоматический перевод не удался. Попробуйте ещё раз.",

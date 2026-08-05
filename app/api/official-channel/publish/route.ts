@@ -1,4 +1,3 @@
-import { NextResponse } from "next/server";
 import {
   assertOfficialPublisher,
   resolveOfficialChannelUserId,
@@ -12,6 +11,11 @@ import {
   OfficialChannelTranslationError,
   translateOfficialChannelAnnouncement,
 } from "@/lib/officialChannelTranslation";
+import {
+  capacitorApiCorsPreflight,
+  jsonWithCapacitorApiCors,
+  resolveApiRequestId,
+} from "@/lib/capacitorApiCors";
 
 export const maxDuration = 60;
 
@@ -59,27 +63,43 @@ async function ensurePendingPushJob(
   }
 }
 
+export async function OPTIONS(request: Request) {
+  return capacitorApiCorsPreflight(request);
+}
+
 export async function POST(request: Request) {
+  const requestId = resolveApiRequestId(request);
+  const respond = (
+    body: Record<string, unknown>,
+    init?: ResponseInit
+  ) => jsonWithCapacitorApiCors(request, requestId, body, init);
+
   const userId = await resolveOfficialChannelUserId(request);
 
   if (!userId) {
-    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    return respond(
+      { error: "Unauthorized.", code: "unauthorized" },
+      { status: 401 }
+    );
   }
 
   const official = await assertOfficialPublisher(userId);
 
   if (official.error === "SERVICE_UNAVAILABLE" || !official.admin) {
-    return NextResponse.json({ error: "Service unavailable." }, { status: 503 });
+    return respond({ error: "Service unavailable." }, { status: 503 });
   }
 
   if (!official.isOfficial) {
-    return NextResponse.json({ error: "Forbidden." }, { status: 403 });
+    return respond({ error: "Forbidden." }, { status: 403 });
   }
 
-  const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+  const body = (await request.json().catch(() => null)) as Record<
+    string,
+    unknown
+  > | null;
 
   if (!body) {
-    return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
+    return respond({ error: "Invalid JSON body." }, { status: 400 });
   }
 
   let validated;
@@ -96,7 +116,7 @@ export async function POST(request: Request) {
     });
   } catch (caught) {
     const code = caught instanceof Error ? caught.message : "INVALID";
-    return NextResponse.json({ error: mapValidationError(code) }, { status: 400 });
+    return respond({ error: mapValidationError(code) }, { status: 400 });
   }
 
   // Idempotency: return existing post without re-translating.
@@ -109,14 +129,16 @@ export async function POST(request: Request) {
       .maybeSingle();
 
   if (existingLookupError) {
-    console.error("[official-channel/publish] idempotency lookup failed", existingLookupError);
-    return NextResponse.json({ error: "Publish failed." }, { status: 500 });
+    console.error(
+      `[official-channel/publish] idempotency lookup failed requestId=${requestId}`
+    );
+    return respond({ error: "Publish failed." }, { status: 500 });
   }
 
   if (existingBeforeTranslate) {
     const existingPost = existingBeforeTranslate as OfficialChannelPostRow;
     await ensurePendingPushJob(official.admin, existingPost.id);
-    return NextResponse.json({ post: existingPost });
+    return respond({ post: existingPost });
   }
 
   if (validated.image_path) {
@@ -125,7 +147,7 @@ export async function POST(request: Request) {
       validated.image_path.startsWith("/") ||
       !validated.image_path.startsWith(`${userId}/`)
     ) {
-      return NextResponse.json({ error: "Invalid image path." }, { status: 400 });
+      return respond({ error: "Invalid image path." }, { status: 400 });
     }
 
     const { error: signError } = await official.admin.storage
@@ -133,7 +155,7 @@ export async function POST(request: Request) {
       .createSignedUrl(validated.image_path, 60);
 
     if (signError) {
-      return NextResponse.json({ error: "Image not found." }, { status: 400 });
+      return respond({ error: "Image not found." }, { status: 400 });
     }
   }
 
@@ -147,9 +169,11 @@ export async function POST(request: Request) {
     });
   } catch (caught) {
     if (!(caught instanceof OfficialChannelTranslationError)) {
-      console.error("[official-channel/publish] unexpected translation error");
+      console.error(
+        `[official-channel/publish] unexpected translation error requestId=${requestId}`
+      );
     }
-    return NextResponse.json({ error: TRANSLATION_FAILED_MESSAGE }, { status: 502 });
+    return respond({ error: TRANSLATION_FAILED_MESSAGE }, { status: 502 });
   }
 
   const publishedAt = new Date().toISOString();
@@ -190,22 +214,24 @@ export async function POST(request: Request) {
         .maybeSingle();
 
       if (existingError || !existing) {
-        return NextResponse.json({ error: "Publish conflict." }, { status: 409 });
+        return respond({ error: "Publish conflict." }, { status: 409 });
       }
 
       post = existing as OfficialChannelPostRow;
     } else {
-      console.error("[official-channel/publish] insert failed", insertError);
-      return NextResponse.json({ error: "Publish failed." }, { status: 500 });
+      console.error(
+        `[official-channel/publish] insert failed requestId=${requestId}`
+      );
+      return respond({ error: "Publish failed." }, { status: 500 });
     }
   }
 
   if (!post) {
-    return NextResponse.json({ error: "Publish failed." }, { status: 500 });
+    return respond({ error: "Publish failed." }, { status: 500 });
   }
 
   // Stage B: create pending push job only — do not fan-out or send push.
   await ensurePendingPushJob(official.admin, post.id);
 
-  return NextResponse.json({ post });
+  return respond({ post });
 }
