@@ -14,6 +14,7 @@ import DmInboxListItem from "@/components/DmInboxListItem";
 import GroupInboxListItem from "@/components/GroupInboxListItem";
 import { useI18n } from "@/components/I18nProvider";
 import type { MessageRequestItemData } from "@/components/MessageRequestItem";
+import MessageRequestsInboxListItem from "@/components/MessageRequestsInboxListItem";
 import OfficialChannelInboxListItem from "@/components/OfficialChannelInboxListItem";
 import RoomInboxListItem from "@/components/RoomInboxListItem";
 import Shell from "@/components/Shell";
@@ -757,8 +758,13 @@ function ChatsPageContent() {
               const pinnedOfficial = tab === "direct" && showOfficialThread && officialThread
                 ? officialThread
                 : null;
+              const showRequestsEntry = tab === "direct" && !isSearching && pendingCount > 0;
               const showEmpty =
-                isActive && !isSearching && tabItems.length === 0 && !pinnedOfficial;
+                isActive &&
+                !isSearching &&
+                tabItems.length === 0 &&
+                !pinnedOfficial &&
+                !showRequestsEntry;
               const showNoSearch =
                 isActive && isSearching && tabItems.length === 0 && !pinnedOfficial;
 
@@ -800,6 +806,12 @@ function ChatsPageContent() {
                       className="min-h-0 flex-1 divide-y divide-white/[0.06] overflow-y-auto overscroll-y-contain touch-pan-y px-2 pt-1 pb-[calc(54px+var(--sd-safe-bottom,0px)+22px)] [-webkit-overflow-scrolling:touch] select-none sm:px-3"
                       data-swipe-back-disabled
                     >
+                      {showRequestsEntry ? (
+                        <MessageRequestsInboxListItem
+                          key="message-requests"
+                          count={pendingCount}
+                        />
+                      ) : null}
                       {pinnedOfficial ? (
                         <OfficialChannelInboxListItem
                           key="spotdrop-official-channel"
