@@ -46,6 +46,7 @@ import { getSpotCaption } from "@/lib/spotCaption";
 import { isSpotLocationCardPost, getSpotLocationCardViewerTitle, probeImageAspectRatio } from "@/lib/spotLocationCard";
 import { normalizeSpotPublicStats, EMPTY_SPOT_PUBLIC_STATS, type SpotPublicStats } from "@/lib/spotRanking";
 import { dispatchSpotStatsUpdated, SPOT_STATS_UPDATED_EVENT, type SpotStatsUpdatedDetail } from "@/lib/spotStatsEvents";
+import { recordSpotUniqueView } from "@/lib/spotUniqueViews";
 import {
   isSpotSavedByUser,
   SPOT_SAVE_CHANGED_EVENT,
@@ -443,6 +444,18 @@ export default function PostDetailPage({ postIdOverride }: PostDetailPageProps =
         spot_longitude: post.spot_longitude,
       })
     : false;
+
+  useEffect(() => {
+    if (!engagementReady || loading || error || isDemo || !isSpotPost || !postId || !post?.user_id) {
+      return;
+    }
+
+    void recordSpotUniqueView({
+      spotId: postId,
+      ownerId: post.user_id,
+      viewerId: userId,
+    });
+  }, [engagementReady, loading, error, isDemo, isSpotPost, postId, post?.user_id, userId]);
 
   useEffect(() => {
     if (!engagementReady || isDemo || !isSpotPost || !postId || !userId) {

@@ -503,6 +503,7 @@ export const EXTENSION_DE: Record<ExtensionKey, string> = {
   "search.exploreEmptyTitle": "Noch keine Spots zum Entdecken",
   "search.exploreEmptyBody": "Öffentliche Spots erscheinen hier, sobald Nutzer sie teilen.",
   "search.exploreEnd": "Du bist auf dem neuesten Stand",
+  "search.uniqueViewsLabel": "{count} einzigartige Aufrufe",
   "search.error.loadCountries": "Länder konnten nicht geladen werden.",
   "search.error.loadCities": "Städte konnten nicht geladen werden.",
 

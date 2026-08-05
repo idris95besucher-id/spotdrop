@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Footprints, Loader2 } from "lucide-react";
+import { Eye, Loader2 } from "lucide-react";
 import PostCardMedia from "@/components/PostCardMedia";
 import PostMediaLink from "@/components/PostMediaLink";
 import { useI18n } from "@/components/I18nProvider";
@@ -153,16 +153,28 @@ export default function SearchExploreGrid({ onPostsChange }: SearchExploreGridPr
     const handleStatsUpdated = (event: Event) => {
       const detail = (event as CustomEvent<SpotStatsUpdatedDetail>).detail;
 
-      if (!detail?.postId || detail.visited_count == null) {
+      if (!detail?.postId) {
+        return;
+      }
+
+      if (detail.visited_count == null && detail.unique_view_count == null) {
         return;
       }
 
       setPosts((current) =>
-        current.map((post) =>
-          postIdsEqual(post.id, detail.postId)
-            ? { ...post, visited_count: detail.visited_count }
-            : post
-        )
+        current.map((post) => {
+          if (!postIdsEqual(post.id, detail.postId)) {
+            return post;
+          }
+
+          return {
+            ...post,
+            ...(detail.visited_count != null ? { visited_count: detail.visited_count } : {}),
+            ...(detail.unique_view_count != null
+              ? { unique_view_count: detail.unique_view_count }
+              : {}),
+          };
+        })
       );
     };
 
@@ -241,8 +253,9 @@ export default function SearchExploreGrid({ onPostsChange }: SearchExploreGridPr
     const { mediaUrl } = getPostMedia(post);
     const spotTitle = post.spot_name?.trim() || null;
     const clickedSpot = postIndex >= 0 ? viewerItems[postIndex] : undefined;
-    const visitCount = post.visited_count ?? 0;
+    const uniqueViewCount = post.unique_view_count ?? 0;
     const fallbackLabel = getSpotCaption(post.content) || spotTitle || t("profile.spotFallback");
+    const viewsLabel = t("search.uniqueViewsLabel", { count: uniqueViewCount });
 
     return (
       <article key={post.id} className="relative aspect-square overflow-hidden bg-slate-950">
@@ -270,10 +283,13 @@ export default function SearchExploreGrid({ onPostsChange }: SearchExploreGridPr
           )}
         </PostMediaLink>
 
-        <div className="pointer-events-none absolute bottom-1.5 left-1.5 z-10 flex items-center gap-0.5 rounded-full bg-black/55 px-1.5 py-0.5 backdrop-blur-sm">
-          <Footprints className="h-2.5 w-2.5 shrink-0 text-white/80" strokeWidth={2} aria-hidden />
+        <div
+          className="pointer-events-none absolute bottom-1.5 left-1.5 z-10 flex items-center gap-0.5 rounded-full bg-black/55 px-1.5 py-0.5 backdrop-blur-sm"
+          aria-label={viewsLabel}
+        >
+          <Eye className="h-2.5 w-2.5 shrink-0 text-white/80" strokeWidth={2} aria-hidden />
           <span className="text-[9px] font-semibold leading-none text-white/90">
-            {formatVisitCount(visitCount)}
+            {formatVisitCount(uniqueViewCount)}
           </span>
         </div>
       </article>

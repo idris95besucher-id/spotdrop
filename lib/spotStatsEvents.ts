@@ -5,6 +5,8 @@ export type SpotStatsUpdatedDetail = {
   visited_count?: number;
   comments_count?: number;
   saved_count?: number;
+  /** Unique full-Spot opens — Search grid Eye badge only. */
+  unique_view_count?: number;
 };
 
 export function dispatchSpotStatsUpdated(detail: SpotStatsUpdatedDetail) {

@@ -34,6 +34,8 @@ export type FeedSpotRow = PostMediaFields & {
   content_kind?: string | null;
   created_at: string;
   visited_count?: number;
+  /** Unique full-Spot opens — Search Eye badge. Independent of visited_count. */
+  unique_view_count?: number;
   comments_count?: number;
   collection_save_count?: number;
   saved_count?: number;
@@ -49,6 +51,41 @@ export type FeedSpotRow = PostMediaFields & {
 };
 
 const FEED_SPOT_SELECT = `
+  id,
+  user_id,
+  content,
+  content_kind,
+  image_url,
+  video_url,
+  video_cover_url,
+  thumbnail_url,
+  media_url,
+  media_type,
+  visibility,
+  published_to_spots,
+  visited_count,
+  unique_view_count,
+  comments_count,
+  collection_save_count,
+  created_at,
+  spot_latitude,
+  spot_longitude,
+  spot_address,
+  spot_city,
+  spot_country,
+  spot_name,
+  discovery_place_id,
+  discovery_places ( name ),
+  profiles!posts_user_id_fkey!inner (
+    username,
+    avatar_url,
+    is_private,
+    is_demo,
+    is_verified
+  )
+`;
+
+const FEED_SPOT_SELECT_NO_UNIQUE_VIEWS = `
   id,
   user_id,
   content,
@@ -94,6 +131,39 @@ const FEED_SPOT_SELECT_NO_THUMBNAIL = `
   visibility,
   published_to_spots,
   visited_count,
+  unique_view_count,
+  comments_count,
+  collection_save_count,
+  created_at,
+  spot_latitude,
+  spot_longitude,
+  spot_address,
+  spot_city,
+  spot_country,
+  spot_name,
+  discovery_place_id,
+  discovery_places ( name ),
+  profiles!posts_user_id_fkey!inner (
+    username,
+    avatar_url,
+    is_private,
+    is_demo,
+    is_verified
+  )
+`;
+
+const FEED_SPOT_SELECT_NO_THUMBNAIL_NO_UNIQUE_VIEWS = `
+  id,
+  user_id,
+  content,
+  content_kind,
+  image_url,
+  video_url,
+  media_url,
+  media_type,
+  visibility,
+  published_to_spots,
+  visited_count,
   comments_count,
   collection_save_count,
   created_at,
@@ -125,6 +195,16 @@ function isMissingVideoCoverColumn(error: { code?: string; message?: string } | 
     error.code === "42703" &&
     (message.includes("video_cover_url") || message.includes("thumbnail_url"))
   );
+}
+
+function isMissingUniqueViewCountColumn(error: { code?: string; message?: string } | null) {
+  if (!error) {
+    return false;
+  }
+
+  const message = error.message?.toLowerCase() ?? "";
+
+  return error.code === "42703" && message.includes("unique_view_count");
 }
 
 function isMissingSpotColumns(error: { code?: string; message?: string } | null) {
@@ -197,6 +277,7 @@ function mapFeedSpotRow(row: Record<string, unknown>): FeedSpotRow {
       comments_count: row.comments_count as number | null | undefined,
       collection_save_count: row.collection_save_count as number | null | undefined,
     }),
+    unique_view_count: Math.max(0, Number(row.unique_view_count ?? 0) || 0),
     profiles: {
       ...profile,
       username: publicProfileUsername(profile.username),
@@ -420,6 +501,26 @@ async function loadSpotFeedPage(
     });
   }
 
+  if (isMissingUniqueViewCountColumn(result.error)) {
+    result = await querySpotFeed(FEED_SPOT_SELECT_NO_UNIQUE_VIEWS, {
+      limit,
+      offset,
+      rankByScore: useRankByScore,
+      searchExplore: logContext === "search-explore",
+    });
+  }
+
+  // Cover/thumbnail columns missing after dropping unique_view_count, or unique_view_count
+  // still missing after the NO_THUMBNAIL select that still requested it.
+  if (isMissingUniqueViewCountColumn(result.error) || isMissingVideoCoverColumn(result.error)) {
+    result = await querySpotFeed(FEED_SPOT_SELECT_NO_THUMBNAIL_NO_UNIQUE_VIEWS, {
+      limit,
+      offset,
+      rankByScore: useRankByScore,
+      searchExplore: logContext === "search-explore",
+    });
+  }
+
   if (result.error) {
     logExactLoadError(result.error);
     return { posts: [], error: toUserFacingError(result.error, "Unable to load spots."), hasMore: false, fetchedCount: 0 };
@@ -565,6 +666,16 @@ export async function loadFollowingFeed(viewerId: string | null | undefined): Pr
   if (isMissingVideoCoverColumn(queryResult.error)) {
     select = FEED_SPOT_SELECT_NO_THUMBNAIL;
     queryResult = await queryFollowingFeedPosts(followingIds, select);
+  }
+
+  if (isMissingUniqueViewCountColumn(queryResult.error)) {
+    select = FEED_SPOT_SELECT_NO_UNIQUE_VIEWS;
+    queryResult = await queryFollowingFeedPosts(followingIds, select);
+
+    if (isMissingUniqueViewCountColumn(queryResult.error)) {
+      select = FEED_SPOT_SELECT_NO_THUMBNAIL_NO_UNIQUE_VIEWS;
+      queryResult = await queryFollowingFeedPosts(followingIds, select);
+    }
   }
 
   if (queryResult.error) {

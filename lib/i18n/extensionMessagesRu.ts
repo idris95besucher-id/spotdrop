@@ -503,6 +503,7 @@ export const EXTENSION_RU: Record<ExtensionKey, string> = {
   "search.exploreEmptyTitle": "Пока нечего смотреть",
   "search.exploreEmptyBody": "Здесь появятся публичные места, когда пользователи начнут делиться ими.",
   "search.exploreEnd": "Вы всё посмотрели",
+  "search.uniqueViewsLabel": "{count} уникальных просмотров",
   "search.error.loadCountries": "Не удалось загрузить страны.",
   "search.error.loadCities": "Не удалось загрузить города.",
 

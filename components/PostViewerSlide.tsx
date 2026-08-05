@@ -51,6 +51,7 @@ import {
   SPOT_LOAD_ERROR,
   type SpotLoadPhase,
 } from "@/lib/spotLoadState";
+import { recordSpotUniqueView } from "@/lib/spotUniqueViews";
 
 function itemHasPreviewMedia(item: ViewerPostListItem) {
   const sources = getReelMediaSources(item);
@@ -130,6 +131,8 @@ export default function PostViewerSlide({
   const [post, setPost] = useState<PostDetailRow>(() => previewToPost(item));
   const [detailLoadPhase, setDetailLoadPhase] = useState<SpotLoadPhase>("loading");
   const [detailError, setDetailError] = useState<string | null>(null);
+  /** True only after loadPostDetail returned a real spot row (not preview-only fallback). */
+  const [detailFetchedOk, setDetailFetchedOk] = useState(false);
   const [isDemo, setIsDemo] = useState(() => isDemoPostId(item.id));
 
   const [reactions, setReactions] = useState<PostReactionState>(EMPTY_REACTIONS);
@@ -162,6 +165,7 @@ export default function PostViewerSlide({
     setPost(previewToPost(item));
     setDetailLoadPhase("loading");
     setDetailError(null);
+    setDetailFetchedOk(false);
     setIsDemo(isDemoPostId(item.id));
     setReactions(EMPTY_REACTIONS);
     setCommentsOpen(false);
@@ -246,6 +250,7 @@ export default function PostViewerSlide({
         setIsDemo(result.isDemo);
         setDetailLoadPhase("loaded");
         setDetailError(null);
+        setDetailFetchedOk(true);
         perfSince(mountAt, "spot first data received", { postId: item.id });
         if (result.post.content_kind === "spot") {
           const stats = normalizeSpotPublicStats(result.post);
@@ -278,6 +283,32 @@ export default function PostViewerSlide({
       window.clearTimeout(finalTimeoutId);
     };
   }, [item.id, isActive]);
+
+  useEffect(() => {
+    if (!isActive || !detailFetchedOk || isDemo || detailError) {
+      return;
+    }
+
+    if (!isSpot || !post.id) {
+      return;
+    }
+
+    // Fire-and-forget: never block the viewer on unique-view RPC.
+    void recordSpotUniqueView({
+      spotId: post.id,
+      ownerId: post.user_id,
+      viewerId: userId,
+    });
+  }, [
+    isActive,
+    detailFetchedOk,
+    detailError,
+    isDemo,
+    isSpot,
+    post.id,
+    post.user_id,
+    userId,
+  ]);
 
   useEffect(() => {
     if (!isActive || isDemo || isDemoPostId(item.id)) {

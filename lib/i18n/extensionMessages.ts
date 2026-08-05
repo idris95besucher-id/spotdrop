@@ -503,6 +503,7 @@ export const EXTENSION_EN = {
   "search.exploreEmptyTitle": "No spots to explore yet",
   "search.exploreEmptyBody": "Public spots will appear here as people share them.",
   "search.exploreEnd": "You're all caught up",
+  "search.uniqueViewsLabel": "{count} unique views",
   "search.error.loadCountries": "Unable to load countries.",
   "search.error.loadCities": "Unable to load cities.",
 

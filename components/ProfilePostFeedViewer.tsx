@@ -13,6 +13,8 @@ import { normalizePostId, postIdsEqual } from "@/lib/postIds";
 import { deleteOwnedPublication } from "@/lib/deleteContent";
 import { useHorizontalSwipeClose } from "@/lib/useHorizontalSwipeClose";
 import { SPOT_STATS_UPDATED_EVENT, type SpotStatsUpdatedDetail } from "@/lib/spotStatsEvents";
+import { recordSpotUniqueView } from "@/lib/spotUniqueViews";
+import { isSpotContent } from "@/lib/spotLocationDisplay";
 
 type ProfilePostFeedViewerProps = {
   items: ViewerPostListItem[];
@@ -147,6 +149,58 @@ export default function ProfilePostFeedViewer({
       window.removeEventListener(SPOT_STATS_UPDATED_EVENT, handleStatsUpdated);
     };
   }, []);
+
+  // Profile feed already holds full spot rows — record unique views when a card is on-screen.
+  useEffect(() => {
+    const scrollRoot = scrollRef.current;
+
+    if (!mounted || !scrollRoot || posts.length === 0) {
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (!entry.isIntersecting || entry.intersectionRatio < 0.55) {
+            continue;
+          }
+
+          const spotId = (entry.target as HTMLElement).dataset.profileFeedPostId;
+
+          if (!spotId) {
+            continue;
+          }
+
+          const post = posts.find((entryPost) => postIdsEqual(entryPost.id, spotId));
+
+          if (
+            !post ||
+            !isSpotContent({
+              content_kind: post.content_kind,
+              spot_latitude: post.spot_latitude,
+              spot_longitude: post.spot_longitude,
+            })
+          ) {
+            continue;
+          }
+
+          void recordSpotUniqueView({
+            spotId: post.id,
+            ownerId: post.user_id,
+            viewerId: viewerId,
+          });
+        }
+      },
+      { root: scrollRoot, threshold: [0.55] }
+    );
+
+    const cards = scrollRoot.querySelectorAll<HTMLElement>("[data-profile-feed-post-id]");
+    cards.forEach((card) => observer.observe(card));
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [mounted, posts, viewerId]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
