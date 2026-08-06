@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Bookmark, Eye, Footprints, Heart, Loader2, MessageCircle, Send, Share2 } from "lucide-react";
+import { BarChart3, Bookmark, Footprints, Heart, Loader2, MessageCircle, Play, Send, Share2 } from "lucide-react";
 import { useI18n } from "@/components/I18nProvider";
 import type { PostReactionState, PostReactionType } from "@/lib/postReactions";
 import { togglePostReaction } from "@/lib/postReactions";
@@ -14,8 +14,10 @@ type PostDetailActionRailProps = {
   shareUrl: string;
   disabled?: boolean;
   variant?: "default" | "spot";
-  /** Unique full-Spot opens — spot rail Eye badge only. */
+  /** Unique full-Spot opens — spot rail views badge only. */
   uniqueViewCount?: number;
+  /** Drives the views badge icon: video → Play, photo/unknown → BarChart3. */
+  mediaType?: "image" | "video" | null;
   isSpotSaved?: boolean;
   savedCount?: number;
   visitedCount?: number;
@@ -37,6 +39,7 @@ export default function PostDetailActionRail({
   disabled = false,
   variant = "default",
   uniqueViewCount = 0,
+  mediaType = null,
   visitedCount = 0,
   sendCount,
   onRequireAuth,
@@ -150,7 +153,11 @@ export default function PostDetailActionRail({
           className="flex min-h-11 min-w-11 flex-col items-center justify-center gap-0.5 px-1 py-1 text-white [filter:drop-shadow(0_1px_2px_rgba(0,0,0,0.65))]"
           aria-label={t("search.uniqueViewsLabel", { count: views })}
         >
-          <Eye className="h-7 w-7" strokeWidth={1.75} aria-hidden />
+          {mediaType === "video" ? (
+            <Play className="h-7 w-7" strokeWidth={1.75} aria-hidden />
+          ) : (
+            <BarChart3 className="h-7 w-7" strokeWidth={1.75} aria-hidden />
+          )}
           <span className={actionCountClass}>{views}</span>
         </div>
 

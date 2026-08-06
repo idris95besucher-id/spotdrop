@@ -915,6 +915,7 @@ export default function PostDetailPage({ postIdOverride }: PostDetailPageProps =
                   disabled={engagementDisabled || reactionsLoading}
                   variant={isSpotPost ? "spot" : "default"}
                   uniqueViewCount={spotStats.unique_view_count}
+                  mediaType={mediaType}
                   visitedCount={spotStats.visited_count}
                   onRequireAuth={handleRequireAuth}
                   onCommentClick={() => setCommentsOpen(true)}

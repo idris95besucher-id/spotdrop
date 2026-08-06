@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Eye, Loader2 } from "lucide-react";
+import { BarChart3, Loader2, Play } from "lucide-react";
 import PostCardMedia from "@/components/PostCardMedia";
 import PostMediaLink from "@/components/PostMediaLink";
 import { useI18n } from "@/components/I18nProvider";
@@ -250,7 +250,7 @@ export default function SearchExploreGrid({ onPostsChange }: SearchExploreGridPr
   }
 
   const renderTile = (post: FeedSpotRow, postIndex: number) => {
-    const { mediaUrl } = getPostMedia(post);
+    const { mediaUrl, mediaType } = getPostMedia(post);
     const spotTitle = post.spot_name?.trim() || null;
     const clickedSpot = postIndex >= 0 ? viewerItems[postIndex] : undefined;
     const uniqueViewCount = post.unique_view_count ?? 0;
@@ -287,7 +287,11 @@ export default function SearchExploreGrid({ onPostsChange }: SearchExploreGridPr
           className="pointer-events-none absolute bottom-1.5 left-1.5 z-10 flex items-center gap-0.5 rounded-full bg-black/55 px-1.5 py-0.5 backdrop-blur-sm"
           aria-label={viewsLabel}
         >
-          <Eye className="h-2.5 w-2.5 shrink-0 text-white/80" strokeWidth={2} aria-hidden />
+          {mediaType === "video" ? (
+            <Play className="h-2.5 w-2.5 shrink-0 text-white/80" strokeWidth={2} aria-hidden />
+          ) : (
+            <BarChart3 className="h-2.5 w-2.5 shrink-0 text-white/80" strokeWidth={2} aria-hidden />
+          )}
           <span className="text-[9px] font-semibold leading-none text-white/90">
             {formatVisitCount(uniqueViewCount)}
           </span>
