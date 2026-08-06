@@ -6,6 +6,7 @@ import { THEME_BOOTSTRAP_SCRIPT } from "@/lib/themeAccent";
 import { PASSWORD_RECOVERY_BOOTSTRAP_SCRIPT } from "@/lib/passwordRecoveryBootstrap";
 import { CAPACITOR_LAUNCH_BOOTSTRAP_SCRIPT } from "@/lib/capacitorLaunchBootstrap";
 import { SEGMENT_PREFETCH_GUARD_SCRIPT } from "@/lib/segmentPrefetchGuard";
+import { LOCALE_BOOTSTRAP_SCRIPT } from "@/lib/i18n/appLocaleStorage";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -74,6 +75,14 @@ export default function RootLayout({
         <script
           id="spotdrop-segment-prefetch-guard"
           dangerouslySetInnerHTML={{ __html: SEGMENT_PREFETCH_GUARD_SCRIPT }}
+        />
+        {/*
+          Resolve app locale before first paint (stored preference or device language).
+          Hides body via data-i18n-pending until I18nProvider marks ready — avoids EN flash.
+        */}
+        <script
+          id="spotdrop-locale-bootstrap"
+          dangerouslySetInnerHTML={{ __html: LOCALE_BOOTSTRAP_SCRIPT }}
         />
       </head>
       <body className="h-full w-full max-w-full overflow-hidden bg-[#050816] text-white">

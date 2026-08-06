@@ -21,16 +21,19 @@ export function detectDeviceI18nLocale(): I18nLocale {
     return "en";
   }
 
-  const candidates = [
-    ...(Array.isArray(navigator.languages) ? navigator.languages : []),
-    navigator.language,
-  ];
+  const candidates: string[] = [];
+
+  if (Array.isArray(navigator.languages) && navigator.languages.length > 0) {
+    for (const entry of navigator.languages) {
+      if (typeof entry === "string" && entry.trim()) {
+        candidates.push(entry);
+      }
+    }
+  } else if (typeof navigator.language === "string" && navigator.language.trim()) {
+    candidates.push(navigator.language);
+  }
 
   for (const candidate of candidates) {
-    if (typeof candidate !== "string" || !candidate.trim()) {
-      continue;
-    }
-
     const normalized = candidate.trim().toLowerCase();
 
     if (normalized === "ru" || normalized.startsWith("ru-")) {
@@ -39,6 +42,10 @@ export function detectDeviceI18nLocale(): I18nLocale {
 
     if (normalized === "de" || normalized.startsWith("de-")) {
       return "de";
+    }
+
+    if (normalized === "en" || normalized.startsWith("en-")) {
+      return "en";
     }
   }
 

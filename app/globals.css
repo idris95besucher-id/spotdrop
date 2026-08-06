@@ -1,5 +1,10 @@
 @import "tailwindcss";
 
+/* Hide UI until locale bootstrap + I18nProvider agree — prevents English flash. */
+html[data-i18n-pending="1"] body {
+  visibility: hidden;
+}
+
 :root,
 html[data-theme="spotdrop-night-v1"] {
   --sd-background: #050816;

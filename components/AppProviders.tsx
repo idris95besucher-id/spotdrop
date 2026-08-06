@@ -14,11 +14,11 @@ import KeyboardVisibilityBootstrap from "@/components/KeyboardVisibilityBootstra
 import { I18nProvider } from "@/components/I18nProvider";
 import { getSafeAuthSession } from "@/lib/authSession";
 import { applyDocumentLanguage } from "@/lib/languages";
+import { resolveGuestAppLocale } from "@/lib/i18n/appLocaleStorage";
 import { loadUserSettingsPreferences } from "@/lib/settingsPreferences";
 import { applyThemeAccent } from "@/lib/themeAccent";
 import { initMessageNotificationSoundUnlock } from "@/lib/messageNotificationSound";
 import { supabase } from "@/lib/supabaseClient";
-import type { AppLanguageCode } from "@/lib/languages";
 import PasswordRecoveryRedirect from "@/components/PasswordRecoveryRedirect";
 import { MobileBottomNav } from "@/components/MainNavigation";
 import PwaInstallBanner from "@/components/PwaInstallBanner";
@@ -30,8 +30,9 @@ export default function AppProviders({ children }: { children: ReactNode }) {
   const [authReady, setAuthReady] = useState(false);
 
   useEffect(() => {
+    const locale = resolveGuestAppLocale({ persistIfMissing: true });
+    applyDocumentLanguage(locale);
     const prefs = loadUserSettingsPreferences();
-    applyDocumentLanguage(prefs.language as AppLanguageCode);
     applyThemeAccent(prefs.accentColor);
     initMessageNotificationSoundUnlock();
   }, []);

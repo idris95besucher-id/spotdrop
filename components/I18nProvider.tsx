@@ -5,15 +5,19 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useState,
   type ReactNode,
 } from "react";
 import { translateMessage, type TranslationKey } from "@/lib/i18n/messages";
 import { resolveI18nLocale, type I18nLocale } from "@/lib/i18n/locales";
+import {
+  resolveGuestAppLocale,
+  writeStoredAppLocale,
+} from "@/lib/i18n/appLocaleStorage";
 import { loadProfileLanguage, saveProfileLanguage } from "@/lib/i18n/profileLanguage";
 import { applyDocumentLanguage } from "@/lib/languages";
-import { loadUserSettingsPreferences, updateUserSettingsPreferences } from "@/lib/settingsPreferences";
 import { supabase } from "@/lib/supabaseClient";
 
 type I18nContextValue = {
@@ -25,53 +29,77 @@ type I18nContextValue = {
 
 const I18nContext = createContext<I18nContextValue | null>(null);
 
+function readBootLocale(): I18nLocale {
+  if (typeof window === "undefined") {
+    return "en";
+  }
+
+  const fromDataset = window.document.documentElement.dataset.locale;
+  if (fromDataset === "en" || fromDataset === "ru" || fromDataset === "de") {
+    return fromDataset;
+  }
+
+  return resolveGuestAppLocale({ persistIfMissing: true });
+}
+
+function markI18nReady(locale: I18nLocale) {
+  if (typeof document === "undefined") {
+    return;
+  }
+
+  const root = document.documentElement;
+  root.lang = locale;
+  root.dataset.locale = locale;
+  root.dataset.i18nReady = "1";
+  delete root.dataset.i18nPending;
+}
+
 export function I18nProvider({ children }: { children: ReactNode }) {
-  const [locale, setLocaleState] = useState<I18nLocale>("en");
+  const [locale, setLocaleState] = useState<I18nLocale>(readBootLocale);
   const [ready, setReady] = useState(false);
+
+  useLayoutEffect(() => {
+    const guestLocale = resolveGuestAppLocale({ persistIfMissing: true });
+    setLocaleState(guestLocale);
+    applyDocumentLanguage(guestLocale);
+    markI18nReady(guestLocale);
+    setReady(true);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
 
-    const init = async () => {
-      const prefs = loadUserSettingsPreferences();
-      let resolved = resolveI18nLocale(prefs.language);
+    const applyAuthenticatedLocale = async (userId: string) => {
+      const profileLanguage = await loadProfileLanguage(userId);
+      if (!profileLanguage || cancelled) {
+        return;
+      }
 
+      // profiles.language wins for signed-in users; never overwrite it with device language.
+      setLocaleState(profileLanguage);
+      writeStoredAppLocale(profileLanguage);
+      applyDocumentLanguage(profileLanguage);
+      markI18nReady(profileLanguage);
+    };
+
+    void (async () => {
       const {
         data: { user },
       } = await supabase.auth.getUser();
 
-      if (user) {
-        const profileLanguage = await loadProfileLanguage(user.id);
-        if (profileLanguage) {
-          resolved = profileLanguage;
-          updateUserSettingsPreferences({ language: profileLanguage });
-        }
+      if (user?.id) {
+        await applyAuthenticatedLocale(user.id);
       }
-
-      if (!cancelled) {
-        setLocaleState(resolved);
-        applyDocumentLanguage(resolved);
-        setReady(true);
-      }
-    };
-
-    void init();
+    })();
 
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_event, session) => {
-      void (async () => {
-        if (!session?.user) {
-          return;
-        }
+      if (!session?.user?.id) {
+        return;
+      }
 
-        const profileLanguage = await loadProfileLanguage(session.user.id);
-        if (profileLanguage) {
-          setLocaleState(profileLanguage);
-          updateUserSettingsPreferences({ language: profileLanguage });
-          applyDocumentLanguage(profileLanguage);
-        }
-      })();
+      void applyAuthenticatedLocale(session.user.id);
     });
 
     return () => {
@@ -81,16 +109,18 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const setLocale = useCallback(async (nextLocale: I18nLocale) => {
-    setLocaleState(nextLocale);
-    updateUserSettingsPreferences({ language: nextLocale });
-    applyDocumentLanguage(nextLocale);
+    const locale = resolveI18nLocale(nextLocale);
+    setLocaleState(locale);
+    writeStoredAppLocale(locale);
+    applyDocumentLanguage(locale);
+    markI18nReady(locale);
 
     const {
       data: { user },
     } = await supabase.auth.getUser();
 
     if (user) {
-      await saveProfileLanguage(user.id, nextLocale);
+      await saveProfileLanguage(user.id, locale);
     }
   }, []);
 

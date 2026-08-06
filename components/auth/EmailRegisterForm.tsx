@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import AuthSearchableSelect from "@/components/auth/AuthSearchableSelect";
@@ -17,7 +17,6 @@ import { getCountryFlag } from "@/lib/countryFlags";
 import { localizeUserMessage } from "@/lib/i18n/localizeUserMessage";
 import { localizeCountryName, localizeCityName } from "@/lib/i18n/localizeGeo";
 import {
-  detectDeviceI18nLocale,
   I18N_LOCALES,
   isI18nLocale,
   type I18nLocale,
@@ -53,7 +52,7 @@ export default function EmailRegisterForm() {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [username, setUsername] = useState("");
-  const [language, setLanguage] = useState<I18nLocale>(() => detectDeviceI18nLocale());
+  const [language, setLanguage] = useState<I18nLocale>(locale);
   const [selectedCountrySlug, setSelectedCountrySlug] = useState("");
   const [selectedCitySlug, setSelectedCitySlug] = useState("");
   const [countryOptions, setCountryOptions] = useState<CountryOption[]>([]);
@@ -64,21 +63,13 @@ export default function EmailRegisterForm() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const didInitLanguageRef = useRef(false);
 
   const selectedCountry = countryOptions.find((country) => country.slug === selectedCountrySlug) ?? null;
   const selectedCity = cityOptions.find((city) => city.slug === selectedCitySlug) ?? null;
 
   useEffect(() => {
-    if (didInitLanguageRef.current) {
-      return;
-    }
-
-    didInitLanguageRef.current = true;
-    const detected = detectDeviceI18nLocale();
-    setLanguage(detected);
-    void setLocale(detected);
-  }, [setLocale]);
+    setLanguage(locale);
+  }, [locale]);
 
   useEffect(() => {
     const loadCountries = async () => {
