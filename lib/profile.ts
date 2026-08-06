@@ -1,4 +1,5 @@
 import type { User } from "@supabase/supabase-js";
+import { resolveI18nLocale, type I18nLocale } from "@/lib/i18n/locales";
 import { supabase } from "@/lib/supabaseClient";
 import { toUserFacingError } from "@/lib/userFacingError";
 
@@ -11,6 +12,7 @@ export type ProfileRecord = {
   username?: string | null;
   gender?: string | null;
   date_of_birth?: string | null;
+  language?: string | null;
   avatar_url?: string | null;
   cover_url?: string | null;
   bio?: string | null;
@@ -25,6 +27,7 @@ type EnsureProfileOptions = {
   user: User;
   username?: string | null;
   dateOfBirth?: string | null;
+  language?: I18nLocale | string | null;
   country?: string | null;
   city?: string | null;
   cityId?: string | null;
@@ -118,6 +121,7 @@ export async function ensureProfileRow({
   user,
   username,
   dateOfBirth,
+  language,
   country,
   city,
   cityId,
@@ -145,6 +149,9 @@ export async function ensureProfileRow({
 
   const normalizedUsername = normalizeUsername(username ?? user.user_metadata?.username);
   const normalizedDateOfBirth = normalizeDateOfBirth(dateOfBirth ?? user.user_metadata?.date_of_birth);
+  const normalizedLanguage = resolveI18nLocale(
+    language ?? user.user_metadata?.locale ?? user.user_metadata?.language
+  );
   const normalizedCountrySlug = normalizeOptionalSlug(
     country ?? user.user_metadata?.country ?? user.user_metadata?.country_slug
   );
@@ -153,7 +160,7 @@ export async function ensureProfileRow({
   );
   const normalizedCityId = normalizeOptionalId(cityId ?? user.user_metadata?.city_id);
 
-  if (!normalizedUsername || !normalizedDateOfBirth) {
+  if (!normalizedUsername) {
     return {
       created: false,
       error: "Complete your profile to continue.",
@@ -191,7 +198,8 @@ export async function ensureProfileRow({
   const profilePayload = {
     id: user.id,
     username: normalizedUsername,
-    date_of_birth: normalizedDateOfBirth,
+    language: normalizedLanguage,
+    ...(normalizedDateOfBirth ? { date_of_birth: normalizedDateOfBirth } : {}),
     ...(normalizedCountrySlug ? { country_slug: normalizedCountrySlug } : {}),
     ...(normalizedCitySlug ? { city_slug: normalizedCitySlug } : {}),
     ...(normalizedCityId ? { city_id: normalizedCityId } : {}),
@@ -213,6 +221,9 @@ export async function ensureProfileRow({
       profile: existingProfile ?? null,
     };
   }
+
+  // Keep auth metadata in sync for settings / notification locale fallbacks.
+  await supabase.auth.updateUser({ data: { locale: normalizedLanguage, language: normalizedLanguage } });
 
   const { data: upsertedProfile, error: refreshedProfileError } = await loadProfileRecord(user.id);
 

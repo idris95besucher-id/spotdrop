@@ -349,21 +349,26 @@ export default function EditProfilePage() {
       return;
     }
 
-    if (!birthDay || !birthMonth || !birthYear) {
-      setError("Day, month, and year of birth are required.");
-      return;
-    }
+    const hasAnyBirthPart = Boolean(birthDay || birthMonth || birthYear);
+    let dateOfBirth: string | null = null;
 
-    const dateOfBirth = buildDateOfBirth(birthYear, birthMonth, birthDay);
+    if (hasAnyBirthPart) {
+      if (!birthDay || !birthMonth || !birthYear) {
+        setError("Day, month, and year of birth are required.");
+        return;
+      }
 
-    if (!dateOfBirth) {
-      setError("Please select a valid date of birth.");
-      return;
-    }
+      dateOfBirth = buildDateOfBirth(birthYear, birthMonth, birthDay);
 
-    if (!isAtLeast13(birthYear, birthMonth, birthDay)) {
-      setError("You must be at least 13 years old.");
-      return;
+      if (!dateOfBirth) {
+        setError("Please select a valid date of birth.");
+        return;
+      }
+
+      if (!isAtLeast13(birthYear, birthMonth, birthDay)) {
+        setError("You must be at least 13 years old.");
+        return;
+      }
     }
 
     if (!(GENDER_VALUES as readonly string[]).includes(formGender)) {
@@ -614,9 +619,7 @@ export default function EditProfilePage() {
 
             <section className="rounded-2xl border border-white/10 bg-slate-900/60 p-4 sm:p-5">
               <label className="block">
-                <span className={labelClass}>
-                  {t("profileEdit.dateOfBirth")} <span className="text-cyan-400/80">*</span>
-                </span>
+                <span className={labelClass}>{t("profileEdit.dateOfBirth")}</span>
                 <div className="mt-1.5 grid grid-cols-3 gap-2">
                   <select
                     value={birthDay}

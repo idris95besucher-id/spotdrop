@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import AuthSearchableSelect from "@/components/auth/AuthSearchableSelect";
@@ -16,28 +16,23 @@ import { logAuthSessionError } from "@/lib/authSession";
 import { getCountryFlag } from "@/lib/countryFlags";
 import { localizeUserMessage } from "@/lib/i18n/localizeUserMessage";
 import { localizeCountryName, localizeCityName } from "@/lib/i18n/localizeGeo";
+import {
+  detectDeviceI18nLocale,
+  I18N_LOCALES,
+  isI18nLocale,
+  type I18nLocale,
+} from "@/lib/i18n/locales";
 import type { TranslationKey } from "@/lib/i18n/messages";
 import { ensureProfileRow } from "@/lib/profile";
 import { supabase, supabaseConfigError } from "@/lib/supabaseClient";
 
 const USERNAME_REGEX = /^[a-z0-9._]{3,30}$/;
-const CURRENT_YEAR = new Date().getFullYear();
-const DAY_OPTIONS = Array.from({ length: 31 }, (_, index) => index + 1);
-const YEAR_OPTIONS = Array.from({ length: CURRENT_YEAR - 1899 }, (_, index) => CURRENT_YEAR - index);
-const MONTH_KEYS: TranslationKey[] = [
-  "profileEdit.month.january",
-  "profileEdit.month.february",
-  "profileEdit.month.march",
-  "profileEdit.month.april",
-  "profileEdit.month.may",
-  "profileEdit.month.june",
-  "profileEdit.month.july",
-  "profileEdit.month.august",
-  "profileEdit.month.september",
-  "profileEdit.month.october",
-  "profileEdit.month.november",
-  "profileEdit.month.december",
-];
+
+const LANGUAGE_LABEL_KEYS: Record<I18nLocale, TranslationKey> = {
+  en: "auth.language.en",
+  ru: "auth.language.ru",
+  de: "auth.language.de",
+};
 
 type CountryOption = {
   id: string | number;
@@ -53,53 +48,12 @@ type CityOption = {
   country_id: string | number;
 };
 
-function buildDateOfBirth(yearValue: string, monthValue: string, dayValue: string) {
-  const year = Number(yearValue);
-  const month = Number(monthValue);
-  const day = Number(dayValue);
-
-  if (!year || !month || !day) {
-    return null;
-  }
-
-  const candidate = new Date(Date.UTC(year, month - 1, day));
-
-  if (
-    candidate.getUTCFullYear() !== year ||
-    candidate.getUTCMonth() !== month - 1 ||
-    candidate.getUTCDate() !== day
-  ) {
-    return null;
-  }
-
-  return `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-}
-
-function isAtLeast13(yearValue: string, monthValue: string, dayValue: string) {
-  const year = Number(yearValue);
-  const month = Number(monthValue);
-  const day = Number(dayValue);
-  const today = new Date();
-
-  let age = today.getFullYear() - year;
-  const hasHadBirthdayThisYear =
-    today.getMonth() + 1 > month || (today.getMonth() + 1 === month && today.getDate() >= day);
-
-  if (!hasHadBirthdayThisYear) {
-    age -= 1;
-  }
-
-  return age >= 13;
-}
-
 export default function EmailRegisterForm() {
-  const { t, locale } = useI18n();
+  const { t, locale, setLocale } = useI18n();
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [username, setUsername] = useState("");
-  const [birthDay, setBirthDay] = useState("");
-  const [birthMonth, setBirthMonth] = useState("");
-  const [birthYear, setBirthYear] = useState("");
+  const [language, setLanguage] = useState<I18nLocale>(() => detectDeviceI18nLocale());
   const [selectedCountrySlug, setSelectedCountrySlug] = useState("");
   const [selectedCitySlug, setSelectedCitySlug] = useState("");
   const [countryOptions, setCountryOptions] = useState<CountryOption[]>([]);
@@ -110,9 +64,21 @@ export default function EmailRegisterForm() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const didInitLanguageRef = useRef(false);
 
   const selectedCountry = countryOptions.find((country) => country.slug === selectedCountrySlug) ?? null;
   const selectedCity = cityOptions.find((city) => city.slug === selectedCitySlug) ?? null;
+
+  useEffect(() => {
+    if (didInitLanguageRef.current) {
+      return;
+    }
+
+    didInitLanguageRef.current = true;
+    const detected = detectDeviceI18nLocale();
+    setLanguage(detected);
+    void setLocale(detected);
+  }, [setLocale]);
 
   useEffect(() => {
     const loadCountries = async () => {
@@ -218,6 +184,15 @@ export default function EmailRegisterForm() {
         ? t("profileEdit.noCitiesFound")
         : t("profileEdit.selectCity");
 
+  const handleLanguageChange = (nextValue: string) => {
+    if (!isI18nLocale(nextValue)) {
+      return;
+    }
+
+    setLanguage(nextValue);
+    void setLocale(nextValue);
+  };
+
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setLoading(true);
@@ -242,20 +217,8 @@ export default function EmailRegisterForm() {
         return;
       }
 
-      if (!birthDay || !birthMonth || !birthYear) {
-        setError(t("profileEdit.error.birthRequired"));
-        return;
-      }
-
-      const dateOfBirth = buildDateOfBirth(birthYear, birthMonth, birthDay);
-
-      if (!dateOfBirth) {
-        setError(t("profileEdit.error.birthInvalid"));
-        return;
-      }
-
-      if (!isAtLeast13(birthYear, birthMonth, birthDay)) {
-        setError(t("profileEdit.error.minAge"));
+      if (!isI18nLocale(language)) {
+        setError(t("auth.error.languageRequired"));
         return;
       }
 
@@ -298,7 +261,8 @@ export default function EmailRegisterForm() {
       const cityId = String(selectedCity.id);
       const signUpMetadata = {
         username: normalizedUsername,
-        date_of_birth: dateOfBirth,
+        locale: language,
+        language,
         country: selectedCountry.slug,
         city: selectedCity.slug,
         city_id: cityId,
@@ -341,7 +305,7 @@ export default function EmailRegisterForm() {
       const ensureProfileResult = await ensureProfileRow({
         user: authUser,
         username: normalizedUsername,
-        dateOfBirth,
+        language,
         country: selectedCountry.slug,
         city: selectedCity.slug,
         cityId,
@@ -352,6 +316,7 @@ export default function EmailRegisterForm() {
         return;
       }
 
+      await setLocale(language);
       router.push("/profile");
     } catch (caught) {
       logAuthSessionError(caught);
@@ -390,66 +355,22 @@ export default function EmailRegisterForm() {
         />
       </label>
 
-      <div>
-        <span className={authLabelClass}>
-          {t("profileEdit.dateOfBirth")} <span className="text-cyan-400/80">*</span>
-        </span>
-        <div className="mt-1.5 grid min-w-0 grid-cols-3 gap-2">
-          <label htmlFor="register-birth-day" className="sr-only">
-            {t("profileEdit.day")}
-          </label>
-          <select
-            id="register-birth-day"
-            value={birthDay}
-            onChange={(event) => setBirthDay(event.target.value)}
-            className={authInputClass}
-            required
-          >
-            <option value="">{t("profileEdit.day")}</option>
-            {DAY_OPTIONS.map((day) => (
-              <option key={day} value={String(day)}>
-                {day}
-              </option>
-            ))}
-          </select>
-
-          <label htmlFor="register-birth-month" className="sr-only">
-            {t("profileEdit.month")}
-          </label>
-          <select
-            id="register-birth-month"
-            value={birthMonth}
-            onChange={(event) => setBirthMonth(event.target.value)}
-            className={authInputClass}
-            required
-          >
-            <option value="">{t("profileEdit.month")}</option>
-            {MONTH_KEYS.map((monthKey, index) => (
-              <option key={monthKey} value={String(index + 1)}>
-                {t(monthKey)}
-              </option>
-            ))}
-          </select>
-
-          <label htmlFor="register-birth-year" className="sr-only">
-            {t("profileEdit.year")}
-          </label>
-          <select
-            id="register-birth-year"
-            value={birthYear}
-            onChange={(event) => setBirthYear(event.target.value)}
-            className={authInputClass}
-            required
-          >
-            <option value="">{t("profileEdit.year")}</option>
-            {YEAR_OPTIONS.map((year) => (
-              <option key={year} value={String(year)}>
-                {year}
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
+      <label htmlFor="register-language" className={authLabelClass}>
+        {t("auth.language")} <span className="text-cyan-400/80">*</span>
+        <select
+          id="register-language"
+          value={language}
+          onChange={(event) => handleLanguageChange(event.target.value)}
+          className={authInputClass}
+          required
+        >
+          {I18N_LOCALES.map((code) => (
+            <option key={code} value={code}>
+              {t(LANGUAGE_LABEL_KEYS[code])}
+            </option>
+          ))}
+        </select>
+      </label>
 
       <AuthSearchableSelect
         id="register-country"

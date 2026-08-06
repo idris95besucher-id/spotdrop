@@ -15,6 +15,36 @@ export function resolveI18nLocale(code: string | null | undefined): I18nLocale {
   return "en";
 }
 
+/** Map device/browser language to a supported app locale (ru/de → match, else en). */
+export function detectDeviceI18nLocale(): I18nLocale {
+  if (typeof navigator === "undefined") {
+    return "en";
+  }
+
+  const candidates = [
+    ...(Array.isArray(navigator.languages) ? navigator.languages : []),
+    navigator.language,
+  ];
+
+  for (const candidate of candidates) {
+    if (typeof candidate !== "string" || !candidate.trim()) {
+      continue;
+    }
+
+    const normalized = candidate.trim().toLowerCase();
+
+    if (normalized === "ru" || normalized.startsWith("ru-")) {
+      return "ru";
+    }
+
+    if (normalized === "de" || normalized.startsWith("de-")) {
+      return "de";
+    }
+  }
+
+  return "en";
+}
+
 export function appLanguageToI18nLocale(code: AppLanguageCode | string | null | undefined): I18nLocale {
   if (code === "ru" || code === "de") {
     return code;
