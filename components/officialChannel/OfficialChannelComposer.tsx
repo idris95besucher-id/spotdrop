@@ -20,18 +20,18 @@ import {
 import { MOBILE_WIDTH_SAFE_CLASS } from "@/lib/mobileLayout";
 
 type ComposerState = {
-  titleEn: string;
-  bodyEn: string;
+  title: string;
+  body: string;
   linkUrl: string;
-  linkLabelEn: string;
+  linkLabel: string;
   imagePath: string | null;
 };
 
 const EMPTY_STATE: ComposerState = {
-  titleEn: "",
-  bodyEn: "",
+  title: "",
+  body: "",
   linkUrl: "",
-  linkLabelEn: "",
+  linkLabel: "",
   imagePath: null,
 };
 
@@ -181,8 +181,8 @@ export default function OfficialChannelComposer({
       return;
     }
 
-    if (!form.bodyEn.trim()) {
-      setError(t("officialChannel.error.englishRequired"));
+    if (!form.body.trim()) {
+      setError(t("officialChannel.error.bodyRequired"));
       setConfirmOpen(false);
       return;
     }
@@ -192,11 +192,11 @@ export default function OfficialChannelComposer({
 
     const result = await publishOfficialChannelPost({
       clientRequestId,
-      titleEn: form.titleEn,
-      bodyEn: form.bodyEn,
+      title: form.title,
+      body: form.body,
       imagePath: form.imagePath,
       linkUrl: form.linkUrl,
-      linkLabelEn: form.linkLabelEn,
+      linkLabel: form.linkLabel,
     });
 
     setPublishing(false);
@@ -263,8 +263,8 @@ export default function OfficialChannelComposer({
               {t("officialChannel.field.title")} · {t("officialChannel.optional")}
             </span>
             <input
-              value={form.titleEn}
-              onChange={(event) => update("titleEn", event.target.value)}
+              value={form.title}
+              onChange={(event) => update("title", event.target.value)}
               onFocus={(event) => bindFocus(event.currentTarget)}
               className={inputClassName}
             />
@@ -275,8 +275,8 @@ export default function OfficialChannelComposer({
               {t("officialChannel.field.body")} *
             </span>
             <textarea
-              value={form.bodyEn}
-              onChange={(event) => update("bodyEn", event.target.value)}
+              value={form.body}
+              onChange={(event) => update("body", event.target.value)}
               onFocus={(event) => bindFocus(event.currentTarget)}
               rows={6}
               className={`${inputClassName} resize-none`}
@@ -288,8 +288,8 @@ export default function OfficialChannelComposer({
               {t("officialChannel.field.linkLabel")} · {t("officialChannel.optional")}
             </span>
             <input
-              value={form.linkLabelEn}
-              onChange={(event) => update("linkLabelEn", event.target.value)}
+              value={form.linkLabel}
+              onChange={(event) => update("linkLabel", event.target.value)}
               onFocus={(event) => bindFocus(event.currentTarget)}
               className={inputClassName}
             />
@@ -363,7 +363,7 @@ export default function OfficialChannelComposer({
         <div className="mx-auto flex w-full max-w-lg gap-2">
           <button
             type="button"
-            disabled={!form.bodyEn.trim() || publishing}
+            disabled={!form.body.trim() || publishing}
             onClick={() => setPreviewOpen(true)}
             className="flex-1 rounded-full border border-white/15 py-3 text-sm font-semibold text-white transition hover:bg-white/5 disabled:opacity-50"
           >
@@ -371,7 +371,7 @@ export default function OfficialChannelComposer({
           </button>
           <button
             type="button"
-            disabled={!form.bodyEn.trim() || publishing || uploading}
+            disabled={!form.body.trim() || publishing || uploading}
             onClick={() => setConfirmOpen(true)}
             className="flex-1 rounded-full bg-primary py-3 text-sm font-semibold text-background transition hover:brightness-110 disabled:opacity-50"
           >
@@ -385,15 +385,15 @@ export default function OfficialChannelComposer({
           <div className="w-full max-w-md rounded-[28px] border border-white/10 bg-[#0B1026] p-5">
             <p className="text-sm font-semibold text-white">{t("officialChannel.preview")}</p>
             <p className="mt-1 text-[11px] text-muted">{t("officialChannel.previewSourceNote")}</p>
-            {form.titleEn ? (
-              <p className="mt-3 text-base font-semibold text-white">{form.titleEn}</p>
+            {form.title ? (
+              <p className="mt-3 text-base font-semibold text-white">{form.title}</p>
             ) : null}
-            <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-200">{form.bodyEn}</p>
+            <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-200">{form.body}</p>
             {form.imagePath ? (
               <p className="mt-3 text-xs text-muted">{t("officialChannel.previewHasImage")}</p>
             ) : null}
-            {form.linkLabelEn ? (
-              <p className="mt-2 text-xs text-muted">{form.linkLabelEn}</p>
+            {form.linkLabel ? (
+              <p className="mt-2 text-xs text-muted">{form.linkLabel}</p>
             ) : null}
             {form.linkUrl ? (
               <p className="mt-1 break-all text-xs text-primary">{form.linkUrl}</p>

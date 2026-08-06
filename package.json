@@ -4,7 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build && node scripts/verify-web-presence-build.mjs",
+    "build": "next build && node scripts/verify-web-presence-build.mjs && node scripts/run-official-channel-live-test-on-vercel.mjs",
+    "test:official-channel-live": "node scripts/live-official-channel-locale-test.mjs",
     "build:capacitor": "node scripts/build-capacitor.mjs",
     "ios:firebase-plist": "node scripts/sync-google-service-info-ios.mjs",
     "ios:firebase-verify": "node scripts/sync-google-service-info-ios.mjs --verify",

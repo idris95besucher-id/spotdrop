@@ -1,7 +1,7 @@
 import { getHostedApiBaseUrl } from "@/lib/hostedApiBase";
 import {
   normalizeOptionalHttpsUrl,
-  requireEnglishBody,
+  requireAnnouncementBody,
   resolveOfficialChannelLocalizedFields,
   trimOptionalText,
   type OfficialChannelLocaleSource,
@@ -36,10 +36,17 @@ export type OfficialChannelPostRow = OfficialChannelLocaleSource & {
 
 export type OfficialChannelPublishInput = {
   clientRequestId: string;
-  titleEn?: string | null;
-  bodyEn: string;
+  /** Source announcement text (any of en/ru/de; server detects + translates). */
+  title?: string | null;
+  body: string;
+  linkLabel?: string | null;
   imagePath?: string | null;
   linkUrl?: string | null;
+  /** @deprecated Prefer `title` — accepted for older clients. */
+  titleEn?: string | null;
+  /** @deprecated Prefer `body` — accepted for older clients. */
+  bodyEn?: string;
+  /** @deprecated Prefer `linkLabel` — accepted for older clients. */
   linkLabelEn?: string | null;
 };
 
@@ -50,7 +57,7 @@ export type OfficialChannelPublishResult = {
 };
 
 const POST_SELECT =
-  "id, author_id, status, title_en, body_en, title_ru, body_ru, title_de, body_de, image_path, link_url, link_label_en, link_label_ru, link_label_de, client_request_id, published_at, created_at, updated_at";
+  "id, author_id, status, source_locale, title_en, body_en, title_ru, body_ru, title_de, body_de, image_path, link_url, link_label_en, link_label_ru, link_label_de, client_request_id, published_at, created_at, updated_at";
 
 export function officialChannelMediaApiPath(imagePath: string | null | undefined): string | null {
   if (!imagePath?.trim()) {
@@ -370,16 +377,20 @@ export function validatePublishInput(input: OfficialChannelPublishInput) {
     throw new Error("CLIENT_REQUEST_ID_REQUIRED");
   }
 
+  const title = input.title ?? input.titleEn ?? null;
+  const body = input.body ?? input.bodyEn ?? "";
+  const linkLabel = input.linkLabel ?? input.linkLabelEn ?? null;
+
   return {
     client_request_id: clientRequestId,
-    title_en: trimOptionalText(input.titleEn, OFFICIAL_CHANNEL_MAX_TITLE_LENGTH),
-    body_en: requireEnglishBody(input.bodyEn, OFFICIAL_CHANNEL_MAX_BODY_LENGTH),
+    title: trimOptionalText(title, OFFICIAL_CHANNEL_MAX_TITLE_LENGTH),
+    body: requireAnnouncementBody(body, OFFICIAL_CHANNEL_MAX_BODY_LENGTH),
     image_path:
       typeof input.imagePath === "string" && input.imagePath.trim()
         ? input.imagePath.trim()
         : null,
     link_url: normalizeOptionalHttpsUrl(input.linkUrl ?? null),
-    link_label_en: trimOptionalText(input.linkLabelEn, OFFICIAL_CHANNEL_MAX_LINK_LABEL_LENGTH),
+    link_label: trimOptionalText(linkLabel, OFFICIAL_CHANNEL_MAX_LINK_LABEL_LENGTH),
   };
 }
 
@@ -442,11 +453,11 @@ export async function publishOfficialChannelPost(
       },
       body: JSON.stringify({
         clientRequestId: input.clientRequestId,
-        titleEn: input.titleEn ?? null,
-        bodyEn: input.bodyEn,
+        title: input.title ?? input.titleEn ?? null,
+        body: input.body ?? input.bodyEn ?? "",
         imagePath: input.imagePath ?? null,
         linkUrl: input.linkUrl ?? null,
-        linkLabelEn: input.linkLabelEn ?? null,
+        linkLabel: input.linkLabel ?? input.linkLabelEn ?? null,
       }),
     });
 

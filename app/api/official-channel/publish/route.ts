@@ -7,6 +7,7 @@ import {
   validatePublishInput,
   type OfficialChannelPostRow,
 } from "@/lib/officialChannel";
+import { processOfficialChannelPushJob } from "@/lib/officialChannelPush";
 import {
   OfficialChannelTranslationError,
   translateOfficialChannelAnnouncement,
@@ -20,15 +21,16 @@ import {
 export const maxDuration = 60;
 
 const POST_SELECT =
-  "id, author_id, status, title_en, body_en, title_ru, body_ru, title_de, body_de, image_path, link_url, link_label_en, link_label_ru, link_label_de, client_request_id, published_at, created_at, updated_at";
+  "id, author_id, status, source_locale, title_en, body_en, title_ru, body_ru, title_de, body_de, image_path, link_url, link_label_en, link_label_ru, link_label_de, client_request_id, published_at, created_at, updated_at";
 
 const TRANSLATION_FAILED_MESSAGE =
   "Automatic translation failed. Please try again.";
 
 function mapValidationError(code: string) {
   switch (code) {
+    case "BODY_REQUIRED":
     case "BODY_EN_REQUIRED":
-      return "English text is required.";
+      return "Announcement text is required.";
     case "INVALID_LINK_URL":
       return "Link must be a valid https URL.";
     case "TEXT_TOO_LONG":
@@ -105,21 +107,22 @@ export async function POST(request: Request) {
   let validated;
 
   try {
-    // English source only — RU/DE are produced server-side.
+    // Source may be en/ru/de — server detects locale and fills the other two.
     validated = validatePublishInput({
       clientRequestId: String(body.clientRequestId ?? ""),
-      titleEn: (body.titleEn as string | null) ?? null,
-      bodyEn: String(body.bodyEn ?? ""),
+      title: (body.title as string | null) ?? (body.titleEn as string | null) ?? null,
+      body: String(body.body ?? body.bodyEn ?? ""),
       imagePath: (body.imagePath as string | null) ?? null,
       linkUrl: (body.linkUrl as string | null) ?? null,
-      linkLabelEn: (body.linkLabelEn as string | null) ?? null,
+      linkLabel:
+        (body.linkLabel as string | null) ?? (body.linkLabelEn as string | null) ?? null,
     });
   } catch (caught) {
     const code = caught instanceof Error ? caught.message : "INVALID";
     return respond({ error: mapValidationError(code) }, { status: 400 });
   }
 
-  // Idempotency: return existing post without re-translating.
+  // Idempotency: return existing post without re-translating or re-sending push.
   const { data: existingBeforeTranslate, error: existingLookupError } =
     await official.admin
       .from("official_channel_posts")
@@ -137,7 +140,6 @@ export async function POST(request: Request) {
 
   if (existingBeforeTranslate) {
     const existingPost = existingBeforeTranslate as OfficialChannelPostRow;
-    await ensurePendingPushJob(official.admin, existingPost.id);
     return respond({ post: existingPost });
   }
 
@@ -163,9 +165,9 @@ export async function POST(request: Request) {
 
   try {
     translated = await translateOfficialChannelAnnouncement({
-      title: validated.title_en,
-      body: validated.body_en,
-      linkLabel: validated.link_label_en,
+      title: validated.title,
+      body: validated.body,
+      linkLabel: validated.link_label,
     });
   } catch (caught) {
     if (!(caught instanceof OfficialChannelTranslationError)) {
@@ -181,15 +183,16 @@ export async function POST(request: Request) {
     author_id: userId,
     status: "published" as const,
     client_request_id: validated.client_request_id,
-    title_en: validated.title_en,
-    body_en: validated.body_en,
+    source_locale: translated.sourceLocale,
+    title_en: translated.en.title,
+    body_en: translated.en.body,
     title_ru: translated.ru.title,
     body_ru: translated.ru.body,
     title_de: translated.de.title,
     body_de: translated.de.body,
     image_path: validated.image_path,
     link_url: validated.link_url,
-    link_label_en: validated.link_label_en,
+    link_label_en: translated.en.linkLabel,
     link_label_ru: translated.ru.linkLabel,
     link_label_de: translated.de.linkLabel,
     published_at: publishedAt,
@@ -203,6 +206,7 @@ export async function POST(request: Request) {
     .maybeSingle();
 
   let post = inserted as OfficialChannelPostRow | null;
+  let isNewPost = Boolean(inserted);
 
   if (insertError) {
     if (insertError.code === "23505") {
@@ -218,6 +222,7 @@ export async function POST(request: Request) {
       }
 
       post = existing as OfficialChannelPostRow;
+      isNewPost = false;
     } else {
       console.error(
         `[official-channel/publish] insert failed requestId=${requestId}`
@@ -230,8 +235,18 @@ export async function POST(request: Request) {
     return respond({ error: "Publish failed." }, { status: 500 });
   }
 
-  // Stage B: create pending push job only — do not fan-out or send push.
-  await ensurePendingPushJob(official.admin, post.id);
+  if (isNewPost) {
+    await ensurePendingPushJob(official.admin, post.id);
+    // Stage C: fan-out localized push by profiles.language (best-effort).
+    try {
+      await processOfficialChannelPushJob(official.admin, post.id);
+    } catch (caught) {
+      console.error(
+        `[official-channel/publish] push fan-out failed requestId=${requestId}`,
+        caught instanceof Error ? caught.message : "unknown"
+      );
+    }
+  }
 
   return respond({ post });
 }

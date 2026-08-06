@@ -16,42 +16,70 @@ export type OfficialChannelLocaleSource = {
   link_label_en?: string | null;
   link_label_ru?: string | null;
   link_label_de?: string | null;
+  /** Locale the admin originally wrote in (en/ru/de). */
+  source_locale?: string | null;
 };
 
+function nonEmpty(value: string | null | undefined): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+/**
+ * Fallback: requested locale → source locale → en → any non-empty variant.
+ */
 function pickLocalized(
   locale: I18nLocale,
+  sourceLocale: I18nLocale | null,
   en: string | null | undefined,
   ru: string | null | undefined,
   de: string | null | undefined
 ): string | null {
-  const enValue = typeof en === "string" && en.trim() ? en.trim() : null;
-  const ruValue = typeof ru === "string" && ru.trim() ? ru.trim() : null;
-  const deValue = typeof de === "string" && de.trim() ? de.trim() : null;
+  const byLocale: Record<I18nLocale, string | null> = {
+    en: nonEmpty(en),
+    ru: nonEmpty(ru),
+    de: nonEmpty(de),
+  };
 
-  if (locale === "ru") {
-    return ruValue ?? enValue;
-  }
-
-  if (locale === "de") {
-    return deValue ?? enValue;
-  }
-
-  return enValue;
+  return (
+    byLocale[locale] ??
+    (sourceLocale ? byLocale[sourceLocale] : null) ??
+    byLocale.en ??
+    byLocale.ru ??
+    byLocale.de
+  );
 }
 
-/** Resolve title/body/link label for a viewer locale with RU/DE → EN fallback. */
+function resolveSourceLocale(
+  post: OfficialChannelLocaleSource
+): I18nLocale | null {
+  const raw = post.source_locale;
+  if (raw === "en" || raw === "ru" || raw === "de") {
+    return raw;
+  }
+  return null;
+}
+
+/** Resolve title/body/link label for the active app locale (I18nProvider). */
 export function resolveOfficialChannelLocalizedFields(
   post: OfficialChannelLocaleSource,
   language: string | null | undefined
 ): OfficialChannelLocalizedFields {
   const locale = resolveI18nLocale(language);
+  const sourceLocale = resolveSourceLocale(post);
   const body =
-    pickLocalized(locale, post.body_en, post.body_ru, post.body_de) ?? post.body_en.trim();
+    pickLocalized(locale, sourceLocale, post.body_en, post.body_ru, post.body_de) ??
+    post.body_en.trim();
 
   return {
-    title: pickLocalized(locale, post.title_en, post.title_ru, post.title_de),
+    title: pickLocalized(locale, sourceLocale, post.title_en, post.title_ru, post.title_de),
     body,
-    linkLabel: pickLocalized(locale, post.link_label_en, post.link_label_ru, post.link_label_de),
+    linkLabel: pickLocalized(
+      locale,
+      sourceLocale,
+      post.link_label_en,
+      post.link_label_ru,
+      post.link_label_de
+    ),
   };
 }
 
@@ -100,9 +128,10 @@ export function trimOptionalText(value: unknown, maxLength: number): string | nu
   return trimmed;
 }
 
-export function requireEnglishBody(value: unknown, maxLength: number): string {
+/** Body is required; language may be en, ru, or de (detected server-side). */
+export function requireAnnouncementBody(value: unknown, maxLength: number): string {
   if (typeof value !== "string" || !value.trim()) {
-    throw new Error("BODY_EN_REQUIRED");
+    throw new Error("BODY_REQUIRED");
   }
 
   const trimmed = value.trim();
@@ -112,4 +141,9 @@ export function requireEnglishBody(value: unknown, maxLength: number): string {
   }
 
   return trimmed;
+}
+
+/** @deprecated Use requireAnnouncementBody — kept for older call sites. */
+export function requireEnglishBody(value: unknown, maxLength: number): string {
+  return requireAnnouncementBody(value, maxLength);
 }

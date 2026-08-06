@@ -11,6 +11,8 @@ create table if not exists public.official_channel_posts (
   id uuid primary key default gen_random_uuid(),
   author_id uuid not null references public.profiles(id) on delete restrict,
   status text not null check (status in ('draft', 'published')),
+  -- Locale the admin originally wrote (en/ru/de). Display fills body_*/title_* once.
+  source_locale text not null default 'en' check (source_locale in ('en', 'ru', 'de')),
   title_en text null,
   body_en text not null,
   title_ru text null,

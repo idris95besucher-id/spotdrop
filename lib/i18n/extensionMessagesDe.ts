@@ -1017,14 +1017,15 @@ export const EXTENSION_DE: Record<ExtensionKey, string> = {
   "officialChannel.previewHasImage": "Enthält ein Bild.",
   "officialChannel.confirmTitle": "Veröffentlichung bestätigen",
   "officialChannel.confirmBody":
-    "Diese englische Nachricht an alle SpotDrop-Nutzer veröffentlichen? Russische und deutsche Übersetzungen werden automatisch erstellt.",
+    "Diese Ankündigung an alle SpotDrop-Nutzer veröffentlichen? Englische, russische und deutsche Versionen werden automatisch aus deinem Text erstellt.",
   "officialChannel.composerTitle": "Neue offizielle Ankündigung",
   "officialChannel.createAnnouncement": "Ankündigung erstellen",
   "officialChannel.officialOnly": "Nur offiziell",
   "officialChannel.optional": "Optional",
   "officialChannel.autoTranslateNote":
-    "Die Nachricht wird automatisch für Nutzer übersetzt.",
-  "officialChannel.previewSourceNote": "Die Vorschau zeigt den englischen Quelltext.",
+    "Schreibe auf Englisch, Russisch oder Deutsch. SpotDrop erkennt die Sprache und erstellt die anderen Übersetzungen automatisch.",
+  "officialChannel.previewSourceNote":
+    "Die Vorschau zeigt deinen Text. Nutzer sehen die Version in ihrer App-Sprache.",
   "officialChannel.tab.en": "English",
   "officialChannel.tab.ru": "Русский",
   "officialChannel.tab.de": "Deutsch",
@@ -1047,7 +1048,8 @@ export const EXTENSION_DE: Record<ExtensionKey, string> = {
   "officialChannel.field.linkLabelEn": "Button-Text (EN)",
   "officialChannel.field.linkLabelRu": "Button-Text (RU)",
   "officialChannel.field.linkLabelDe": "Button-Text (DE)",
-  "officialChannel.error.englishRequired": "Englischer Text ist erforderlich.",
+  "officialChannel.error.englishRequired": "Ankündigungstext ist erforderlich.",
+  "officialChannel.error.bodyRequired": "Ankündigungstext ist erforderlich.",
   "officialChannel.error.uploadFailed": "Bild konnte nicht hochgeladen werden.",
   "officialChannel.error.uploadTimeout":
     "Zeitüberschreitung beim Bild-Upload. Bitte erneut versuchen.",

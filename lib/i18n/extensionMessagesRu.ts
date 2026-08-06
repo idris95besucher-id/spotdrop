@@ -1017,14 +1017,15 @@ export const EXTENSION_RU: Record<ExtensionKey, string> = {
   "officialChannel.previewHasImage": "Включает изображение.",
   "officialChannel.confirmTitle": "Подтвердите публикацию",
   "officialChannel.confirmBody":
-    "Опубликовать это английское сообщение для всех пользователей SpotDrop? Русский и немецкий переводы будут созданы автоматически.",
+    "Опубликовать это объявление для всех пользователей SpotDrop? Английская, русская и немецкая версии будут созданы автоматически из вашего текста.",
   "officialChannel.composerTitle": "Новое официальное объявление",
   "officialChannel.createAnnouncement": "Создать объявление",
   "officialChannel.officialOnly": "Только официальный",
   "officialChannel.optional": "Необязательно",
   "officialChannel.autoTranslateNote":
-    "Сообщение будет автоматически переведено для пользователей.",
-  "officialChannel.previewSourceNote": "Предпросмотр показывает исходный английский текст.",
+    "Пишите на английском, русском или немецком. SpotDrop определит язык и автоматически создаст остальные переводы.",
+  "officialChannel.previewSourceNote":
+    "Предпросмотр показывает введённый текст. Пользователи увидят версию на языке приложения.",
   "officialChannel.tab.en": "English",
   "officialChannel.tab.ru": "Русский",
   "officialChannel.tab.de": "Deutsch",
@@ -1047,7 +1048,8 @@ export const EXTENSION_RU: Record<ExtensionKey, string> = {
   "officialChannel.field.linkLabelEn": "Текст кнопки (EN)",
   "officialChannel.field.linkLabelRu": "Текст кнопки (RU)",
   "officialChannel.field.linkLabelDe": "Текст кнопки (DE)",
-  "officialChannel.error.englishRequired": "Английский текст обязателен.",
+  "officialChannel.error.englishRequired": "Текст объявления обязателен.",
+  "officialChannel.error.bodyRequired": "Текст объявления обязателен.",
   "officialChannel.error.uploadFailed": "Не удалось загрузить изображение.",
   "officialChannel.error.uploadTimeout":
     "Время загрузки изображения истекло. Попробуйте ещё раз.",
