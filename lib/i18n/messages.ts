@@ -31,6 +31,11 @@ export type CoreTranslationKey =
   | "profile.friends"
   | "profile.followers"
   | "profile.posts"
+  | "profile.about"
+  | "profile.ageYearsOne"
+  | "profile.ageYearsFew"
+  | "profile.ageYearsMany"
+  | "profile.ageYearsOther"
   | "profile.spots"
   | "profile.collections"
   | "profile.saved"
@@ -388,6 +393,11 @@ const CORE_EN: CoreMessageTable = {
   "profile.friends": "Friends",
   "profile.followers": "Followers",
   "profile.posts": "Posts",
+  "profile.about": "About",
+  "profile.ageYearsOne": "{count} year",
+  "profile.ageYearsFew": "{count} years",
+  "profile.ageYearsMany": "{count} years",
+  "profile.ageYearsOther": "{count} years",
   "profile.spots": "Spots",
   "profile.collections": "Collections",
   "profile.saved": "Saved",
@@ -743,6 +753,11 @@ const CORE_RU: CoreMessageTable = {
   "profile.friends": "Друзья",
   "profile.followers": "Подписчики",
   "profile.posts": "Посты",
+  "profile.about": "О себе",
+  "profile.ageYearsOne": "{count} год",
+  "profile.ageYearsFew": "{count} года",
+  "profile.ageYearsMany": "{count} лет",
+  "profile.ageYearsOther": "{count} года",
   "profile.spots": "Места",
   "profile.collections": "Коллекции",
   "profile.saved": "Сохранённое",
@@ -1098,6 +1113,11 @@ const CORE_DE: CoreMessageTable = {
   "profile.friends": "Freunde",
   "profile.followers": "Follower",
   "profile.posts": "Beiträge",
+  "profile.about": "Über mich",
+  "profile.ageYearsOne": "{count} Jahr",
+  "profile.ageYearsFew": "{count} Jahre",
+  "profile.ageYearsMany": "{count} Jahre",
+  "profile.ageYearsOther": "{count} Jahre",
   "profile.spots": "Spots",
   "profile.collections": "Sammlungen",
   "profile.saved": "Gespeichert",

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import { Megaphone, MoreVertical, UserMinus } from "lucide-react";
+import { Calendar, Megaphone, MessageCircle, MoreVertical, UserMinus, MapPin } from "lucide-react";
 import { useI18n } from "@/components/I18nProvider";
 import { localizeError } from "@/lib/i18n/localizeError";
 import { getSafeAuthSession } from "@/lib/authSession";
@@ -27,10 +27,12 @@ import {
   type ProfileGalleryVisibility,
 } from "@/lib/profileGalleryVisibility";
 import {
+  formatLocalizedAge,
   formatProfileLocationLineLocalized,
   resolveProfileLocation,
   type ResolvedProfileLocation,
 } from "@/lib/profileLocation";
+import { normalizeAvatarUrl } from "@/lib/avatarUrl";
 import ProfileScreenLayout from "@/components/profile/ProfileScreenLayout";
 import ProfileMenuSheet, { type ProfileMenuItem } from "@/components/ProfileMenuSheet";
 import RemoveFollowerConfirmSheet from "@/components/RemoveFollowerConfirmSheet";
@@ -49,10 +51,12 @@ type Profile = {
   name?: string | null;
   username: string;
   avatar_url?: string | null;
+  cover_url?: string | null;
   bio?: string | null;
   country_slug?: string | null;
   city_slug?: string | null;
   city_id?: string | null;
+  age_years?: number | null;
   gallery_visibility?: ProfileGalleryVisibility | null;
   is_official?: boolean | null;
   is_verified?: boolean | null;
@@ -69,7 +73,7 @@ async function loadPublicProfile(profileParam: string) {
   };
 
   const primaryResult = await loadWithSelect(
-    "id, name, username, avatar_url, bio, country_slug, city_slug, city_id, gallery_visibility, is_official, is_verified"
+    "id, name, username, avatar_url, cover_url, bio, country_slug, city_slug, city_id, age_years, gallery_visibility, is_official, is_verified"
   );
 
     if (primaryResult.error?.code !== "42703") {
@@ -90,7 +94,9 @@ async function loadPublicProfile(profileParam: string) {
 
   console.error("Public profile guide fields missing:", JSON.stringify(primaryResult.error, null, 2));
 
-  const fallbackResult = await loadWithSelect("id, name, username, avatar_url, bio, country_slug, city_slug, city_id, is_verified");
+  const fallbackResult = await loadWithSelect(
+    "id, name, username, avatar_url, cover_url, bio, country_slug, city_slug, city_id, age_years, is_verified"
+  );
 
   return {
     ...fallbackResult,
@@ -130,6 +136,7 @@ export default function UserPage({ userIdOverride }: { userIdOverride?: string }
   const [canMessageTarget, setCanMessageTarget] = useState(false);
   const [postsError, setPostsError] = useState<string | null>(null);
   const [officialChannelUnread, setOfficialChannelUnread] = useState(false);
+  const [coverFailed, setCoverFailed] = useState(false);
 
   const isOwnProfile = Boolean(viewerId && profile?.id && viewerId === profile.id);
   const canSeeProfilePresence = useCanSeeOnlineStatus(viewerId, profile?.id ?? null);
@@ -186,6 +193,7 @@ export default function UserPage({ userIdOverride }: { userIdOverride?: string }
       setViewerFollowsTarget(false);
       setTargetFollowsViewer(false);
       setCanMessageTarget(false);
+      setCoverFailed(false);
 
       const timeoutId = window.setTimeout(() => {
         if (!profileSettled && !cancelled) {
@@ -410,6 +418,8 @@ export default function UserPage({ userIdOverride }: { userIdOverride?: string }
   }, [isOwnProfile, t, targetFollowsViewer, viewerId]);
 
   const locationLine = formatProfileLocationLineLocalized(location, locale);
+  const ageLine = formatLocalizedAge(profile?.age_years, locale, t);
+  const coverUrl = normalizeAvatarUrl(profile?.cover_url);
 
   return (
     <Shell showHeader={false} flushTop fixedLayout>
@@ -453,31 +463,53 @@ export default function UserPage({ userIdOverride }: { userIdOverride?: string }
           </div>
         ) : profile ? (
           <>
-            <section className="profile-header-enter w-full space-y-5 bg-slate-900/90 px-1 py-5 sm:space-y-6 sm:rounded-[2rem] sm:border sm:border-white/10 sm:px-6 sm:py-8 sm:shadow-xl sm:shadow-black/40">
-              <div className="flex w-full flex-col items-stretch gap-4 sm:items-center sm:text-center">
-                <div className="profile-header-avatar mx-auto w-fit">
-                  <ProfileAvatarProfileTrigger
-                    userId={profile.id}
-                    viewerUserId={viewerId}
-                    avatarUrl={profile.avatar_url}
-                    sizeClassName="h-24 w-24 sm:h-32 sm:w-32"
-                    iconClassName="h-11 w-11 sm:h-12 sm:w-12"
-                    className="border border-white/10 shadow-xl shadow-black/50"
+            <section className="profile-header-enter relative w-full sm:overflow-hidden sm:rounded-[2rem] sm:border sm:border-white/10 sm:shadow-xl sm:shadow-black/40">
+              <div className="relative h-64 w-full overflow-hidden sm:h-72">
+                {coverUrl && !coverFailed ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={coverUrl}
+                    alt=""
+                    className="h-full w-full object-cover object-center"
+                    draggable={false}
+                    onError={() => setCoverFailed(true)}
                   />
-                </div>
+                ) : (
+                  <div className="h-full w-full bg-gradient-to-br from-[#123047] via-[#0b1026] to-[#1b1240]" />
+                )}
+                <div
+                  className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/85 via-black/15 to-transparent"
+                  aria-hidden
+                />
+                <div
+                  className="pointer-events-none absolute inset-0 bg-gradient-to-l from-black/55 via-transparent to-transparent"
+                  aria-hidden
+                />
 
-                <div className="profile-header-rise min-w-0 w-full space-y-1.5 sm:space-y-2">
-                  <h1 className="max-w-full sm:mx-auto sm:w-fit">
+                <div className="profile-header-rise absolute right-4 top-4 max-w-[68%] text-right sm:right-6 sm:top-6">
+                  <h1 className="ml-auto w-fit max-w-full">
                     <UsernameWithVerification
                       username={profile.username}
                       isVerified={profile.is_verified}
-                      className="text-2xl font-semibold tracking-tight text-white sm:text-4xl"
-                      iconSize={18}
+                      className="justify-end text-xl font-semibold tracking-tight text-white [text-shadow:0_1px_8px_rgba(0,0,0,0.65)] sm:text-2xl"
+                      iconSize={16}
                     />
                   </h1>
                   {!isOwnProfile && targetFollowsViewer ? (
-                    <p className="text-xs font-semibold uppercase tracking-wide text-cyan-300/90 sm:text-center">
+                    <p className="mt-1 text-[11px] font-semibold uppercase tracking-wide text-cyan-300">
                       {t("profile.followsYou")}
+                    </p>
+                  ) : null}
+                  {locationLine ? (
+                    <p className="mt-1.5 flex items-center justify-end gap-1.5 text-xs font-medium text-white/90 [text-shadow:0_1px_4px_rgba(0,0,0,0.6)] sm:text-sm">
+                      <MapPin className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                      <span className="truncate">{locationLine}</span>
+                    </p>
+                  ) : null}
+                  {ageLine ? (
+                    <p className="mt-1 flex items-center justify-end gap-1.5 text-xs font-medium text-white/90 [text-shadow:0_1px_4px_rgba(0,0,0,0.6)] sm:text-sm">
+                      <Calendar className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                      <span>{ageLine}</span>
                     </p>
                   ) : null}
                   {!isOwnProfile && canSeeProfilePresence === true ? (
@@ -485,29 +517,32 @@ export default function UserPage({ userIdOverride }: { userIdOverride?: string }
                       userId={profile.id}
                       lastSeenAt={profileLastSeenAt}
                       username={profile.username}
-                      className="justify-center text-slate-400 sm:mx-auto"
+                      className="mt-1 justify-end"
                     />
                   ) : !isOwnProfile && canSeeProfilePresence === false ? (
-                    <p className="text-sm text-slate-500 sm:text-center">{t("presence.hidden")}</p>
-                  ) : null}
-                  {locationLine ? (
-                    <p className="text-sm font-medium text-slate-400 sm:text-center">{locationLine}</p>
-                  ) : null}
-                  {profile.bio ? (
-                    profile.is_official === true ? (
-                      <p className="mx-auto mt-3 max-w-[340px] text-center text-[17px] leading-6 text-slate-300">
-                        {profile.bio}
-                      </p>
-                    ) : (
-                      <p className="text-sm leading-relaxed text-slate-300 sm:mx-auto sm:max-w-md sm:text-center">{profile.bio}</p>
-                    )
+                    <p className="mt-1 text-xs text-white/70">{t("presence.hidden")}</p>
                   ) : null}
                 </div>
               </div>
 
-              {profile.is_official !== true ? (
-                <div className="profile-header-rise-delay grid w-full grid-cols-3 items-center">
-                  <div className="flex flex-col items-center justify-center gap-0.5 py-1">
+              <div className="profile-header-avatar absolute left-4 top-[12.5rem] sm:left-6 sm:top-[14rem]">
+                <ProfileAvatarProfileTrigger
+                  userId={profile.id}
+                  viewerUserId={viewerId}
+                  avatarUrl={profile.avatar_url}
+                  sizeClassName="h-24 w-24 sm:h-28 sm:w-28"
+                  iconClassName="h-11 w-11 sm:h-12 sm:w-12"
+                  className="border-[3px] border-[#050816] shadow-xl shadow-black/60"
+                />
+              </div>
+
+              <div className="h-12 sm:h-14" aria-hidden />
+            </section>
+
+            {profile.is_official !== true ? (
+              <section className="profile-header-rise-delay w-full rounded-2xl border border-white/10 bg-slate-900/70 px-2 py-3 sm:rounded-3xl">
+                <div className="grid grid-cols-3 divide-x divide-white/10">
+                  <div className="flex flex-col items-center justify-center gap-0.5 px-2 py-1">
                     <p className="text-[17px] font-bold leading-none tabular-nums text-white">{spotPosts.length}</p>
                     <p className="text-[12px] leading-none text-muted">{t("profile.posts")}</p>
                   </div>
@@ -516,7 +551,7 @@ export default function UserPage({ userIdOverride }: { userIdOverride?: string }
                     onClick={() =>
                       router.push(`/user/followers?id=${encodeURIComponent(profile.id)}`)
                     }
-                    className="flex flex-col items-center justify-center gap-0.5 py-1 transition active:opacity-70"
+                    className="flex flex-col items-center justify-center gap-0.5 px-2 py-1 transition active:opacity-70"
                   >
                     <p className="text-[17px] font-bold leading-none tabular-nums text-white">{followersCount}</p>
                     <p className="text-[12px] leading-none text-muted">{t("profile.followers")}</p>
@@ -526,67 +561,75 @@ export default function UserPage({ userIdOverride }: { userIdOverride?: string }
                     onClick={() =>
                       router.push(`/user/friends?id=${encodeURIComponent(profile.id)}`)
                     }
-                    className="flex flex-col items-center justify-center gap-0.5 py-1 transition active:opacity-70"
+                    className="flex flex-col items-center justify-center gap-0.5 px-2 py-1 transition active:opacity-70"
                   >
                     <p className="text-[17px] font-bold leading-none tabular-nums text-white">{friendsCount}</p>
                     <p className="text-[12px] leading-none text-muted">{t("profile.friends")}</p>
                   </button>
                 </div>
+              </section>
+            ) : null}
+
+            <div
+              className={
+                profile.is_official === true
+                  ? "profile-header-rise-delay-2 flex w-full justify-center"
+                  : "profile-header-rise-delay-2 flex w-full gap-2"
+              }
+            >
+              {!isOwnProfile && viewerId && profile.is_official !== true ? (
+                <button
+                  type="button"
+                  onClick={handleFollowToggle}
+                  disabled={loadingFollowAction}
+                  className="inline-flex min-w-0 flex-1 items-center justify-center truncate rounded-full bg-cyan-500 px-4 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {loadingFollowAction ? t("profile.updating") : viewerFollowsTarget ? t("profile.unfollow") : t("profile.follow")}
+                </button>
               ) : null}
 
-              <div
-                className={
-                  profile.is_official === true
-                    ? "profile-header-rise-delay-2 mt-5 flex w-full flex-col gap-4 sm:flex-row sm:flex-wrap sm:justify-center"
-                    : "profile-header-rise-delay-2 flex w-full flex-col gap-2.5 sm:flex-row sm:flex-wrap sm:justify-center"
-                }
-              >
-                {!isOwnProfile && viewerId && profile.is_official !== true ? (
-                  <button
-                    type="button"
-                    onClick={handleFollowToggle}
-                    disabled={loadingFollowAction}
-                    className="inline-flex w-full min-w-0 items-center justify-center rounded-full bg-cyan-500 px-6 py-3 text-sm font-semibold text-slate-950 transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:opacity-60 sm:min-w-[8.5rem] sm:flex-1 sm:max-w-[11rem]"
-                  >
-                    {loadingFollowAction ? t("profile.updating") : viewerFollowsTarget ? t("profile.unfollow") : t("profile.follow")}
-                  </button>
-                ) : null}
+              {isOwnProfile ? (
+                <Link
+                  href="/profile"
+                  className="inline-flex min-w-0 flex-1 items-center justify-center truncate rounded-full bg-white px-4 py-3 text-sm font-semibold text-slate-950 transition hover:bg-slate-200"
+                >
+                  {t("profile.openMyProfile")}
+                </Link>
+              ) : null}
 
-                {isOwnProfile ? (
-                  <Link
-                    href="/profile"
-                    className="inline-flex w-full min-w-0 items-center justify-center rounded-full bg-white px-6 py-3 text-sm font-semibold text-slate-950 transition hover:bg-slate-200 sm:min-w-[8.5rem] sm:flex-1 sm:max-w-[11rem]"
-                  >
-                    {t("profile.openMyProfile")}
-                  </Link>
-                ) : null}
+              {!isOwnProfile && viewerId && canMessageTarget && profile.is_official !== true ? (
+                <Link
+                  href={`/dm?id=${profile.id}`}
+                  className="inline-flex min-w-0 flex-1 items-center justify-center gap-1.5 truncate rounded-full border border-white/15 bg-white/5 px-4 py-3 text-sm font-semibold text-white transition hover:bg-white/10"
+                >
+                  <MessageCircle className="h-4 w-4 shrink-0" aria-hidden />
+                  <span className="truncate">{t("profile.message")}</span>
+                </Link>
+              ) : null}
 
-                {!isOwnProfile && viewerId && canMessageTarget && profile.is_official !== true ? (
-                  <Link
-                    href={`/dm?id=${profile.id}`}
-                    className="inline-flex w-full min-w-0 items-center justify-center rounded-full border border-white/15 bg-white/5 px-6 py-3 text-sm font-semibold text-white transition hover:bg-white/10 sm:min-w-[8.5rem] sm:flex-1 sm:max-w-[11rem]"
-                  >
-                    {t("profile.message")}
-                  </Link>
-                ) : null}
+              {profile.is_official === true ? (
+                <button
+                  type="button"
+                  onClick={() => setShareProfileOpen(true)}
+                  className="inline-flex w-full min-w-0 items-center justify-center rounded-full border border-primary/30 bg-primary/10 px-6 py-3 text-sm font-semibold text-primary transition hover:border-primary/50 hover:bg-primary/15 sm:w-auto sm:min-w-[8.5rem]"
+                >
+                  {t("profile.shareProfile")}
+                </button>
+              ) : null}
+            </div>
 
-                {profile.is_official === true ? (
-                  <button
-                    type="button"
-                    onClick={() => setShareProfileOpen(true)}
-                    className="inline-flex w-full min-w-0 items-center justify-center rounded-full border border-primary/30 bg-primary/10 px-6 py-3 text-sm font-semibold text-primary transition hover:border-primary/50 hover:bg-primary/15 sm:min-w-[8.5rem] sm:flex-1 sm:max-w-[11rem]"
-                  >
-                    {t("profile.shareProfile")}
-                  </button>
-                ) : null}
+            {relationshipError ? (
+              <div className="w-full rounded-2xl border border-red-500/20 bg-red-500/5 p-4 text-sm text-red-200 sm:rounded-3xl">
+                {localizeError(t, relationshipError) ?? relationshipError}
               </div>
+            ) : null}
 
-              {relationshipError ? (
-                <div className="w-full rounded-2xl border border-red-500/20 bg-red-500/5 p-4 text-sm text-red-200 sm:rounded-3xl">
-                  {localizeError(t, relationshipError) ?? relationshipError}
-                </div>
-              ) : null}
-            </section>
+            {profile.bio ? (
+              <section className="w-full space-y-1.5 rounded-2xl border border-white/10 bg-slate-900/70 px-4 py-4 sm:rounded-3xl sm:px-6">
+                <h2 className="text-sm font-semibold text-white">{t("profile.about")}</h2>
+                <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-300">{profile.bio}</p>
+              </section>
+            ) : null}
 
             {postsError ? (
               <div className="w-full rounded-2xl border border-amber-500/25 bg-amber-500/10 px-4 py-4 text-sm text-amber-100 sm:rounded-3xl">
@@ -601,7 +644,11 @@ export default function UserPage({ userIdOverride }: { userIdOverride?: string }
               </div>
             ) : null}
 
-            <section className="w-full min-w-0 overflow-hidden border-y border-white/10 bg-slate-950/60 sm:rounded-3xl sm:border sm:border-white/10">
+            <div className="flex items-center justify-between px-1">
+              <h2 className="text-base font-semibold text-white">{t("profile.posts")}</h2>
+            </div>
+
+            <section className="w-full min-w-0 overflow-hidden rounded-2xl border border-white/10 bg-slate-950/60 sm:rounded-3xl">
               <ProfileContentTabs
                 activeTab={activeContentTab}
                 onTabChange={setActiveContentTab}

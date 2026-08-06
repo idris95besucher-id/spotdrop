@@ -1,5 +1,6 @@
 import { supabase } from "@/lib/supabaseClient";
 import type { I18nLocale } from "@/lib/i18n/locales";
+import type { TranslationKey } from "@/lib/i18n/messages";
 import {
   localizeCityByEnglishName,
   localizeCountryByEnglishName,
@@ -90,6 +91,32 @@ export function formatProfileLocationLineLocalized(
   );
 
   return parts.length > 0 ? parts.join(", ") : null;
+}
+
+const AGE_PLURAL_KEYS: Partial<Record<Intl.LDMLPluralRule, TranslationKey>> = {
+  one: "profile.ageYearsOne",
+  few: "profile.ageYearsFew",
+  many: "profile.ageYearsMany",
+};
+
+/**
+ * Localized "N years" label from a precomputed integer age (profiles.age_years).
+ * Exact date_of_birth is never exposed to other users — age_years (server-refreshed
+ * on every date_of_birth write) is the only age signal available here. Returns null
+ * when age is unknown so callers can hide the row entirely rather than show "undefined".
+ */
+export function formatLocalizedAge(
+  ageYears: number | null | undefined,
+  locale: I18nLocale,
+  t: (key: TranslationKey, values?: Record<string, string | number>) => string
+): string | null {
+  if (typeof ageYears !== "number" || !Number.isFinite(ageYears) || ageYears < 0) {
+    return null;
+  }
+
+  const category = new Intl.PluralRules(locale).select(ageYears);
+  const key = AGE_PLURAL_KEYS[category] ?? "profile.ageYearsOther";
+  return t(key, { count: ageYears });
 }
 
 async function loadCountryBySlug(slug: string): Promise<CountryRow | null> {
