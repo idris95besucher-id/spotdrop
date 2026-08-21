@@ -5,6 +5,11 @@ import {
   normalizeMessagePrivacy,
   type MessagePrivacy,
 } from "@/lib/messagePrivacy";
+import {
+  DEFAULT_NAVIGATION_APP_PREFERENCE,
+  isNavigationAppPreference,
+  type NavigationAppPreference,
+} from "@/lib/navigationApps";
 
 export type { MessagePrivacy };
 
@@ -28,6 +33,7 @@ export type UserSettingsPreferences = {
   messagePrivacy: MessagePrivacy;
   notifications: NotificationPreferences;
   blockedUserIds: string[];
+  navigationApp: NavigationAppPreference;
 };
 
 const STORAGE_KEY = "spotdrop_user_settings";
@@ -50,6 +56,7 @@ export const DEFAULT_USER_SETTINGS: UserSettingsPreferences = {
   messagePrivacy: "everyone",
   notifications: DEFAULT_NOTIFICATION_PREFERENCES,
   blockedUserIds: [],
+  navigationApp: DEFAULT_NAVIGATION_APP_PREFERENCE,
 };
 
 export const MESSAGE_PRIVACY_OPTIONS: { value: MessagePrivacy; label: string; description: string }[] = [
@@ -108,6 +115,10 @@ function readStorage(): UserSettingsPreferences {
       messagePrivacy: normalizeMessagePrivacy(parsed.messagePrivacy),
       notifications: normalizeNotificationPreferences(parsed.notifications),
       blockedUserIds: Array.isArray(parsed.blockedUserIds) ? parsed.blockedUserIds : [],
+      navigationApp:
+        parsed.navigationApp && isNavigationAppPreference(parsed.navigationApp)
+          ? parsed.navigationApp
+          : DEFAULT_USER_SETTINGS.navigationApp,
     };
   } catch {
     return DEFAULT_USER_SETTINGS;

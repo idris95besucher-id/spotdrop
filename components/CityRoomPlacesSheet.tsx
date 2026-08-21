@@ -5,9 +5,9 @@ import { createPortal } from "react-dom";
 import { ExternalLink, Loader2, Search, X } from "lucide-react";
 import CityRoomPlacePreview from "@/components/CityRoomPlacePreview";
 import { useI18n } from "@/components/I18nProvider";
-import { buildPlaceMapsUrl } from "@/lib/cityRoomPlaceMessage";
 import { localizeUserMessage } from "@/lib/i18n/localizeUserMessage";
 import { loadPlacesToVisitForChat, searchPlacesForChat, type PlaceSearchHit } from "@/lib/placeSearchApi";
+import { useNavigationAppChooser } from "@/lib/useNavigationAppChooser";
 
 type CityRoomPlacesSheetProps = {
   isOpen: boolean;
@@ -35,7 +35,7 @@ function PlaceResultCard({
   onSend: (hit: PlaceSearchHit) => void;
 }) {
   const { t } = useI18n();
-  const mapsUrl = buildPlaceMapsUrl(hit);
+  const navigationChooser = useNavigationAppChooser();
 
   return (
     <li className="rounded-2xl border border-white/10 bg-[#050816]/80 p-3">
@@ -52,15 +52,21 @@ function PlaceResultCard({
         compact
         footer={
           <div className="flex gap-2">
-            <a
-              href={mapsUrl}
-              target="_blank"
-              rel="noopener noreferrer"
+            <button
+              type="button"
+              onClick={() =>
+                navigationChooser.open({
+                  latitude: hit.latitude,
+                  longitude: hit.longitude,
+                  label: hit.name,
+                  country: hit.country,
+                })
+              }
               className="inline-flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-slate-200 transition hover:bg-white/10"
             >
               {t("map.openInMaps")}
               <ExternalLink className="h-3.5 w-3.5" aria-hidden />
-            </a>
+            </button>
             <button
               type="button"
               disabled={Boolean(sendingId) || sending}
@@ -72,6 +78,8 @@ function PlaceResultCard({
           </div>
         }
       />
+
+      {navigationChooser.sheet}
     </li>
   );
 }

@@ -76,6 +76,9 @@ export default function CreateSpotForm({
   const [step, setStep] = useState<Step>("camera");
   const [cameraMode, setCameraMode] = useState<SpotCreateCameraMode>("photo");
   const [caption, setCaption] = useState("");
+  // Default: SpotDrop auto-generates a caption. Off only once the user
+  // explicitly asks to write their own — see SpotPublishScreen's toggle.
+  const [writeCaptionMyself, setWriteCaptionMyself] = useState(false);
   const [publishDestination, setPublishDestination] = useState<SpotPublishDestination>("public");
   const [publishPreviewItems, setPublishPreviewItems] = useState<MediaEditorItem[]>([]);
   const [location, setLocation] = useState<SpotGeoLocation | null>(null);
@@ -128,6 +131,7 @@ export default function CreateSpotForm({
     setStep("camera");
     setCameraMode("photo");
     setCaption("");
+    setWriteCaptionMyself(false);
     setPublishDestination("public");
     setLocation(null);
     setPickingMedia(false);
@@ -538,9 +542,13 @@ export default function CreateSpotForm({
         spotName: publishAsLocationCard
           ? resolveSpotName(cardText)
           : resolveSpotName(matchedPlace || label),
-        caption: publishAsLocationCard
-          ? undefined
-          : normalizeSpotCaption(caption).trim() || undefined,
+        caption:
+          publishAsLocationCard || !writeCaptionMyself
+            ? undefined
+            : normalizeSpotCaption(caption).trim() || undefined,
+        // Only when the user left the "Write myself" toggle off — never for
+        // a generated location card, which has its own template content.
+        autoCaption: !publishAsLocationCard && !writeCaptionMyself,
         location: publishLocation!,
         publishToMySpots: isMySpotsPublish,
         discoveryPlaces: placesRef.current,
@@ -662,6 +670,7 @@ export default function CreateSpotForm({
         mediaItems={publishPreviewItems}
         destination={publishDestination}
         caption={caption}
+        writeCaptionMyself={writeCaptionMyself}
         locationLabel={shortLocationLabel}
         publishing={publishing}
         uploadProgress={uploadProgress}
@@ -672,6 +681,13 @@ export default function CreateSpotForm({
         offlineMode={offlineMode}
         error={error}
         onCaptionChange={setCaption}
+        onWriteCaptionMyselfChange={(value) => {
+          setWriteCaptionMyself(value);
+          if (!value) {
+            // Switching back to AI mode — never publish stale hidden text.
+            setCaption("");
+          }
+        }}
         onDestinationChange={setPublishDestination}
         onBack={handlePublishBack}
         onPublish={() => void handlePublish()}

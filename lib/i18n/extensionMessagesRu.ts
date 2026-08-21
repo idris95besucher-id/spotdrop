@@ -573,6 +573,9 @@ export const EXTENSION_RU: Record<ExtensionKey, string> = {
   "post.signInToEngage": "Войдите, чтобы сохранить или комментировать.",
   "post.noMedia": "Нет медиа для этого поста",
   "post.guidePreviewReadOnly": "Превью гида — реакции и комментарии только для просмотра.",
+  "post.translate": "Перевести",
+  "post.showOriginal": "Показать оригинал",
+  "post.translating": "Перевод…",
 
   "guidePlace.badge": "Гид по местам Швейцарии",
   "guidePlace.location": "Местоположение",
@@ -740,6 +743,9 @@ export const EXTENSION_RU: Record<ExtensionKey, string> = {
   "spotEditor.captionPlaceholder": "Добавьте подпись",
   "spotEditor.captionExamples":
     "Пример:\n\"Отличное место для прогулки 🌲\"\n\"Отдых с семьёй.\"\n\"Красивый закат.\"\n\"Лучший кофе в городе.\"",
+  "spotEditor.autoCaptionHint": "SpotDrop сам напишет короткую подпись",
+  "spotEditor.writeCaptionMyself": "Написать самому",
+  "spotEditor.letAiWriteCaption": "Пусть SpotDrop напишет",
   "spotEditor.addPhotoSheetTitle": "Добавить фото",
   "spotEditor.takePhoto": "Сделать фото",
   "spotEditor.choosePhoto": "Выбрать фото",
@@ -1064,4 +1070,11 @@ export const EXTENSION_RU: Record<ExtensionKey, string> = {
   "officialChannel.error.publishFailed": "Не удалось опубликовать. Попробуйте ещё раз.",
   "officialChannel.error.translationFailed":
     "Автоматический перевод не удался. Попробуйте ещё раз.",
+
+  "settings.navigation": "Навигация",
+  "settings.navigationApp.title": "Предпочитаемое приложение навигации",
+  "settings.navigationApp.askEveryTime": "Спрашивать каждый раз",
+  "navigation.chooser.title": "Открыть с помощью",
+  "navigation.chooser.recommended": "Рекомендуется",
+  "navigation.chooser.rememberChoice": "Запомнить мой выбор",
 };

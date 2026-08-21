@@ -573,6 +573,9 @@ export const EXTENSION_DE: Record<ExtensionKey, string> = {
   "post.signInToEngage": "Melde dich an, um zu speichern oder zu kommentieren.",
   "post.noMedia": "Keine Medien für diesen Beitrag",
   "post.guidePreviewReadOnly": "Guide-Vorschau — Reaktionen und Kommentare sind schreibgeschützt.",
+  "post.translate": "Übersetzen",
+  "post.showOriginal": "Original anzeigen",
+  "post.translating": "Wird übersetzt…",
 
   "guidePlace.badge": "Schweizer Ortsführer",
   "guidePlace.location": "Standort",
@@ -740,6 +743,9 @@ export const EXTENSION_DE: Record<ExtensionKey, string> = {
   "spotEditor.captionPlaceholder": "Beschreibung hinzufügen",
   "spotEditor.captionExamples":
     "Beispiel:\n\"Toller Ort zum Spazieren 🌲\"\n\"Entspannt mit der Familie.\"\n\"Wunderschöner Sonnenuntergang.\"\n\"Bester Kaffee der Stadt.\"",
+  "spotEditor.autoCaptionHint": "SpotDrop schreibt dir eine kurze Bildunterschrift",
+  "spotEditor.writeCaptionMyself": "Selbst schreiben",
+  "spotEditor.letAiWriteCaption": "SpotDrop schreiben lassen",
   "spotEditor.addPhotoSheetTitle": "Foto hinzufügen",
   "spotEditor.takePhoto": "Foto aufnehmen",
   "spotEditor.choosePhoto": "Foto auswählen",
@@ -1064,4 +1070,11 @@ export const EXTENSION_DE: Record<ExtensionKey, string> = {
   "officialChannel.error.publishFailed": "Veröffentlichen fehlgeschlagen. Bitte erneut versuchen.",
   "officialChannel.error.translationFailed":
     "Automatische Übersetzung fehlgeschlagen. Bitte erneut versuchen.",
+
+  "settings.navigation": "Navigation",
+  "settings.navigationApp.title": "Bevorzugte Navigations-App",
+  "settings.navigationApp.askEveryTime": "Jedes Mal fragen",
+  "navigation.chooser.title": "Öffnen mit",
+  "navigation.chooser.recommended": "Empfohlen",
+  "navigation.chooser.rememberChoice": "Meine Wahl merken",
 };

@@ -7,7 +7,7 @@ import CityRoomPlacePreview from "@/components/CityRoomPlacePreview";
 import ShareMapPlaceToCityRoomSheet from "@/components/ShareMapPlaceToCityRoomSheet";
 import ShareMapPlaceToDmSheet from "@/components/ShareMapPlaceToDmSheet";
 import { useI18n } from "@/components/I18nProvider";
-import { buildPlaceMapsUrl, type CityRoomPlacePayload } from "@/lib/cityRoomPlaceMessage";
+import type { CityRoomPlacePayload } from "@/lib/cityRoomPlaceMessage";
 import { localizeUserMessage } from "@/lib/i18n/localizeUserMessage";
 import {
   canNativeShareMapPlace,
@@ -130,8 +130,6 @@ export default function ShareMapPlaceSheet({
     );
   }
 
-  const mapsUrl = buildPlaceMapsUrl(place);
-
   const menuOptions = [
     {
       id: "city-room" as const,
@@ -201,7 +199,6 @@ export default function ShareMapPlaceSheet({
               country={place.country}
               latitude={place.latitude}
               longitude={place.longitude}
-              mapsUrl={mapsUrl}
               compact
             />
 

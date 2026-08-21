@@ -19,29 +19,20 @@ import {
 } from "@/lib/spotLocationDisplay";
 import { getDisplayStreetName } from "@/lib/spotStreetName";
 import { recordSpotSeeVisit } from "@/lib/spotRanking";
+import { useNavigationAppChooser } from "@/lib/useNavigationAppChooser";
 import type { SpotLocationViewerContext } from "@/lib/spotVisitContext";
 
 function getCopyableAddress(spot: SpotLocationDisplayFields, locale: import("@/lib/i18n/locales").I18nLocale) {
   return formatSpotLocationDisplay(spot, locale);
 }
 
-function buildMapsUrl(location: SpotLocationDisplayFields) {
-  const latitude = Number(location.spot_latitude);
-  const longitude = Number(location.spot_longitude);
-
-  if (Number.isFinite(latitude) && Number.isFinite(longitude)) {
-    return `https://www.google.com/maps?q=${latitude},${longitude}`;
-  }
-
-  const query =
+/** Fallback free-text destination for the navigation chooser when there are no coordinates. */
+function resolveSpotAddressQuery(location: SpotLocationDisplayFields) {
+  return (
     getDisplayStreetName(location.spot_address) ||
-    [location.spot_city, location.spot_country].filter(Boolean).join(", ");
-
-  if (query) {
-    return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
-  }
-
-  return null;
+    [location.spot_city, location.spot_country].filter(Boolean).join(", ") ||
+    null
+  );
 }
 
 export default function SpotLocationSheet({
@@ -86,17 +77,11 @@ export default function SpotLocationSheet({
     };
   }, []);
 
-  if (!spot || !mounted) {
-    return null;
-  }
-
-  const copyableAddress = getCopyableAddress(spot, locale);
-
   // The visit only counts here — when the user actually opens the map and
   // the Spot's marker is shown at its real coordinates — never just for
   // tapping "See Spot" to open this sheet.
-  const handleOpenMaps = () => {
-    if (!spot.id) {
+  const handleOpenMaps = useCallback(() => {
+    if (!spot?.id) {
       return;
     }
 
@@ -109,6 +94,35 @@ export default function SpotLocationSheet({
       ownerId: viewerContext?.ownerId ?? null,
       authResolved: !authLoading,
       currentVisitedCount: viewerContext?.currentVisitedCount,
+    });
+  }, [authLoading, session?.user?.id, spot, viewerContext]);
+
+  const navigationChooser = useNavigationAppChooser(handleOpenMaps);
+
+  useEffect(() => {
+    navigationChooser.close();
+  }, [spot?.id, navigationChooser]);
+
+  if (!spot || !mounted) {
+    return null;
+  }
+
+  const copyableAddress = getCopyableAddress(spot, locale);
+  const navigationLabel = spot.spot_name?.trim() || spot.placeName?.trim() || null;
+  const hasCoordinates = hasSpotCoordinates(spot);
+  const addressQuery = hasCoordinates ? null : resolveSpotAddressQuery(spot);
+  const canNavigate = hasCoordinates || Boolean(addressQuery);
+
+  // Always the chooser — coordinates when available (preferred, most
+  // accurate), otherwise the address/city/country as a free-text query. The
+  // shared hook/sheet decides which provider actually gets used.
+  const handleNavigate = () => {
+    navigationChooser.open({
+      latitude: hasCoordinates ? Number(spot.spot_latitude) : null,
+      longitude: hasCoordinates ? Number(spot.spot_longitude) : null,
+      label: navigationLabel,
+      address: addressQuery,
+      country: spot.spot_country,
     });
   };
 
@@ -140,7 +154,6 @@ export default function SpotLocationSheet({
     ? localizeCountryByEnglishName(locale, spot.spot_country) ?? spot.spot_country
     : null;
 
-  const mapsUrl = buildMapsUrl(spot);
   const displayStreet = getDisplayStreetName(spot.spot_address);
   const hasAnyDetails = Boolean(
     displayStreet ||
@@ -233,21 +246,21 @@ export default function SpotLocationSheet({
           ) : null}
         </div>
 
-        {mapsUrl ? (
+        {canNavigate ? (
           <div className={`${bottomSheetLayout.footer} px-5 py-3`}>
-            <a
-              href={mapsUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={handleOpenMaps}
+            <button
+              type="button"
+              onClick={handleNavigate}
               className="flex w-full items-center justify-center gap-2 rounded-2xl bg-primary py-3 text-sm font-semibold text-background transition hover:brightness-110 active:opacity-90"
             >
               <ExternalLink className="h-4 w-4" aria-hidden />
               Open in Maps
-            </a>
+            </button>
           </div>
         ) : null}
       </div>
+
+      {navigationChooser.sheet}
 
       {toastMessage ? (
         <div

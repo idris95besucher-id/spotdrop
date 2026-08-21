@@ -9,7 +9,7 @@ import UsernameWithVerification from "@/components/UsernameWithVerification";
 import { useI18n } from "@/components/I18nProvider";
 import { usePostViewerOptional } from "@/components/PostViewerProvider";
 import { mapMarkToSharePayload } from "@/lib/cityRoomMapMarkMessage";
-import { openGoogleMapsAtCoordinates } from "@/lib/externalMaps";
+import { useNavigationAppChooser } from "@/lib/useNavigationAppChooser";
 import {
   deleteMapMark,
   resolveRelatedSpotPostIdForMapMark,
@@ -75,6 +75,7 @@ export default function MapMarkDetailSheet({
   const [relatedSpotId, setRelatedSpotId] = useState<string | null>(null);
   const [openingSpot, setOpeningSpot] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
+  const navigationChooser = useNavigationAppChooser();
 
   const placeLine = useMemo(() => {
     return mark.place_name?.trim() || mark.address?.trim() || t("map.selectedLocation");
@@ -251,8 +252,17 @@ export default function MapMarkDetailSheet({
     setPhotoPreview(nextUrl);
   };
 
-  const handleOpenGoogleMaps = () => {
-    openGoogleMapsAtCoordinates(mark.latitude, mark.longitude);
+  const markCountry = mark.country_slug
+    ? mark.country_slug.charAt(0).toUpperCase() + mark.country_slug.slice(1)
+    : null;
+
+  const handleOpenNavigation = () => {
+    navigationChooser.open({
+      latitude: mark.latitude,
+      longitude: mark.longitude,
+      label: mark.place_name,
+      country: markCountry,
+    });
   };
 
   const sharePayload = useMemo(() => mapMarkToSharePayload(mark), [mark]);
@@ -440,11 +450,11 @@ export default function MapMarkDetailSheet({
               <div className="flex gap-2">
                 <button
                   type="button"
-                  onClick={handleOpenGoogleMaps}
+                  onClick={handleOpenNavigation}
                   className="inline-flex flex-1 items-center justify-center gap-2 rounded-full bg-cyan-500 py-3.5 text-sm font-bold text-slate-950 shadow-lg shadow-cyan-500/20 transition hover:bg-cyan-400 active:scale-[0.99]"
                 >
                   <span aria-hidden>🗺️</span>
-                  {t("map.markOpenInGoogleMaps")}
+                  {t("map.openInMaps")}
                 </button>
                 <button
                   type="button"
@@ -497,6 +507,8 @@ export default function MapMarkDetailSheet({
         isOpen={shareOpen}
         onClose={() => setShareOpen(false)}
       />
+
+      {navigationChooser.sheet}
     </div>
   );
 }

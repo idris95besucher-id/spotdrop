@@ -18,9 +18,10 @@ export function applySpotFullscreenVideoAttributes(video: HTMLVideoElement) {
 /** Muted autoplay first, then unmute when the published video has audio. */
 export async function playSpotFullscreenVideo(
   video: HTMLVideoElement,
-  options?: { forceMuted?: boolean }
+  options?: { forceMuted?: boolean; isStillActive?: () => boolean }
 ): Promise<SpotFullscreenPlayResult> {
   const wantSound = !options?.forceMuted;
+  const stillActive = () => options?.isStillActive?.() ?? true;
 
   // Avoid stacking concurrent play()/mute flips — a common flash source on iOS.
   if (video.dataset.spotPlayInFlight === "1") {
@@ -38,13 +39,21 @@ export async function playSpotFullscreenVideo(
       return { started: false };
     }
 
+    // The caller (e.g. navigating away to another screen) may have deactivated
+    // this video while play() was pending — never proceed to unmute/resume it.
+    if (!video.isConnected || !stillActive()) {
+      video.pause();
+      return { started: false };
+    }
+
     if (wantSound) {
       // Wait one frame so the first painted frame is stable before unmute.
       await new Promise<void>((resolve) => {
         window.requestAnimationFrame(() => resolve());
       });
 
-      if (!video.isConnected) {
+      if (!video.isConnected || !stillActive()) {
+        video.pause();
         return { started: false };
       }
 

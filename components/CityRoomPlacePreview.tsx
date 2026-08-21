@@ -2,8 +2,8 @@
 
 import type { ReactNode } from "react";
 import { ExternalLink, MapPin } from "lucide-react";
-import { buildPlaceMapsUrl } from "@/lib/cityRoomPlaceMessage";
 import { formatCityRegionLabel, formatPlaceLocationLabel } from "@/lib/touristPlaceSearch";
+import { useNavigationAppChooser } from "@/lib/useNavigationAppChooser";
 
 type CityRoomPlacePreviewProps = {
   name: string;
@@ -15,7 +15,6 @@ type CityRoomPlacePreviewProps = {
   country?: string | null;
   latitude: number;
   longitude: number;
-  mapsUrl?: string;
   footer?: ReactNode;
   compact?: boolean;
 };
@@ -30,13 +29,12 @@ export default function CityRoomPlacePreview({
   country = null,
   latitude,
   longitude,
-  mapsUrl,
   footer = null,
   compact = false,
 }: CityRoomPlacePreviewProps) {
   const cityRegion =
     formatPlaceLocationLabel(city, region, country) ?? formatCityRegionLabel(city, region);
-  const resolvedMapsUrl = mapsUrl ?? buildPlaceMapsUrl({ name, latitude, longitude });
+  const navigationChooser = useNavigationAppChooser();
 
   return (
     <div className={compact ? "space-y-2" : "space-y-3"}>
@@ -72,16 +70,19 @@ export default function CityRoomPlacePreview({
       </div>
 
       {footer ?? (
-        <a
-          href={resolvedMapsUrl}
-          target="_blank"
-          rel="noopener noreferrer"
+        <button
+          type="button"
+          onClick={() =>
+            navigationChooser.open({ latitude, longitude, label: name, country })
+          }
           className="inline-flex w-full items-center justify-center gap-1.5 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs font-semibold text-slate-200 transition hover:bg-white/10"
         >
           Open in Maps
           <ExternalLink className="h-3.5 w-3.5" aria-hidden />
-        </a>
+        </button>
       )}
+
+      {navigationChooser.sheet}
     </div>
   );
 }

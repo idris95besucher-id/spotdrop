@@ -4,6 +4,7 @@ import { useState } from "react";
 import { LocateFixed, Navigation } from "lucide-react";
 import { useI18n } from "@/components/I18nProvider";
 import { mapboxStaticPlaceImageUrl } from "@/lib/placeImages";
+import { useNavigationAppChooser } from "@/lib/useNavigationAppChooser";
 
 type ChatLocationBubbleProps = {
   latitude: number;
@@ -19,15 +20,15 @@ function formatCoordinate(value: number) {
 export default function ChatLocationBubble({ latitude, longitude, isOwnMessage }: ChatLocationBubbleProps) {
   const { t } = useI18n();
   const [mapImageFailed, setMapImageFailed] = useState(false);
+  const navigationChooser = useNavigationAppChooser();
 
-  const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${latitude},${longitude}`;
   // Static preview image — same Mapbox helper already used for Spot/place cards elsewhere in
   // the app (lib/placeImages.ts). Returns null when no Mapbox token is configured, in which
   // case we fall back to the plain icon tile below rather than a broken <img>.
   const mapPreviewUrl = mapboxStaticPlaceImageUrl(latitude, longitude, 320, 176);
 
   const openOnMap = () => {
-    window.open(mapsUrl, "_blank", "noopener,noreferrer");
+    navigationChooser.open({ latitude, longitude });
   };
 
   return (
@@ -69,6 +70,8 @@ export default function ChatLocationBubble({ latitude, longitude, isOwnMessage }
           {t("chatAttach.openInMaps")}
         </button>
       </div>
+
+      {navigationChooser.sheet}
     </div>
   );
 }

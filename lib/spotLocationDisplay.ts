@@ -241,19 +241,3 @@ export function shouldShowSpotLocation(post: SpotLocationDisplayFields) {
   return isSpotContent(post) && hasSpotLocationData(post);
 }
 
-export function buildSpotMapsUrl(post: SpotLocationDisplayFields) {
-  const latitude = Number(post.spot_latitude);
-  const longitude = Number(post.spot_longitude);
-
-  if (Number.isFinite(latitude) && Number.isFinite(longitude)) {
-    return `https://www.google.com/maps?q=${latitude},${longitude}`;
-  }
-
-  const query = formatSpotLocationDisplay(post);
-
-  if (query) {
-    return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
-  }
-
-  return null;
-}

@@ -20,6 +20,7 @@ type SpotPublishScreenProps = {
   mediaItems: MediaEditorItem[];
   destination: SpotPublishDestination;
   caption: string;
+  writeCaptionMyself: boolean;
   locationLabel: string;
   publishing: boolean;
   uploadProgress?: SpotUploadProgress | null;
@@ -28,6 +29,7 @@ type SpotPublishScreenProps = {
   offlineMode?: boolean;
   error: string | null;
   onCaptionChange: (value: string) => void;
+  onWriteCaptionMyselfChange: (value: boolean) => void;
   onDestinationChange: (destination: SpotPublishDestination) => void;
   onBack: () => void;
   onPublish: () => void;
@@ -64,6 +66,7 @@ export default function SpotPublishScreen({
   mediaItems,
   destination,
   caption,
+  writeCaptionMyself,
   locationLabel,
   publishing,
   uploadProgress = null,
@@ -72,6 +75,7 @@ export default function SpotPublishScreen({
   offlineMode = false,
   error,
   onCaptionChange,
+  onWriteCaptionMyselfChange,
   onDestinationChange,
   onBack,
   onPublish,
@@ -201,11 +205,35 @@ export default function SpotPublishScreen({
         }}
       >
         <div className="space-y-3 px-4 py-3">
-          <SpotCompactCaptionField
-            value={caption}
-            disabled={publishing}
-            onChange={onCaptionChange}
-          />
+          {writeCaptionMyself ? (
+            <div className="space-y-1.5">
+              <SpotCompactCaptionField
+                value={caption}
+                disabled={publishing}
+                onChange={onCaptionChange}
+              />
+              <button
+                type="button"
+                disabled={publishing}
+                onClick={() => onWriteCaptionMyselfChange(false)}
+                className="px-0.5 text-xs font-medium text-cyan-300/90 transition hover:text-cyan-200 disabled:opacity-50"
+              >
+                {t("spotEditor.letAiWriteCaption")}
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              disabled={publishing}
+              onClick={() => onWriteCaptionMyselfChange(true)}
+              className="flex w-full items-center justify-between rounded-xl bg-white/[0.06] px-3.5 py-2.5 text-left ring-1 ring-white/10 transition hover:bg-white/[0.08] disabled:opacity-50"
+            >
+              <span className="text-sm text-white/70">{t("spotEditor.autoCaptionHint")}</span>
+              <span className="shrink-0 text-xs font-semibold text-cyan-300/90">
+                {t("spotEditor.writeCaptionMyself")}
+              </span>
+            </button>
+          )}
 
           <div className="flex items-center gap-2.5 rounded-xl bg-white/[0.06] px-3.5 py-2.5 ring-1 ring-white/10">
             <MapPin className="h-4 w-4 shrink-0 text-cyan-300" strokeWidth={1.75} aria-hidden />

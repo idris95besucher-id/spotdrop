@@ -1,11 +1,13 @@
 "use client";
 
+import PostCaptionTranslate from "@/components/PostCaptionTranslate";
 import SpotLocationSummary from "@/components/SpotLocationSummary";
 import { getSpotCaption } from "@/lib/spotCaption";
 import { shouldShowSpotLocation, type SpotLocationDisplayFields } from "@/lib/spotLocationDisplay";
 import { formatPostTime } from "@/lib/posts";
 
 type SpotPostMetaProps = {
+  postId: string;
   content?: string | null;
   location: SpotLocationDisplayFields;
   createdAt?: string | null;
@@ -15,6 +17,7 @@ type SpotPostMetaProps = {
 
 /** Caption, location, and time — Instagram / Threads style spot metadata. */
 export default function SpotPostMeta({
+  postId,
   content,
   location,
   createdAt,
@@ -30,9 +33,7 @@ export default function SpotPostMeta({
 
   return (
     <div className={`space-y-2 ${className}`}>
-      {caption ? (
-        <p className="whitespace-pre-wrap text-[15px] leading-relaxed text-white">{caption}</p>
-      ) : null}
+      {caption ? <PostCaptionTranslate postId={postId} caption={caption} /> : null}
 
       {showLocation ? (
         <SpotLocationSummary location={location} currentVisitedCount={currentVisitedCount} />

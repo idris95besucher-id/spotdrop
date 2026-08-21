@@ -15,6 +15,7 @@ import SpotMediaCarousel, { type SpotCarouselSlide } from "@/components/SpotMedi
 import SpotViewerCarouselIndicator from "@/components/SpotViewerCarouselIndicator";
 import GuidePlaceCard from "@/components/GuidePlaceCard";
 import LocationCardViewerFrame from "@/components/LocationCardViewerFrame";
+import PostCaptionTranslate from "@/components/PostCaptionTranslate";
 import SpotLocationSummary from "@/components/SpotLocationSummary";
 import { deleteOwnedPublication } from "@/lib/deleteContent";
 import { isDemoPostId, postIdsEqual } from "@/lib/postIds";
@@ -801,7 +802,7 @@ export default function PostViewerSlide({
           ) : null}
 
           {viewerCaption ? (
-            <p className="whitespace-pre-wrap text-[15px] leading-relaxed text-white">{viewerCaption}</p>
+            <PostCaptionTranslate postId={String(post.id)} caption={viewerCaption} />
           ) : null}
 
           {showSpotLocationInViewer ? (

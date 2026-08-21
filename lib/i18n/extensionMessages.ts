@@ -573,6 +573,9 @@ export const EXTENSION_EN = {
   "post.signInToEngage": "Sign in to save or comment.",
   "post.noMedia": "No media for this post",
   "post.guidePreviewReadOnly": "Guide preview — reactions and comments are read-only.",
+  "post.translate": "Translate",
+  "post.showOriginal": "Show original",
+  "post.translating": "Translating…",
 
   "guidePlace.badge": "Swiss place guide",
   "guidePlace.location": "Location",
@@ -739,6 +742,9 @@ export const EXTENSION_EN = {
   "spotEditor.captionPlaceholder": "Add caption",
   "spotEditor.captionExamples":
     "Example:\n\"Great place to walk 🌲\"\n\"Chill with family.\"\n\"Beautiful sunset.\"\n\"Best coffee in town.\"",
+  "spotEditor.autoCaptionHint": "SpotDrop will write a short caption for you",
+  "spotEditor.writeCaptionMyself": "Write it myself",
+  "spotEditor.letAiWriteCaption": "Let SpotDrop write it",
   "spotEditor.addPhotoSheetTitle": "Add photo",
   "spotEditor.takePhoto": "Take photo",
   "spotEditor.choosePhoto": "Choose photo",
@@ -1057,6 +1063,13 @@ export const EXTENSION_EN = {
   "officialChannel.error.publishFailed": "Unable to publish. Please try again.",
   "officialChannel.error.translationFailed":
     "Automatic translation failed. Please try again.",
+
+  "settings.navigation": "Navigation",
+  "settings.navigationApp.title": "Preferred navigation app",
+  "settings.navigationApp.askEveryTime": "Ask every time",
+  "navigation.chooser.title": "Open with",
+  "navigation.chooser.recommended": "Recommended",
+  "navigation.chooser.rememberChoice": "Remember my choice",
 } as const;
 
 export type ExtensionKey = keyof typeof EXTENSION_EN;

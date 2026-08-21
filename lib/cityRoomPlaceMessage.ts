@@ -128,11 +128,6 @@ export function isCityRoomStructuredMessage(content: string) {
 
 export { isCityRoomImageMessage };
 
-export function buildPlaceMapsUrl(place: Pick<CityRoomPlacePayload, "latitude" | "longitude" | "name">) {
-  const query = encodeURIComponent(`${place.latitude},${place.longitude} (${place.name})`);
-  return `https://www.google.com/maps/search/?api=1&query=${query}`;
-}
-
 export function placeSearchHitToPayload(hit: {
   name: string;
   address: string;

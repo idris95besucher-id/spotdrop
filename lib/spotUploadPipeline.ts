@@ -54,6 +54,8 @@ export type PublishSpotInput = {
   locationCard?: boolean;
   /** Optional user caption — stored in posts.content. */
   caption?: string;
+  /** User left the caption to SpotDrop's AI (the "Write myself" toggle was off). */
+  autoCaption?: boolean;
   /** Cancels in-flight uploads (and any pending retry backoff) — an explicit user cancel or leaving the upload flow, never a rerender or timer. */
   signal?: AbortSignal;
   /** Fired before each automatic upload retry so the UI can show retry status without losing progress. */
@@ -280,6 +282,7 @@ export async function publishSpotWithProgress(input: PublishSpotInput): Promise<
     carouselPreparedItems: preparedFiles,
     locationCard: input.locationCard,
     caption: input.caption,
+    autoCaption: input.autoCaption,
     onPublishStage: (stage, percent) => {
       reportProgress(input.onProgress, stage, percent, labelContext);
     },

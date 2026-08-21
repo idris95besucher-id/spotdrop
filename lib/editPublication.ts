@@ -81,6 +81,11 @@ export async function updateOwnedPublication(
       }
     : {
         content: nextCaption,
+        // Always mark manual on a saved edit — the source of truth an AI
+        // caption job (database/add-ai-post-captions.sql) checks against
+        // before ever writing content, so a late AI result can never
+        // clobber this edit, no matter when it lands.
+        caption_source: "manual",
         updated_at: new Date().toISOString(),
       };
 

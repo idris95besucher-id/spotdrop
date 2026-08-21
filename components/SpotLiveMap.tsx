@@ -12,7 +12,6 @@ import MapTapActionSheet, { type MapTapAction } from "@/components/MapTapActionS
 import ShareMapPlaceSheet from "@/components/ShareMapPlaceSheet";
 import SpotMapPinSheet from "@/components/SpotMapPinSheet";
 import { mountAvatarIntoElement } from "@/lib/avatarUrl";
-import { openExternalMapsDirections } from "@/lib/externalMaps";
 import { geoLocationToMapPlaceSharePayload } from "@/lib/mapPlaceShare";
 import { DEFAULT_MAP_CENTER, DEFAULT_MAP_ZOOM, getMapLibreStyleUrl } from "@/lib/mapLibre";
 import {
@@ -54,6 +53,7 @@ import {
   type LiveMapUser,
 } from "@/lib/userLiveLocation";
 import { usePresenceOnlineIds } from "@/lib/usePresenceOnlineIds";
+import { useNavigationAppChooser } from "@/lib/useNavigationAppChooser";
 import { localizeError } from "@/lib/i18n/localizeError";
 import type { TranslationKey } from "@/lib/i18n/messages";
 import "maplibre-gl/dist/maplibre-gl.css";
@@ -384,6 +384,7 @@ export default function SpotLiveMap({
 }: SpotLiveMapProps) {
   const { t, locale } = useI18n();
   const { presenceOnlineIds, freshnessTick } = usePresenceOnlineIds();
+  const navigationChooser = useNavigationAppChooser();
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<import("maplibre-gl").Map | null>(null);
   const maplibreRef = useRef<typeof import("maplibre-gl") | null>(null);
@@ -626,7 +627,12 @@ export default function SpotLiveMap({
 
       if (action === "directions") {
         clearTapSave();
-        openExternalMapsDirections(location.latitude, location.longitude, placeLabel);
+        navigationChooser.open({
+          latitude: location.latitude,
+          longitude: location.longitude,
+          label: placeLabel,
+          country: location.country,
+        });
         return;
       }
 
@@ -646,7 +652,7 @@ export default function SpotLiveMap({
         setMarkCreateLocation({ location, placeLabel });
       }
     },
-    [clearTapSave, t, tapActionBusy, tapSave, userId]
+    [clearTapSave, navigationChooser, t, tapActionBusy, tapSave, userId]
   );
 
   useEffect(() => {
@@ -2159,6 +2165,7 @@ export default function SpotLiveMap({
           onClose={() => setSharePlaceOpen(false)}
         />
       ) : null}
+      {navigationChooser.sheet}
     </div>
   );
 }

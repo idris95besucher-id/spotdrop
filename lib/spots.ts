@@ -117,6 +117,13 @@ export type CreateSpotInput = {
   locationCard?: boolean;
   /** Optional user caption — stored in posts.content. */
   caption?: string;
+  /**
+   * User left the caption to SpotDrop's AI (the "Write myself" toggle was
+   * off). Only takes effect when there's no manual caption, this isn't a
+   * location card, and the Spot is publishing to public Spots — matching the
+   * same scope as photo moderation below. See database/add-ai-post-captions.sql.
+   */
+  autoCaption?: boolean;
 };
 
 export type CreateGeoSpotResult = {
@@ -731,9 +738,21 @@ export async function createGeoSpot(input: CreateSpotInput): Promise<CreateGeoSp
   const primaryAudioMuted =
     primaryItem.mediaType === "video" ? Boolean(primaryItem.audioMuted) : false;
 
+  const trimmedCaption = input.caption?.trim() ?? "";
+  // Same scope as the photo-moderation gate above: public Spots only, never
+  // a location card (its content is a generated template, not a caption).
+  const eligibleForAutoCaption =
+    !input.locationCard &&
+    !trimmedCaption &&
+    input.autoCaption === true &&
+    spotVisibility === "public" &&
+    publishedToSpots === true;
+  const captionSource: "manual" | "ai_pending" = eligibleForAutoCaption ? "ai_pending" : "manual";
+
   const row = {
     user_id: input.userId,
-    content: input.locationCard ? spotLocationCardContent() : input.caption?.trim() ?? "",
+    content: input.locationCard ? spotLocationCardContent() : trimmedCaption,
+    caption_source: captionSource,
     spot_name: resolveSpotName(input.spotName),
     visibility: spotVisibility,
     published_to_spots: publishedToSpots,

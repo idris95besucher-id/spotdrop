@@ -98,6 +98,7 @@ function PostReelMediaImage({
   const playRetryUsedRef = useRef(false);
   const resumeAfterPauseRef = useRef(false);
   const userPausedRef = useRef(false);
+  const pageHiddenRef = useRef(false);
   const retryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const retryCountRef = useRef(0);
   const debugLastEventRef = useRef("—");
@@ -183,6 +184,7 @@ function PostReelMediaImage({
 
       const result = await playSpotFullscreenVideo(video, {
         forceMuted: effectiveMutedRef.current,
+        isStillActive: () => isActiveRef.current,
       });
 
       if (result.started) {
@@ -207,12 +209,15 @@ function PostReelMediaImage({
       if (options?.allowRetry) {
         window.requestAnimationFrame(() => {
           window.requestAnimationFrame(() => {
-            if (!video.isConnected || !video.paused) {
+            if (!video.isConnected || !video.paused || !isActiveRef.current) {
               return;
             }
 
             markDebugEvent("play attempt", { reason: `${reason}-mount-retry` });
-            void playSpotFullscreenVideo(video, { forceMuted: effectiveMutedRef.current }).then((retryResult) => {
+            void playSpotFullscreenVideo(video, {
+              forceMuted: effectiveMutedRef.current,
+              isStillActive: () => isActiveRef.current,
+            }).then((retryResult) => {
               if (retryResult.started) {
                 markPlayResult(`resolved (${reason}-mount-retry)`, { currentTime: video.currentTime });
               } else {
@@ -400,8 +405,9 @@ function PostReelMediaImage({
         return;
       }
 
-      // User tapped to pause — hold it, do not auto-resume.
-      if (userPausedRef.current) {
+      // User tapped to pause, or the app/tab went into the background — hold it,
+      // do not auto-resume behind their back.
+      if (userPausedRef.current || pageHiddenRef.current) {
         patchVideoFlags({ playing: false });
         refreshDebugSnapshot();
         return;
@@ -494,6 +500,31 @@ function PostReelMediaImage({
       refreshDebugSnapshot();
     };
 
+    // The app going to the background must stop audio immediately. JS timers/effects
+    // can be suspended by the WebView before a React unmount ever gets to run, so this
+    // is a synchronous safety net independent of the isActive/unmount cleanup paths.
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        pageHiddenRef.current = true;
+        markDebugEvent("pause", { source: "visibilitychange:hidden" });
+        video.pause();
+        return;
+      }
+
+      if (pageHiddenRef.current) {
+        pageHiddenRef.current = false;
+
+        if (isActiveRef.current && !userPausedRef.current) {
+          requestActivePlay(video, "visibility-resume");
+        }
+      }
+    };
+
+    const handlePageHide = () => {
+      pageHiddenRef.current = true;
+      video.pause();
+    };
+
     video.addEventListener("loadedmetadata", handleLoadedMetadata);
     video.addEventListener("loadeddata", handleLoadedData);
     video.addEventListener("canplay", handleCanPlay);
@@ -502,6 +533,8 @@ function PostReelMediaImage({
     video.addEventListener("stalled", handleStalled);
     video.addEventListener("waiting", handleWaiting);
     video.addEventListener("error", handleError);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("pagehide", handlePageHide);
 
     refreshDebugSnapshot();
 
@@ -515,6 +548,11 @@ function PostReelMediaImage({
       video.removeEventListener("stalled", handleStalled);
       video.removeEventListener("waiting", handleWaiting);
       video.removeEventListener("error", handleError);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("pagehide", handlePageHide);
+      // Listeners are already off, so this can't trigger the "unexpected pause"
+      // auto-resume above — a real unmount/teardown must always stop audio.
+      video.pause();
     };
   }, [
     attemptPlay,

@@ -210,7 +210,12 @@ export default function CityRoomSharedSpots({ room }: CityRoomSharedSpotsProps) 
                       stats={getFeedSpotPublicStats(spot)}
                       onCommentsClick={() => setCommentsPostId(spot.id)}
                     />
-                    <SpotPostMeta content={spot.content} location={locationFields} createdAt={spot.created_at} />
+                    <SpotPostMeta
+                      postId={String(spot.id)}
+                      content={spot.content}
+                      location={locationFields}
+                      createdAt={spot.created_at}
+                    />
                   </div>
                 </article>
               );

@@ -110,6 +110,7 @@ export default function ProfilePostFeedCard({
       {showMeta ? (
         <div className="px-4 py-3">
           <SpotPostMeta
+            postId={String(post.id)}
             content={post.content}
             location={locationFields}
             createdAt={post.created_at}

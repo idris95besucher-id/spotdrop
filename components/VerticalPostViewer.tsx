@@ -56,6 +56,14 @@ type VerticalPostViewerProps = {
 };
 
 const OPEN_SWIPE_LOCK_MS = 600;
+/**
+ * How long to hold off starting the hidden metadata preload fetch for adjacent
+ * slides after the active index settles. The active slide's own video needs an
+ * uncontended head start on a mobile connection — firing prev/next preload
+ * requests at the same instant is what starves the active video's initial
+ * buffer and causes it to play ~1-2s then stall waiting for more data.
+ */
+const ADJACENT_VIDEO_PRELOAD_DELAY_MS = 700;
 
 function currentLocationKey() {
   if (typeof window === "undefined") {
@@ -599,6 +607,7 @@ export default function VerticalPostViewer({
 
   useEffect(() => {
     const keepVideoUrls = new Set<string>();
+    const deferredPreloadTimers: number[] = [];
 
     for (const index of [activeIndex - 1, activeIndex, activeIndex + 1]) {
       if (index < 0 || index >= items.length) {
@@ -608,33 +617,38 @@ export default function VerticalPostViewer({
       const spot = items[index]!;
       const sources = getReelMediaSources(spot);
 
+      // Poster/detail warmup is cheap (image + small JSON) — safe to fire immediately.
       preloadReelMediaSources(sources);
       warmPostDetailCache(spot.id);
 
-      if (sources.mediaType === "video" && sources.mediaUrl) {
-        if (index === activeIndex) {
-          releasePreloadedReelVideo(sources.mediaUrl);
-        } else {
-          preloadReelVideo(sources.mediaUrl, "metadata");
-          keepVideoUrls.add(sources.mediaUrl);
-        }
+      if (sources.mediaType !== "video" || !sources.mediaUrl) {
+        continue;
       }
-    }
 
-    const nextSpot = items[activeIndex + 1];
-
-    if (nextSpot) {
-      const nextSources = getReelMediaSources(nextSpot);
-
-      if (nextSources.mediaType === "video" && nextSources.mediaUrl) {
-        preloadReelVideo(nextSources.mediaUrl, "metadata");
-        keepVideoUrls.add(nextSources.mediaUrl);
+      if (index === activeIndex) {
+        // Hand any hidden preload decoder to the real fullscreen <video> right away —
+        // it must never keep fetching in parallel with the active player.
+        releasePreloadedReelVideo(sources.mediaUrl);
+        continue;
       }
+
+      const url = sources.mediaUrl;
+      keepVideoUrls.add(url);
+
+      // Adjacent slides only start their (small, metadata-only) preload fetch after
+      // a short delay, so they never compete with the active video's own critical
+      // first-buffer window on a constrained connection.
+      deferredPreloadTimers.push(
+        window.setTimeout(() => {
+          preloadReelVideo(url, "metadata");
+        }, ADJACENT_VIDEO_PRELOAD_DELAY_MS)
+      );
     }
 
     cleanupReelVideoPreloads(keepVideoUrls);
 
     return () => {
+      deferredPreloadTimers.forEach((timer) => window.clearTimeout(timer));
       cleanupReelVideoPreloads(new Set());
       pauseAllPreloadedReelVideos();
     };
@@ -750,7 +764,7 @@ export default function VerticalPostViewer({
                 <PostViewerSlide
                   item={spot}
                   slideIndex={index}
-                  isActive={index === activeIndex && !authorProfileSuspended}
+                  isActive={index === activeIndex && !authorProfileSuspended && !isClosing}
                   shouldPreloadMedia={distance <= 1}
                   userId={userId}
                   onItemDeleted={onItemDeleted}
