@@ -5,18 +5,64 @@
  * a real JPEG before it's ever uploaded, so both storage and the moderation
  * endpoint always see a format OpenAI can actually decode.
  */
-const SUPPORTED_VISION_IMAGE_MIME_TYPES = new Set([
-  "image/jpeg",
-  "image/png",
-  "image/gif",
-  "image/webp",
-]);
 
 const JPEG_NORMALIZE_QUALITY = 0.92;
 
-/** True when `file` is not already a format OpenAI vision input accepts. */
-export function imageNeedsJpegNormalization(file: File): boolean {
-  return !SUPPORTED_VISION_IMAGE_MIME_TYPES.has(file.type.toLowerCase());
+const JPEG_SIGNATURE = [0xff, 0xd8, 0xff];
+const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+const GIF_SIGNATURE = [0x47, 0x49, 0x46, 0x38]; // "GIF8" (covers GIF87a/GIF89a)
+const RIFF_SIGNATURE = [0x52, 0x49, 0x46, 0x46]; // "RIFF"
+const WEBP_SIGNATURE = [0x57, 0x45, 0x42, 0x50]; // "WEBP", at offset 8 inside a RIFF container
+
+function bytesStartWith(bytes: Uint8Array, signature: number[], offset = 0): boolean {
+  if (bytes.length < offset + signature.length) {
+    return false;
+  }
+
+  for (let i = 0; i < signature.length; i += 1) {
+    if (bytes[offset + i] !== signature[i]) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+/**
+ * Sniffs the file's real magic-byte signature — never trusts the declared
+ * `file.type`. Capacitor's native gallery picker (lib/pickMediaFromGallery.ts)
+ * can hand back a File labeled "image/jpeg" whose actual bytes are HEIC:
+ * fetching a local Capacitor webPath often yields an untyped Blob, and that
+ * picker's fallback then guesses "jpeg". Trusting the label let a real HEIC
+ * photo skip normalization and reach OpenAI unconverted, which OpenAI then
+ * rejected with `invalid_image_format` (it decodes actual bytes, not any
+ * claimed Content-Type).
+ */
+async function isRealSupportedVisionImage(file: File): Promise<boolean> {
+  const head = new Uint8Array(await file.slice(0, 12).arrayBuffer());
+
+  if (bytesStartWith(head, JPEG_SIGNATURE)) {
+    return true;
+  }
+
+  if (bytesStartWith(head, PNG_SIGNATURE)) {
+    return true;
+  }
+
+  if (bytesStartWith(head, GIF_SIGNATURE)) {
+    return true;
+  }
+
+  if (bytesStartWith(head, RIFF_SIGNATURE) && bytesStartWith(head, WEBP_SIGNATURE, 8)) {
+    return true;
+  }
+
+  return false;
+}
+
+/** True when `file`'s actual bytes are not already a format OpenAI vision input accepts. */
+export async function imageNeedsJpegNormalization(file: File): Promise<boolean> {
+  return !(await isRealSupportedVisionImage(file));
 }
 
 function jpegFileName(originalName: string): string {
@@ -39,7 +85,7 @@ export async function normalizeImageForPublish(
   file: File,
   quality: number = JPEG_NORMALIZE_QUALITY
 ): Promise<File> {
-  if (!imageNeedsJpegNormalization(file)) {
+  if (!(await imageNeedsJpegNormalization(file))) {
     return file;
   }
 
