@@ -1,6 +1,7 @@
 import type { MediaEditorItem } from "@/lib/mediaEditor/types";
 import { isCapacitorNative } from "@/lib/capacitorUtils";
 import { isIosSafari } from "@/lib/cameraCapture";
+import { normalizeImageForPublish } from "@/lib/imageFormatNormalize";
 import {
   getClipDurationSeconds,
   getResolvedTrimEnd,
@@ -100,7 +101,14 @@ async function exportMutedVideoForPublish(
 
 export async function prepareMediaFileForPublish(item: MediaEditorItem): Promise<PreparedPublishMedia> {
   if (item.mediaType !== "video") {
-    return { file: item.file, audioMuted: false };
+    // HEIC/HEIF/AVIF (and any other format OpenAI vision can't decode) must
+    // become a real JPEG before upload — this is the one shared point every
+    // image passes through on the way to both storage and moderate-photo, so
+    // a retry after a failed publish re-runs this same conversion on the
+    // same original file rather than depending on state left over from a
+    // previous attempt.
+    const normalizedFile = await normalizeImageForPublish(item.file);
+    return { file: normalizedFile, audioMuted: false };
   }
 
   // Native iOS recordings stay on disk — compression + upload are handled by
