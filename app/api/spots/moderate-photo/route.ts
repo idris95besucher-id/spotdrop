@@ -194,9 +194,20 @@ export async function POST(request: Request) {
     });
 
     if (!response.ok) {
+      // Diagnostic-only: OpenAI's error body identifies the failure (e.g. bad
+      // request param, invalid model, unsupported image) without ever
+      // including the request payload, the image URL, or our credentials.
+      const errorBody = (await response.json().catch(() => null)) as {
+        error?: { code?: unknown; type?: unknown; param?: unknown; message?: unknown };
+      } | null;
+
       console.error("[spot-photo-moderation] OpenAI request failed", {
         status: response.status,
         userId,
+        openaiErrorCode: errorBody?.error?.code ?? null,
+        openaiErrorType: errorBody?.error?.type ?? null,
+        openaiErrorParam: errorBody?.error?.param ?? null,
+        openaiErrorMessage: errorBody?.error?.message ?? null,
       });
       return respond({ error: "Photo check failed. Please try again." }, { status: 502 });
     }
