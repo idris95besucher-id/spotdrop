@@ -1,5 +1,9 @@
 import { createClient } from "@supabase/supabase-js";
-import { NextResponse } from "next/server";
+import {
+  capacitorApiCorsPreflight,
+  jsonWithCapacitorApiCors,
+  resolveApiRequestId,
+} from "@/lib/capacitorApiCors";
 
 // A single OpenAI vision call typically finishes in a few seconds, but this
 // gives headroom over the platform default for a cold start / slow network.
@@ -118,11 +122,19 @@ function resolveOwnedPostMediaImageUrl(rawImageUrl: string, userId: string): str
   return `${projectOrigin}${parsed.pathname}`;
 }
 
+export async function OPTIONS(request: Request) {
+  return capacitorApiCorsPreflight(request);
+}
+
 export async function POST(request: Request) {
+  const requestId = resolveApiRequestId(request);
+  const respond = (body: Record<string, unknown>, init?: ResponseInit) =>
+    jsonWithCapacitorApiCors(request, requestId, body, init);
+
   const userId = await resolveAuthenticatedUserId(request);
 
   if (!userId) {
-    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    return respond({ error: "Unauthorized." }, { status: 401 });
   }
 
   let rawImageUrl: string | null = null;
@@ -133,25 +145,25 @@ export async function POST(request: Request) {
     const body = (await request.json()) as { imageUrl?: unknown };
     rawImageUrl = typeof body.imageUrl === "string" ? body.imageUrl.trim() : null;
   } catch {
-    return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
+    return respond({ error: "Invalid request body." }, { status: 400 });
   }
 
   if (!rawImageUrl) {
-    return NextResponse.json({ error: "imageUrl is required." }, { status: 400 });
+    return respond({ error: "imageUrl is required." }, { status: 400 });
   }
 
   const imageUrl = resolveOwnedPostMediaImageUrl(rawImageUrl, userId);
 
   if (!imageUrl) {
     console.error("[spot-photo-moderation] rejected imageUrl", { userId });
-    return NextResponse.json({ error: "Invalid image URL." }, { status: 400 });
+    return respond({ error: "Invalid image URL." }, { status: 400 });
   }
 
   const apiKey = process.env.OPENAI_API_KEY?.trim();
 
   if (!apiKey) {
     console.error("[spot-photo-moderation] OPENAI_API_KEY not configured");
-    return NextResponse.json({ error: "Photo check is temporarily unavailable." }, { status: 503 });
+    return respond({ error: "Photo check is temporarily unavailable." }, { status: 503 });
   }
 
   const controller = new AbortController();
@@ -186,7 +198,7 @@ export async function POST(request: Request) {
         status: response.status,
         userId,
       });
-      return NextResponse.json({ error: "Photo check failed. Please try again." }, { status: 502 });
+      return respond({ error: "Photo check failed. Please try again." }, { status: 502 });
     }
 
     const payload = (await response.json()) as {
@@ -196,7 +208,7 @@ export async function POST(request: Request) {
 
     if (!rawContent) {
       console.error("[spot-photo-moderation] OpenAI response missing content", { userId });
-      return NextResponse.json({ error: "Photo check failed. Please try again." }, { status: 502 });
+      return respond({ error: "Photo check failed. Please try again." }, { status: 502 });
     }
 
     let parsed: { decision?: unknown };
@@ -205,7 +217,7 @@ export async function POST(request: Request) {
       parsed = JSON.parse(rawContent);
     } catch {
       console.error("[spot-photo-moderation] Unable to parse OpenAI response JSON", { userId });
-      return NextResponse.json({ error: "Photo check failed. Please try again." }, { status: 502 });
+      return respond({ error: "Photo check failed. Please try again." }, { status: 502 });
     }
 
     // Structured Outputs should already guarantee this shape — re-validate anyway,
@@ -215,12 +227,12 @@ export async function POST(request: Request) {
 
     if (!decision || !ALLOWED_DECISIONS.has(decision)) {
       console.error("[spot-photo-moderation] OpenAI response failed validation", { userId, decision });
-      return NextResponse.json({ error: "Photo check failed. Please try again." }, { status: 502 });
+      return respond({ error: "Photo check failed. Please try again." }, { status: 502 });
     }
 
     console.log("[spot-photo-moderation] result", { userId, decision });
 
-    return NextResponse.json({ decision });
+    return respond({ decision });
   } catch (error) {
     const isAbort = error instanceof DOMException && error.name === "AbortError";
     console.error("[spot-photo-moderation] request error", {
@@ -228,7 +240,7 @@ export async function POST(request: Request) {
       isAbort,
       message: error instanceof Error ? error.message : String(error),
     });
-    return NextResponse.json(
+    return respond(
       { error: isAbort ? "Photo check timed out. Please try again." : "Photo check failed. Please try again." },
       { status: 502 }
     );
