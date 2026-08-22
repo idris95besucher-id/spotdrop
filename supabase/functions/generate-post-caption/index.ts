@@ -133,6 +133,22 @@ async function requestCaptionFromOpenAI(
     });
 
     if (!response.ok) {
+      // Diagnostic-only: OpenAI's error body identifies the failure without
+      // ever including the request payload, the image URL, or our
+      // credentials. Does not change the returned CaptionResult/retry
+      // behavior below.
+      const errorBody = (await response.json().catch(() => null)) as {
+        error?: { code?: unknown; type?: unknown; param?: unknown; message?: unknown };
+      } | null;
+
+      console.error("[generate-post-caption] OpenAI request failed", {
+        status: response.status,
+        openaiErrorCode: errorBody?.error?.code ?? null,
+        openaiErrorType: errorBody?.error?.type ?? null,
+        openaiErrorParam: errorBody?.error?.param ?? null,
+        openaiErrorMessage: errorBody?.error?.message ?? null,
+      });
+
       return { ok: false, retryable: isRetryableStatus(response.status), reason: `http_${response.status}` };
     }
 
