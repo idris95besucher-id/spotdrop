@@ -59,13 +59,18 @@ export function isNavigationAppPreference(value: string): value is NavigationApp
 /**
  * Where to send a navigation app. Coordinates are preferred when present;
  * `label`/`address` are the fallback free-text query used when they aren't
- * (e.g. a Spot with no captured GPS fix, only a street address).
+ * (e.g. a Spot with no captured GPS fix, only a street address). `city`/
+ * `country` are additional context Apple Maps' query combines alongside
+ * `address` (e.g. "Gerechtigkeitsgasse, Bern, Switzerland") — other
+ * providers are unaffected and keep using `label`/`address` alone.
  */
 export type NavigationDestination = {
   latitude?: number | null;
   longitude?: number | null;
   label?: string | null;
   address?: string | null;
+  city?: string | null;
+  country?: string | null;
 };
 
 function destinationCoordinates(destination: NavigationDestination): { lat: number; lng: number } | null {
@@ -121,40 +126,90 @@ function openViaWebOrRace(appUrl: string | null, webUrl: string) {
 }
 
 /**
- * Apple Maps. The `https://maps.apple.com/...` universal link opens the app
- * directly when tapped in a regular browser (mobile Safari included), no
- * scheme probing needed there. Inside the installed Capacitor app, that
- * same universal-link navigation is unreliable via `window.location.href`
- * (see raceNativeSchemeThenWeb) — `maps://` is Apple Maps' own long-standing
- * custom URL scheme, accepting the same `daddr`/`ll`/`q` params, and is used
- * as the native-launch target there instead. Falls back to a free-text
- * `daddr` when there are no coordinates, in both cases.
+ * Combines whichever of address/city/country are actually available into
+ * one query string (e.g. "Gerechtigkeitsgasse, Bern, Switzerland") — never
+ * "undefined"/"null", never a trailing/leading comma from a missing field.
+ * Falls back to the place label only if none of address/city/country exist.
  */
-function openAppleMaps(destination: NavigationDestination) {
-  const coords = destinationCoordinates(destination);
-  const query = destinationQuery(destination);
+function buildAppleMapsQuery(destination: NavigationDestination): string | null {
+  const address = destination.address?.trim() || null;
+  const city = destination.city?.trim() || null;
+  const country = destination.country?.trim() || null;
+  const addressLower = address?.toLowerCase() ?? "";
 
-  let path: string | null = null;
+  // `address` alone (when there's no street) can already be a
+  // "City, Country" fallback from the caller — skip city/country here if
+  // they're already present in it, so the query never doubles up.
+  const parts = [
+    address,
+    city && !addressLower.includes(city.toLowerCase()) ? city : null,
+    country && !addressLower.includes(country.toLowerCase()) ? country : null,
+  ].filter((part): part is string => Boolean(part));
+
+  if (parts.length > 0) {
+    return parts.join(", ");
+  }
+
+  return destination.label?.trim() || null;
+}
+
+/**
+ * Apple Maps. Always uses the `https://maps.apple.com/...` HTTPS universal
+ * link — never the `maps://` custom scheme, which turned out not to launch
+ * reliably via AppLauncher.openUrl on the installed iOS app even though the
+ * mechanism itself (bypassing the webview) was correct. The HTTPS universal
+ * link is guaranteed openable by UIApplication.open either way (via the
+ * Maps app's registered association, or Safari as an absolute last resort),
+ * so it's the safer, unconditional choice.
+ *
+ * On native iOS, calls AppLauncher.openUrl directly (never window.open),
+ * wrapped in try/catch, with explicit success/failure logging (never any
+ * secret/unrelated data — only platform, the URL, and the outcome) and a
+ * window.location.href fallback if it reports unsuccessful or throws.
+ */
+async function openAppleMaps(destination: NavigationDestination) {
+  const coords = destinationCoordinates(destination);
+  const query = buildAppleMapsQuery(destination);
+
+  let webUrl: string | null = null;
 
   if (coords) {
     const q = query ? `&q=${encodeURIComponent(query)}` : "";
-    path = `?daddr=${coords.lat},${coords.lng}&ll=${coords.lat},${coords.lng}${q}`;
+    webUrl = `https://maps.apple.com/?daddr=${coords.lat},${coords.lng}&ll=${coords.lat},${coords.lng}${q}`;
   } else if (query) {
-    path = `?daddr=${encodeURIComponent(query)}`;
+    webUrl = `https://maps.apple.com/?q=${encodeURIComponent(query)}`;
   }
 
-  if (!path) {
+  if (!webUrl) {
     return;
   }
 
-  const webUrl = `https://maps.apple.com/${path}`;
-
-  if (Capacitor.isNativePlatform()) {
-    void openExternalAppUrl(`maps://${path}`, webUrl);
+  if (!Capacitor.isNativePlatform()) {
+    window.location.href = webUrl;
     return;
   }
 
-  window.location.href = webUrl;
+  console.log("[navigationApps] Open in Maps tapped", {
+    platform: Capacitor.getPlatform(),
+    url: webUrl,
+  });
+
+  try {
+    const { AppLauncher } = await import("@capacitor/app-launcher");
+    const { completed } = await AppLauncher.openUrl({ url: webUrl });
+
+    console.log("[navigationApps] AppLauncher.openUrl result", { completed, url: webUrl });
+
+    if (!completed) {
+      window.location.href = webUrl;
+    }
+  } catch (error) {
+    console.error("[navigationApps] AppLauncher.openUrl threw", {
+      url: webUrl,
+      message: error instanceof Error ? error.message : String(error),
+    });
+    window.location.href = webUrl;
+  }
 }
 
 /**
@@ -260,7 +315,7 @@ export function openNavigationApp(provider: NavigationProvider, destination: Nav
 
   switch (provider) {
     case "apple":
-      openAppleMaps(destination);
+      void openAppleMaps(destination);
       return;
     case "google":
       if (coords) {

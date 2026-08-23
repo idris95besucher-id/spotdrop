@@ -21,7 +21,9 @@ export type NavigationAppChooserTarget = {
   /** Free-text fallback used when coordinates aren't available. */
   label?: string | null;
   address?: string | null;
-  /** English canonical country name (e.g. "Switzerland") — used only for the Recommended badge. */
+  /** Combined with `address`/`country` into Apple Maps' query; not otherwise used. */
+  city?: string | null;
+  /** English canonical country name (e.g. "Switzerland") — Recommended badge, and combined into Apple Maps' query. */
   country?: string | null;
 };
 
@@ -84,6 +86,8 @@ export default function NavigationAppChooserSheet({
       longitude: target.longitude,
       label: target.label,
       address: target.address,
+      city: target.city,
+      country: target.country,
     });
     onClose();
   };

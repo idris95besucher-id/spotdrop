@@ -122,6 +122,7 @@ export default function SpotLocationSheet({
       longitude: hasCoordinates ? Number(spot.spot_longitude) : null,
       label: navigationLabel,
       address: addressQuery,
+      city: spot.spot_city,
       country: spot.spot_country,
     });
   };
