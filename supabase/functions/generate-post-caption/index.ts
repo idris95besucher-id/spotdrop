@@ -73,7 +73,7 @@ type LeaseResult = {
 
 type CaptionResult =
   | { ok: true; caption: string }
-  | { ok: false; retryable: boolean; reason: string };
+  | { ok: false; retryable: boolean; reason: string; diagnostic?: Record<string, unknown> };
 
 function buildPlaceContext(post: PostRow): string | null {
   const parts: string[] = [];
@@ -135,21 +135,30 @@ async function requestCaptionFromOpenAI(
     if (!response.ok) {
       // Diagnostic-only: OpenAI's error body identifies the failure without
       // ever including the request payload, the image URL, or our
-      // credentials. Does not change the returned CaptionResult/retry
-      // behavior below.
+      // credentials. Does not change the returned retry classification
+      // below — only carried along so the caller can persist it to
+      // ai_caption_dispatch_log (console output here isn't reliably
+      // retrievable for this project, so the DB is the durable channel).
       const errorBody = (await response.json().catch(() => null)) as {
         error?: { code?: unknown; type?: unknown; param?: unknown; message?: unknown };
       } | null;
 
-      console.error("[generate-post-caption] OpenAI request failed", {
-        status: response.status,
+      const diagnostic = {
+        openaiStatus: response.status,
         openaiErrorCode: errorBody?.error?.code ?? null,
         openaiErrorType: errorBody?.error?.type ?? null,
         openaiErrorParam: errorBody?.error?.param ?? null,
         openaiErrorMessage: errorBody?.error?.message ?? null,
-      });
+      };
 
-      return { ok: false, retryable: isRetryableStatus(response.status), reason: `http_${response.status}` };
+      console.error("[generate-post-caption] OpenAI request failed", diagnostic);
+
+      return {
+        ok: false,
+        retryable: isRetryableStatus(response.status),
+        reason: `http_${response.status}`,
+        diagnostic,
+      };
     }
 
     const payload = (await response.json()) as {
@@ -194,11 +203,25 @@ serve(async (request) => {
 
   const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
   const serviceRole = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-  const openaiKey = Deno.env.get("OPENAI_API_KEY") ?? "";
+  // A stray leading/trailing whitespace or newline (a common artifact of how
+  // a secret gets pasted/set) must never end up inside an Authorization
+  // bearer token — trim before it's ever used.
+  const openaiKeyRaw = Deno.env.get("OPENAI_API_KEY") ?? "";
+  const openaiKey = openaiKeyRaw.trim();
 
   if (!supabaseUrl || !serviceRole || !openaiKey) {
     return new Response(JSON.stringify({ error: "Missing Supabase or OpenAI config." }), { status: 503 });
   }
+
+  // Safe secret-shape diagnostics only — never the key itself or any
+  // substring of it. Only used to tell whether Supabase is even receiving
+  // the key we expect; merged into the dispatch-log diagnostic below only
+  // when the OpenAI call itself fails, so nothing extra is logged on success.
+  const openaiKeyShape = {
+    keyLength: openaiKey.length,
+    keyHadSurroundingWhitespace: openaiKeyRaw !== openaiKey,
+    keyStartsWithSk: openaiKey.startsWith("sk-"),
+  };
 
   let body: { postId?: string };
 
@@ -362,6 +385,27 @@ serve(async (request) => {
       reason: result.reason,
       retryable: result.retryable,
     });
+
+    // Durable diagnostic channel: this project's Edge Function console
+    // output isn't reliably retrievable, so persist the OpenAI failure
+    // detail (never the key/secret/payload/image URL) to the same log
+    // table dispatch_ai_caption_job() already writes to. Best-effort —
+    // never lets a logging failure affect the caption outcome itself.
+    try {
+      await admin.from("ai_caption_dispatch_log").insert({
+        post_id: postId,
+        stage: "openai_call_failed",
+        detail: JSON.stringify({ reason: result.reason, ...result.diagnostic, ...openaiKeyShape }).slice(
+          0,
+          2000
+        ),
+      });
+    } catch (logError) {
+      console.error("[generate-post-caption] diagnostic log insert failed", {
+        postId: row.id,
+        message: logError instanceof Error ? logError.message : String(logError),
+      });
+    }
 
     if (!result.retryable) {
       await admin
