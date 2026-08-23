@@ -89,6 +89,21 @@ serve(async (request) => {
   const postId = /^\d+$/.test(rawPostId) ? Number(rawPostId) : rawPostId;
   const admin = createClient(supabaseUrl, serviceRole);
 
+  // Temporary diagnostic-only channel — reuses the existing dispatch log
+  // table (already service_role-writable, no schema change). Never logs
+  // the JWT/access token, the OpenAI key, or the caption text itself.
+  const logFailure = async (reason: string, detail?: Record<string, unknown>) => {
+    try {
+      await admin.from("ai_caption_dispatch_log").insert({
+        post_id: postId,
+        stage: "translate_failed",
+        detail: JSON.stringify({ reason, language, ...detail }).slice(0, 2000),
+      });
+    } catch {
+      // best-effort only
+    }
+  };
+
   const { data: post, error: postError } = await admin
     .from("posts")
     .select("id, content, visibility, user_id")
@@ -100,6 +115,7 @@ serve(async (request) => {
   }
 
   if (!post) {
+    await logFailure("post_not_found");
     return new Response(JSON.stringify({ error: "Post not found." }), { status: 404 });
   }
 
@@ -108,6 +124,7 @@ serve(async (request) => {
   // only thing standing between a private post's caption and any signed-in
   // caller who happens to know/guess its id.
   if (post.visibility !== "public" && post.user_id !== callerId) {
+    await logFailure("not_owner_or_private", { visibility: post.visibility });
     return new Response(JSON.stringify({ error: "Post not found." }), { status: 404 });
   }
 
@@ -168,10 +185,20 @@ serve(async (request) => {
     });
 
     if (!response.ok) {
+      const errorBody = (await response.json().catch(() => null)) as {
+        error?: { code?: unknown; type?: unknown; param?: unknown };
+      } | null;
+
       console.error("[translate-post-caption] OpenAI request failed", {
         status: response.status,
         postId: post.id,
         language,
+      });
+      await logFailure("openai_request_failed", {
+        openaiStatus: response.status,
+        openaiErrorCode: errorBody?.error?.code ?? null,
+        openaiErrorType: errorBody?.error?.type ?? null,
+        openaiErrorParam: errorBody?.error?.param ?? null,
       });
       return new Response(JSON.stringify({ error: "openai_request_failed" }), { status: 502 });
     }
@@ -193,6 +220,7 @@ serve(async (request) => {
 
     if (!translatedText) {
       console.error("[translate-post-caption] empty/unparseable translation", { postId: post.id, language });
+      await logFailure("empty_translation", { rawContentPresent: Boolean(rawContent) });
       return new Response(JSON.stringify({ error: "empty_translation" }), { status: 502 });
     }
 
@@ -224,6 +252,9 @@ serve(async (request) => {
       postId: post.id,
       language,
       isAbort,
+      message: caughtError instanceof Error ? caughtError.message : String(caughtError),
+    });
+    await logFailure(isAbort ? "timeout" : "exception", {
       message: caughtError instanceof Error ? caughtError.message : String(caughtError),
     });
     return new Response(JSON.stringify({ error: isAbort ? "timeout" : "exception" }), { status: 502 });
