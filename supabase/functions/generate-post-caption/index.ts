@@ -223,7 +223,7 @@ serve(async (request) => {
     keyStartsWithSk: openaiKey.startsWith("sk-"),
   };
 
-  let body: { postId?: string };
+  let body: { postId?: string | number };
 
   try {
     body = await request.json();
@@ -231,7 +231,11 @@ serve(async (request) => {
     return new Response(JSON.stringify({ error: "Invalid body." }), { status: 400 });
   }
 
-  const rawPostId = body.postId?.trim() ?? "";
+  // postId may arrive as either a JSON string or a JSON number depending on
+  // the caller (e.g. dispatch_ai_caption_job() sends new.id::text, but not
+  // every caller is guaranteed to) — body.postId?.trim() threw when it was a
+  // number, since .trim() only exists on strings. Normalize before use.
+  const rawPostId = String(body.postId ?? "").trim();
 
   if (!rawPostId) {
     return new Response(JSON.stringify({ error: "postId required." }), { status: 400 });
