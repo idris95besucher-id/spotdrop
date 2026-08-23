@@ -8,6 +8,35 @@ import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 //
 // Caches by post_id + language, versioned against a hash of the source
 // caption so an edited caption never serves a stale cached translation.
+//
+// supabase.functions.invoke() sends Authorization + Content-Type: application/json
+// — both "non-simple" per the Fetch spec, so the browser/WebView always sends
+// a CORS preflight OPTIONS request first. Without explicit handling here,
+// that preflight falls into the normal handler body (no Authorization header
+// on a preflight, so it hit the 401 branch below) with no CORS headers at
+// all — which silently blocks the real request from ever being sent from
+// the installed Capacitor app's capacitor://localhost origin. Never
+// reflects an arbitrary Origin back (Authorization is in play) — only an
+// exact allowlisted origin, same convention as lib/capacitorApiCors.ts.
+
+const ALLOWED_ORIGINS = new Set([
+  "capacitor://localhost",
+  "https://spotdrop-five.vercel.app",
+]);
+
+function corsHeaders(request: Request): HeadersInit {
+  const origin = request.headers.get("origin") ?? "";
+  const headers: Record<string, string> = { Vary: "Origin" };
+
+  if (ALLOWED_ORIGINS.has(origin)) {
+    headers["Access-Control-Allow-Origin"] = origin;
+    headers["Access-Control-Allow-Methods"] = "POST, OPTIONS";
+    headers["Access-Control-Allow-Headers"] = "authorization, content-type, apikey, x-client-info";
+    headers["Access-Control-Max-Age"] = "86400";
+  }
+
+  return headers;
+}
 
 const SUPPORTED_LANGUAGES = new Set(["en", "ru", "de"]);
 
@@ -37,13 +66,27 @@ async function sha256Hex(text: string): Promise<string> {
 }
 
 serve(async (request) => {
+  const cors = corsHeaders(request);
+
+  // Preflight: no auth, no body — just tell the browser/WebView this origin
+  // and these headers/methods are allowed, so it proceeds with the real request.
+  if (request.method === "OPTIONS") {
+    return new Response(null, { status: 204, headers: cors });
+  }
+
+  const respond = (body: Record<string, unknown>, init?: ResponseInit) =>
+    new Response(JSON.stringify(body), {
+      ...init,
+      headers: { ...cors, "Content-Type": "application/json", ...(init?.headers ?? {}) },
+    });
+
   const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
   const serviceRole = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
   const anonKey = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
   const openaiKey = Deno.env.get("OPENAI_API_KEY") ?? "";
 
   if (!supabaseUrl || !serviceRole || !anonKey || !openaiKey) {
-    return new Response(JSON.stringify({ error: "Missing Supabase or OpenAI config." }), { status: 503 });
+    return respond({ error: "Missing Supabase or OpenAI config." }, { status: 503 });
   }
 
   // Platform JWT verification (this function is deployed WITHOUT
@@ -55,7 +98,7 @@ serve(async (request) => {
   const token = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
 
   if (!token) {
-    return new Response(JSON.stringify({ error: "Unauthorized." }), { status: 401 });
+    return respond({ error: "Unauthorized." }, { status: 401 });
   }
 
   const userClient = createClient(supabaseUrl, anonKey, {
@@ -64,7 +107,7 @@ serve(async (request) => {
   const { data: userData, error: userError } = await userClient.auth.getUser(token);
 
   if (userError || !userData.user?.id) {
-    return new Response(JSON.stringify({ error: "Unauthorized." }), { status: 401 });
+    return respond({ error: "Unauthorized." }, { status: 401 });
   }
 
   const callerId = userData.user.id;
@@ -74,16 +117,14 @@ serve(async (request) => {
   try {
     body = await request.json();
   } catch {
-    return new Response(JSON.stringify({ error: "Invalid body." }), { status: 400 });
+    return respond({ error: "Invalid body." }, { status: 400 });
   }
 
   const rawPostId = body.postId?.trim() ?? "";
   const language = body.language?.trim() ?? "";
 
   if (!rawPostId || !SUPPORTED_LANGUAGES.has(language)) {
-    return new Response(JSON.stringify({ error: "postId and a supported language are required." }), {
-      status: 400,
-    });
+    return respond({ error: "postId and a supported language are required." }, { status: 400 });
   }
 
   const postId = /^\d+$/.test(rawPostId) ? Number(rawPostId) : rawPostId;
@@ -111,12 +152,12 @@ serve(async (request) => {
     .maybeSingle();
 
   if (postError) {
-    return new Response(JSON.stringify({ error: postError.message }), { status: 500 });
+    return respond({ error: postError.message }, { status: 500 });
   }
 
   if (!post) {
     await logFailure("post_not_found");
-    return new Response(JSON.stringify({ error: "Post not found." }), { status: 404 });
+    return respond({ error: "Post not found." }, { status: 404 });
   }
 
   // Mirrors the post_caption_translations_select_public RLS policy — the
@@ -125,22 +166,18 @@ serve(async (request) => {
   // caller who happens to know/guess its id.
   if (post.visibility !== "public" && post.user_id !== callerId) {
     await logFailure("not_owner_or_private", { visibility: post.visibility });
-    return new Response(JSON.stringify({ error: "Post not found." }), { status: 404 });
+    return respond({ error: "Post not found." }, { status: 404 });
   }
 
   const caption = (post.content ?? "").toString().trim();
 
   if (!caption) {
-    return new Response(JSON.stringify({ translatedText: null }), {
-      headers: { "Content-Type": "application/json" },
-    });
+    return respond({ translatedText: null });
   }
 
   // The canonical caption is always English — nothing to translate for "en".
   if (language === "en") {
-    return new Response(JSON.stringify({ translatedText: caption }), {
-      headers: { "Content-Type": "application/json" },
-    });
+    return respond({ translatedText: caption });
   }
 
   const sourceHash = await sha256Hex(caption);
@@ -153,9 +190,7 @@ serve(async (request) => {
     .maybeSingle();
 
   if (cached && cached.source_content_hash === sourceHash) {
-    return new Response(JSON.stringify({ translatedText: cached.translated_text, cached: true }), {
-      headers: { "Content-Type": "application/json" },
-    });
+    return respond({ translatedText: cached.translated_text, cached: true });
   }
 
   const controller = new AbortController();
@@ -200,7 +235,7 @@ serve(async (request) => {
         openaiErrorType: errorBody?.error?.type ?? null,
         openaiErrorParam: errorBody?.error?.param ?? null,
       });
-      return new Response(JSON.stringify({ error: "openai_request_failed" }), { status: 502 });
+      return respond({ error: "openai_request_failed" }, { status: 502 });
     }
 
     const payload = (await response.json()) as {
@@ -221,7 +256,7 @@ serve(async (request) => {
     if (!translatedText) {
       console.error("[translate-post-caption] empty/unparseable translation", { postId: post.id, language });
       await logFailure("empty_translation", { rawContentPresent: Boolean(rawContent) });
-      return new Response(JSON.stringify({ error: "empty_translation" }), { status: 502 });
+      return respond({ error: "empty_translation" }, { status: 502 });
     }
 
     const { error: upsertError } = await admin.from("post_caption_translations").upsert(
@@ -243,9 +278,7 @@ serve(async (request) => {
       });
     }
 
-    return new Response(JSON.stringify({ translatedText, cached: false }), {
-      headers: { "Content-Type": "application/json" },
-    });
+    return respond({ translatedText, cached: false });
   } catch (caughtError) {
     const isAbort = caughtError instanceof DOMException && caughtError.name === "AbortError";
     console.error("[translate-post-caption] request error", {
@@ -257,7 +290,7 @@ serve(async (request) => {
     await logFailure(isAbort ? "timeout" : "exception", {
       message: caughtError instanceof Error ? caughtError.message : String(caughtError),
     });
-    return new Response(JSON.stringify({ error: isAbort ? "timeout" : "exception" }), { status: 502 });
+    return respond({ error: isAbort ? "timeout" : "exception" }, { status: 502 });
   } finally {
     clearTimeout(timeoutId);
   }
