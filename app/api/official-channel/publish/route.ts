@@ -3,8 +3,10 @@ import {
   resolveOfficialChannelUserId,
 } from "@/lib/officialChannelAuth";
 import {
+  OFFICIAL_CHANNEL_MAX_PHOTOS,
   OFFICIAL_CHANNEL_MEDIA_BUCKET,
   validatePublishInput,
+  type OfficialChannelPostMediaItem,
   type OfficialChannelPostRow,
 } from "@/lib/officialChannel";
 import { processOfficialChannelPushJob } from "@/lib/officialChannelPush";
@@ -21,7 +23,7 @@ import {
 export const maxDuration = 60;
 
 const POST_SELECT =
-  "id, author_id, status, source_locale, title_en, body_en, title_ru, body_ru, title_de, body_de, image_path, link_url, link_label_en, link_label_ru, link_label_de, client_request_id, published_at, created_at, updated_at";
+  "id, author_id, status, source_locale, title_en, body_en, title_ru, body_ru, title_de, body_de, image_path, link_url, link_label_en, link_label_ru, link_label_de, client_request_id, published_at, created_at, updated_at, media:official_channel_post_media(image_path, sort_order)";
 
 const TRANSLATION_FAILED_MESSAGE =
   "Automatic translation failed. Please try again.";
@@ -37,9 +39,18 @@ function mapValidationError(code: string) {
       return "One of the text fields is too long.";
     case "CLIENT_REQUEST_ID_REQUIRED":
       return "Missing idempotency key.";
+    case "TOO_MANY_PHOTOS":
+      return `A post can include at most ${OFFICIAL_CHANNEL_MAX_PHOTOS} photos.`;
     default:
       return "Invalid publish payload.";
   }
+}
+
+function sortPostMedia(post: OfficialChannelPostRow): OfficialChannelPostRow {
+  return {
+    ...post,
+    media: [...(post.media ?? [])].sort((a, b) => a.sort_order - b.sort_order),
+  };
 }
 
 async function ensurePendingPushJob(
@@ -112,6 +123,9 @@ export async function POST(request: Request) {
       clientRequestId: String(body.clientRequestId ?? ""),
       title: (body.title as string | null) ?? (body.titleEn as string | null) ?? null,
       body: String(body.body ?? body.bodyEn ?? ""),
+      imagePaths: Array.isArray(body.imagePaths)
+        ? (body.imagePaths as unknown[]).filter((p): p is string => typeof p === "string")
+        : null,
       imagePath: (body.imagePath as string | null) ?? null,
       linkUrl: (body.linkUrl as string | null) ?? null,
       linkLabel:
@@ -139,22 +153,22 @@ export async function POST(request: Request) {
   }
 
   if (existingBeforeTranslate) {
-    const existingPost = existingBeforeTranslate as OfficialChannelPostRow;
+    const existingPost = sortPostMedia(existingBeforeTranslate as OfficialChannelPostRow);
     return respond({ post: existingPost });
   }
 
-  if (validated.image_path) {
+  for (const imagePath of validated.image_paths) {
     if (
-      validated.image_path.includes("..") ||
-      validated.image_path.startsWith("/") ||
-      !validated.image_path.startsWith(`${userId}/`)
+      imagePath.includes("..") ||
+      imagePath.startsWith("/") ||
+      !imagePath.startsWith(`${userId}/`)
     ) {
       return respond({ error: "Invalid image path." }, { status: 400 });
     }
 
     const { error: signError } = await official.admin.storage
       .from(OFFICIAL_CHANNEL_MEDIA_BUCKET)
-      .createSignedUrl(validated.image_path, 60);
+      .createSignedUrl(imagePath, 60);
 
     if (signError) {
       return respond({ error: "Image not found." }, { status: 400 });
@@ -190,7 +204,10 @@ export async function POST(request: Request) {
     body_ru: translated.ru.body,
     title_de: translated.de.title,
     body_de: translated.de.body,
-    image_path: validated.image_path,
+    // New posts always use official_channel_post_media, even for a single
+    // photo — image_path stays null and exists only for posts published
+    // before that table existed.
+    image_path: null,
     link_url: validated.link_url,
     link_label_en: translated.en.linkLabel,
     link_label_ru: translated.ru.linkLabel,
@@ -234,6 +251,35 @@ export async function POST(request: Request) {
   if (!post) {
     return respond({ error: "Publish failed." }, { status: 500 });
   }
+
+  if (isNewPost && validated.image_paths.length > 0) {
+    const mediaRows = validated.image_paths.map((imagePath, index) => ({
+      post_id: post!.id,
+      image_path: imagePath,
+      sort_order: index,
+    }));
+
+    const { error: mediaInsertError } = await official.admin
+      .from("official_channel_post_media")
+      .insert(mediaRows);
+
+    if (mediaInsertError) {
+      // The post itself is already published — never fail the whole publish
+      // over this. Log and continue; post.media below will just reflect
+      // whatever subset (if any) actually landed.
+      console.error(
+        `[official-channel/publish] media insert failed requestId=${requestId}`,
+        mediaInsertError.message
+      );
+    }
+
+    const media: OfficialChannelPostMediaItem[] = mediaRows.map(
+      ({ image_path, sort_order }) => ({ image_path, sort_order })
+    );
+    post = { ...post, media: mediaInsertError ? [] : media };
+  }
+
+  post = sortPostMedia(post);
 
   if (isNewPost) {
     await ensurePendingPushJob(official.admin, post.id);

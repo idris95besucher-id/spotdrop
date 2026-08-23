@@ -1019,7 +1019,8 @@ export const EXTENSION_EN = {
   "officialChannel.publishing": "Publishing…",
   "officialChannel.published": "Published",
   "officialChannel.preview": "Preview",
-  "officialChannel.previewHasImage": "Includes an image attachment.",
+  "officialChannel.previewHasImage": "Includes {count} photo(s).",
+  "officialChannel.photoLabel": "Photo {number}",
   "officialChannel.confirmTitle": "Confirm publication",
   "officialChannel.confirmBody":
     "Publish this announcement to all SpotDrop users? English, Russian, and German versions will be created automatically from your text.",
@@ -1061,6 +1062,7 @@ export const EXTENSION_EN = {
   "officialChannel.error.storageUploadFailed": "Storage upload failed. Please try again.",
   "officialChannel.error.networkFailed": "Network connection failed. Please try again.",
   "officialChannel.error.publishFailed": "Unable to publish. Please try again.",
+  "officialChannel.error.tooManyPhotos": "You can attach up to 10 photos.",
   "officialChannel.error.translationFailed":
     "Automatic translation failed. Please try again.",
 

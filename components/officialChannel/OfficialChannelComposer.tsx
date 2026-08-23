@@ -6,6 +6,7 @@ import { ImagePlus, Loader2, X } from "lucide-react";
 import { useI18n } from "@/components/I18nProvider";
 import {
   deleteOfficialChannelMedia,
+  OFFICIAL_CHANNEL_MAX_PHOTOS,
   publishOfficialChannelPost,
   uploadOfficialChannelMedia,
   type OfficialChannelPostRow,
@@ -24,7 +25,8 @@ type ComposerState = {
   body: string;
   linkUrl: string;
   linkLabel: string;
-  imagePath: string | null;
+  /** 1-10 photos, in display order. */
+  imagePaths: string[];
 };
 
 const EMPTY_STATE: ComposerState = {
@@ -32,7 +34,7 @@ const EMPTY_STATE: ComposerState = {
   body: "",
   linkUrl: "",
   linkLabel: "",
-  imagePath: null,
+  imagePaths: [],
 };
 
 const inputClassName =
@@ -103,55 +105,67 @@ export default function OfficialChannelComposer({
     onClose();
   };
 
-  const handleImagePick = async (file: File | null) => {
-    if (!file) {
+  /** Maps one upload failure to the same localized messages as before. */
+  const uploadErrorMessage = (result: Awaited<ReturnType<typeof uploadOfficialChannelMedia>>) =>
+    result.code === "unauthorized"
+      ? t("officialChannel.error.unauthorized")
+      : result.code === "invalid_image"
+        ? t("officialChannel.error.invalidImage")
+        : result.code === "upload_timed_out" || result.status === 504
+          ? t("officialChannel.error.uploadTimeout")
+          : result.code === "storage_upload_failed"
+            ? t("officialChannel.error.storageUploadFailed")
+            : result.code === "network_connection_failed" ||
+                /load failed|failed to fetch|network connection failed/i.test(result.error ?? "")
+              ? t("officialChannel.error.networkFailed")
+              : (result.error ?? t("officialChannel.error.uploadFailed"));
+
+  /**
+   * Uploads each picked file in turn (sequential — the existing single-file
+   * endpoint is reused unchanged, just called once per photo) and appends
+   * successful paths to the composer's photo list, up to
+   * OFFICIAL_CHANNEL_MAX_PHOTOS total. Stops and surfaces the error on the
+   * first failure, keeping whatever already succeeded.
+   */
+  const handleImagesPick = async (files: File[]) => {
+    if (files.length === 0) {
+      return;
+    }
+
+    const remainingSlots = OFFICIAL_CHANNEL_MAX_PHOTOS - form.imagePaths.length;
+    const toUpload = files.slice(0, Math.max(0, remainingSlots));
+
+    if (toUpload.length === 0) {
+      setError(t("officialChannel.error.tooManyPhotos"));
       return;
     }
 
     setUploading(true);
     setError(null);
 
-    // Keep announcement text; only clear previous uploaded path after a successful replace.
-    const previousImagePath = form.imagePath;
-
     try {
-      console.info(
-        `[official-channel-composer] upload pick mime=${file.type || "(empty)"} size=${file.size}`
-      );
+      for (const file of toUpload) {
+        console.info(
+          `[official-channel-composer] upload pick mime=${file.type || "(empty)"} size=${file.size}`
+        );
 
-      const result = await uploadOfficialChannelMedia(file);
+        const result = await uploadOfficialChannelMedia(file);
 
-      if (result.error || !result.imagePath) {
-        if (result.requestId) {
-          console.info(
-            `[official-channel-composer] upload error code=${result.code ?? "unknown"} requestId=${result.requestId}`
-          );
+        if (result.error || !result.imagePath) {
+          if (result.requestId) {
+            console.info(
+              `[official-channel-composer] upload error code=${result.code ?? "unknown"} requestId=${result.requestId}`
+            );
+          }
+
+          setError(uploadErrorMessage(result));
+          return;
         }
 
-        const message =
-          result.code === "unauthorized"
-            ? t("officialChannel.error.unauthorized")
-            : result.code === "invalid_image"
-              ? t("officialChannel.error.invalidImage")
-              : result.code === "upload_timed_out" || result.status === 504
-                ? t("officialChannel.error.uploadTimeout")
-                : result.code === "storage_upload_failed"
-                  ? t("officialChannel.error.storageUploadFailed")
-                  : result.code === "network_connection_failed" ||
-                      /load failed|failed to fetch|network connection failed/i.test(
-                        result.error ?? ""
-                      )
-                    ? t("officialChannel.error.networkFailed")
-                    : result.error ?? t("officialChannel.error.uploadFailed");
-
-        setError(message);
-        return;
-      }
-
-      update("imagePath", result.imagePath);
-
-      if (previousImagePath && previousImagePath !== result.imagePath) {
-        void deleteOfficialChannelMedia(previousImagePath);
+        setForm((current) => ({
+          ...current,
+          imagePaths: [...current.imagePaths, result.imagePath as string],
+        }));
       }
     } catch (caught) {
       console.error(
@@ -166,13 +180,11 @@ export default function OfficialChannelComposer({
     }
   };
 
-  const handleRemoveImage = async () => {
-    if (!form.imagePath) {
-      return;
-    }
-
-    const path = form.imagePath;
-    update("imagePath", null);
+  const handleRemoveImage = async (path: string) => {
+    setForm((current) => ({
+      ...current,
+      imagePaths: current.imagePaths.filter((existing) => existing !== path),
+    }));
     await deleteOfficialChannelMedia(path);
   };
 
@@ -194,7 +206,7 @@ export default function OfficialChannelComposer({
       clientRequestId,
       title: form.title,
       body: form.body,
-      imagePath: form.imagePath,
+      imagePaths: form.imagePaths,
       linkUrl: form.linkUrl,
       linkLabel: form.linkLabel,
     });
@@ -314,16 +326,17 @@ export default function OfficialChannelComposer({
               ref={fileInputRef}
               type="file"
               accept="image/jpeg,image/png,image/webp"
+              multiple
               className="sr-only"
               onChange={(event) => {
-                const file = event.target.files?.[0] ?? null;
+                const files = Array.from(event.target.files ?? []);
                 event.target.value = "";
-                void handleImagePick(file);
+                void handleImagesPick(files);
               }}
             />
             <button
               type="button"
-              disabled={uploading || publishing}
+              disabled={uploading || publishing || form.imagePaths.length >= OFFICIAL_CHANNEL_MAX_PHOTOS}
               onClick={() => fileInputRef.current?.click()}
               className="inline-flex items-center gap-2 rounded-full border border-white/15 px-3 py-2 text-xs font-semibold text-white transition hover:bg-white/5 disabled:opacity-50"
             >
@@ -333,18 +346,32 @@ export default function OfficialChannelComposer({
                 <ImagePlus className="h-3.5 w-3.5" aria-hidden />
               )}
               {t("officialChannel.uploadImage")}
+              {form.imagePaths.length > 0
+                ? ` (${form.imagePaths.length}/${OFFICIAL_CHANNEL_MAX_PHOTOS})`
+                : ""}
             </button>
-            {form.imagePath ? (
-              <button
-                type="button"
-                onClick={() => void handleRemoveImage()}
-                className="inline-flex items-center gap-1 rounded-full border border-white/10 px-3 py-2 text-xs text-muted"
-              >
-                <X className="h-3.5 w-3.5" aria-hidden />
-                {t("officialChannel.removeImage")}
-              </button>
-            ) : null}
           </div>
+
+          {form.imagePaths.length > 0 ? (
+            <div className="flex flex-wrap gap-2">
+              {form.imagePaths.map((path, index) => (
+                <span
+                  key={path}
+                  className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs text-white"
+                >
+                  {t("officialChannel.photoLabel", { number: index + 1 })}
+                  <button
+                    type="button"
+                    onClick={() => void handleRemoveImage(path)}
+                    className="text-muted transition hover:text-white"
+                    aria-label={t("officialChannel.removeImage")}
+                  >
+                    <X className="h-3 w-3" aria-hidden />
+                  </button>
+                </span>
+              ))}
+            </div>
+          ) : null}
 
           {error ? <p className="text-sm text-red-300">{error}</p> : null}
 
@@ -389,8 +416,10 @@ export default function OfficialChannelComposer({
               <p className="mt-3 text-base font-semibold text-white">{form.title}</p>
             ) : null}
             <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-200">{form.body}</p>
-            {form.imagePath ? (
-              <p className="mt-3 text-xs text-muted">{t("officialChannel.previewHasImage")}</p>
+            {form.imagePaths.length > 0 ? (
+              <p className="mt-3 text-xs text-muted">
+                {t("officialChannel.previewHasImage", { count: form.imagePaths.length })}
+              </p>
             ) : null}
             {form.linkLabel ? (
               <p className="mt-2 text-xs text-muted">{form.linkLabel}</p>
