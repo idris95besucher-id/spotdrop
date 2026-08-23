@@ -139,8 +139,11 @@ async function requestCaptionFromOpenAI(
       // below — only carried along so the caller can persist it to
       // ai_caption_dispatch_log (console output here isn't reliably
       // retrievable for this project, so the DB is the durable channel).
+      // error.message is deliberately excluded — OpenAI's own "Incorrect
+      // API key provided: ..." message echoes back a redacted fragment of
+      // whatever key it received, so it must never be persisted.
       const errorBody = (await response.json().catch(() => null)) as {
-        error?: { code?: unknown; type?: unknown; param?: unknown; message?: unknown };
+        error?: { code?: unknown; type?: unknown; param?: unknown };
       } | null;
 
       const diagnostic = {
@@ -148,7 +151,6 @@ async function requestCaptionFromOpenAI(
         openaiErrorCode: errorBody?.error?.code ?? null,
         openaiErrorType: errorBody?.error?.type ?? null,
         openaiErrorParam: errorBody?.error?.param ?? null,
-        openaiErrorMessage: errorBody?.error?.message ?? null,
       };
 
       console.error("[generate-post-caption] OpenAI request failed", diagnostic);
@@ -212,16 +214,6 @@ serve(async (request) => {
   if (!supabaseUrl || !serviceRole || !openaiKey) {
     return new Response(JSON.stringify({ error: "Missing Supabase or OpenAI config." }), { status: 503 });
   }
-
-  // Safe secret-shape diagnostics only — never the key itself or any
-  // substring of it. Only used to tell whether Supabase is even receiving
-  // the key we expect; merged into the dispatch-log diagnostic below only
-  // when the OpenAI call itself fails, so nothing extra is logged on success.
-  const openaiKeyShape = {
-    keyLength: openaiKey.length,
-    keyHadSurroundingWhitespace: openaiKeyRaw !== openaiKey,
-    keyStartsWithSk: openaiKey.startsWith("sk-"),
-  };
 
   let body: { postId?: string | number };
 
@@ -392,17 +384,15 @@ serve(async (request) => {
 
     // Durable diagnostic channel: this project's Edge Function console
     // output isn't reliably retrievable, so persist the OpenAI failure
-    // detail (never the key/secret/payload/image URL) to the same log
-    // table dispatch_ai_caption_job() already writes to. Best-effort —
-    // never lets a logging failure affect the caption outcome itself.
+    // detail (status/code/type/param only — never the key/secret/payload/
+    // image URL/error.message) to the same log table
+    // dispatch_ai_caption_job() already writes to. Best-effort — never lets
+    // a logging failure affect the caption outcome itself.
     try {
       await admin.from("ai_caption_dispatch_log").insert({
         post_id: postId,
         stage: "openai_call_failed",
-        detail: JSON.stringify({ reason: result.reason, ...result.diagnostic, ...openaiKeyShape }).slice(
-          0,
-          2000
-        ),
+        detail: JSON.stringify({ reason: result.reason, ...result.diagnostic }).slice(0, 2000),
       });
     } catch (logError) {
       console.error("[generate-post-caption] diagnostic log insert failed", {
