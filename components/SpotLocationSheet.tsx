@@ -99,9 +99,19 @@ export default function SpotLocationSheet({
 
   const navigationChooser = useNavigationAppChooser(handleOpenMaps);
 
+  // Close the chooser when the spot changes (e.g. swiping to a different
+  // Spot while it happened to be open) — must depend on `close` itself
+  // (stable via useCallback), never on the whole `navigationChooser` object.
+  // useNavigationAppChooser returns a fresh `{ open, close, sheet }` object
+  // literal on every render, so depending on `navigationChooser` made this
+  // effect re-run after every render — including the one right after
+  // tapping "Open in Maps", closing the chooser in the same tick it opened,
+  // before the browser ever painted it. This is why the button appeared to
+  // do nothing at all.
   useEffect(() => {
     navigationChooser.close();
-  }, [spot?.id, navigationChooser]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [spot?.id, navigationChooser.close]);
 
   if (!spot || !mounted) {
     return null;
@@ -117,6 +127,7 @@ export default function SpotLocationSheet({
   // accurate), otherwise the address/city/country as a free-text query. The
   // shared hook/sheet decides which provider actually gets used.
   const handleNavigate = () => {
+    console.log("[SpotLocationSheet] Open in Maps button clicked", { spotId: spot.id });
     navigationChooser.open({
       latitude: hasCoordinates ? Number(spot.spot_latitude) : null,
       longitude: hasCoordinates ? Number(spot.spot_longitude) : null,
