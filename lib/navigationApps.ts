@@ -1,5 +1,7 @@
+import { Capacitor } from "@capacitor/core";
 import { isIOSDevice } from "@/lib/pickMediaFromGallery";
 import { openGoogleMapsAtCoordinates, openGoogleMapsAtQuery } from "@/lib/externalMaps";
+import { openExternalAppUrl } from "@/lib/externalAppLaunch";
 
 /** Every navigation app SpotDrop can hand a Spot's coordinates to. */
 export type NavigationProvider = "apple" | "google" | "waze" | "yandex" | "2gis";
@@ -85,8 +87,20 @@ function destinationQuery(destination: NavigationDestination): string | null {
  * Tries a native app URL scheme first, falls back to the web URL if the
  * scheme didn't take over the page within `cutoffMs` — same technique
  * already proven in production for Google Maps (see externalMaps.ts).
+ *
+ * Inside the installed Capacitor app, this timer-race approach never
+ * actually works: `window.location.href` navigation to an external scheme
+ * or cross-origin URL is unreliable from inside the WKWebView sandbox, so
+ * "Open in Maps" did nothing there. AppLauncher.openUrl calls
+ * UIApplication.open directly, bypassing the webview, and reports real
+ * success/failure — used instead whenever running as a native app.
  */
 function raceNativeSchemeThenWeb(appUrl: string, webUrl: string, timeoutMs = 700, cutoffMs = 1600) {
+  if (Capacitor.isNativePlatform()) {
+    void openExternalAppUrl(appUrl, webUrl);
+    return;
+  }
+
   const startedAt = Date.now();
   window.location.href = appUrl;
 
@@ -98,7 +112,7 @@ function raceNativeSchemeThenWeb(appUrl: string, webUrl: string, timeoutMs = 700
 }
 
 function openViaWebOrRace(appUrl: string | null, webUrl: string) {
-  if (isIOSDevice() && appUrl) {
+  if ((Capacitor.isNativePlatform() || isIOSDevice()) && appUrl) {
     raceNativeSchemeThenWeb(appUrl, webUrl);
     return;
   }
@@ -107,45 +121,75 @@ function openViaWebOrRace(appUrl: string | null, webUrl: string) {
 }
 
 /**
- * Apple Maps universal link — always installed on iOS, so this alone is
- * enough: it opens the app directly, no scheme probing needed. Falls back to
- * a free-text `daddr` when there are no coordinates.
+ * Apple Maps. The `https://maps.apple.com/...` universal link opens the app
+ * directly when tapped in a regular browser (mobile Safari included), no
+ * scheme probing needed there. Inside the installed Capacitor app, that
+ * same universal-link navigation is unreliable via `window.location.href`
+ * (see raceNativeSchemeThenWeb) — `maps://` is Apple Maps' own long-standing
+ * custom URL scheme, accepting the same `daddr`/`ll`/`q` params, and is used
+ * as the native-launch target there instead. Falls back to a free-text
+ * `daddr` when there are no coordinates, in both cases.
  */
 function openAppleMaps(destination: NavigationDestination) {
   const coords = destinationCoordinates(destination);
+  const query = destinationQuery(destination);
+
+  let path: string | null = null;
 
   if (coords) {
-    const query = destinationQuery(destination);
     const q = query ? `&q=${encodeURIComponent(query)}` : "";
-    window.location.href = `https://maps.apple.com/?daddr=${coords.lat},${coords.lng}&ll=${coords.lat},${coords.lng}${q}`;
+    path = `?daddr=${coords.lat},${coords.lng}&ll=${coords.lat},${coords.lng}${q}`;
+  } else if (query) {
+    path = `?daddr=${encodeURIComponent(query)}`;
+  }
+
+  if (!path) {
     return;
   }
 
-  const query = destinationQuery(destination);
+  const webUrl = `https://maps.apple.com/${path}`;
 
-  if (query) {
-    window.location.href = `https://maps.apple.com/?daddr=${encodeURIComponent(query)}`;
+  if (Capacitor.isNativePlatform()) {
+    void openExternalAppUrl(`maps://${path}`, webUrl);
+    return;
   }
+
+  window.location.href = webUrl;
 }
 
 /**
  * Waze's own universal link opens the app directly when installed and
- * falls back to Waze's website automatically — no scheme race needed.
- * `q` (free-text) is Waze's documented fallback when there's no `ll`.
+ * falls back to Waze's website automatically in a regular browser — no
+ * scheme race needed there. `q` (free-text) is Waze's documented fallback
+ * when there's no `ll`. Inside the installed Capacitor app, the same
+ * unreliable-webview-navigation issue applies (see raceNativeSchemeThenWeb),
+ * so this routes through the native launcher there — using this one URL for
+ * both the app-open attempt and the fallback, relying on the OS's own
+ * universal-link handling (which `AppLauncher.openUrl` reaches directly,
+ * unlike webview navigation) to open the Waze app when installed.
  */
 function openWaze(destination: NavigationDestination) {
   const coords = destinationCoordinates(destination);
+  const query = destinationQuery(destination);
+
+  let url: string | null = null;
 
   if (coords) {
-    window.location.href = `https://waze.com/ul?ll=${coords.lat},${coords.lng}&navigate=yes`;
+    url = `https://waze.com/ul?ll=${coords.lat},${coords.lng}&navigate=yes`;
+  } else if (query) {
+    url = `https://waze.com/ul?q=${encodeURIComponent(query)}&navigate=yes`;
+  }
+
+  if (!url) {
     return;
   }
 
-  const query = destinationQuery(destination);
-
-  if (query) {
-    window.location.href = `https://waze.com/ul?q=${encodeURIComponent(query)}&navigate=yes`;
+  if (Capacitor.isNativePlatform()) {
+    void openExternalAppUrl(url, url);
+    return;
   }
+
+  window.location.href = url;
 }
 
 /**

@@ -1,5 +1,6 @@
 import { Capacitor } from "@capacitor/core";
 import { isIOSDevice } from "@/lib/pickMediaFromGallery";
+import { openExternalAppUrl } from "@/lib/externalAppLaunch";
 
 export function buildGoogleMapsSearchWebUrl(latitude: number, longitude: number) {
   return `https://www.google.com/maps/search/?api=1&query=${latitude},${longitude}`;
@@ -54,9 +55,18 @@ export function openGoogleMapsAtCoordinates(latitude: number, longitude: number)
   }
 
   const webUrl = buildGoogleMapsSearchWebUrl(lat, lng);
+  const appUrl = `comgooglemaps://?q=${lat},${lng}`;
+
+  // Inside the installed Capacitor iOS app, window.location.href navigation
+  // to an external scheme is unreliable from inside the WKWebView sandbox —
+  // AppLauncher.openUrl calls UIApplication.open directly instead, which
+  // isn't subject to that restriction.
+  if (Capacitor.getPlatform() === "ios") {
+    void openExternalAppUrl(appUrl, webUrl);
+    return;
+  }
 
   if (isIOSDevice()) {
-    const appUrl = `comgooglemaps://?q=${lat},${lng}`;
     const startedAt = Date.now();
     window.location.href = appUrl;
 
@@ -102,9 +112,17 @@ export function openGoogleMapsAtQuery(query: string) {
   }
 
   const webUrl = buildGoogleMapsQueryWebUrl(trimmed);
+  const appUrl = `comgooglemaps://?q=${encodeURIComponent(trimmed)}`;
+
+  // See openGoogleMapsAtCoordinates — window.location.href to an external
+  // scheme doesn't reliably work from inside the installed Capacitor iOS
+  // app's WKWebView, so this uses the native launcher there instead.
+  if (Capacitor.getPlatform() === "ios") {
+    void openExternalAppUrl(appUrl, webUrl);
+    return;
+  }
 
   if (isIOSDevice()) {
-    const appUrl = `comgooglemaps://?q=${encodeURIComponent(trimmed)}`;
     const startedAt = Date.now();
     window.location.href = appUrl;
 
