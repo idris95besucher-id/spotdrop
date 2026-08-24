@@ -1020,8 +1020,7 @@ export const EXTENSION_DE: Record<ExtensionKey, string> = {
   "officialChannel.publishing": "Wird veröffentlicht…",
   "officialChannel.published": "Veröffentlicht",
   "officialChannel.preview": "Vorschau",
-  "officialChannel.previewHasImage": "Enthält {count} Foto(s).",
-  "officialChannel.photoLabel": "Foto {number}",
+  "officialChannel.previewHasImage": "Enthält ein Bild.",
   "officialChannel.confirmTitle": "Veröffentlichung bestätigen",
   "officialChannel.confirmBody":
     "Diese Ankündigung an alle SpotDrop-Nutzer veröffentlichen? Englische, russische und deutsche Versionen werden automatisch aus deinem Text erstellt.",
@@ -1069,7 +1068,6 @@ export const EXTENSION_DE: Record<ExtensionKey, string> = {
   "officialChannel.error.networkFailed":
     "Netzwerkverbindung fehlgeschlagen. Bitte erneut versuchen.",
   "officialChannel.error.publishFailed": "Veröffentlichen fehlgeschlagen. Bitte erneut versuchen.",
-  "officialChannel.error.tooManyPhotos": "Es können höchstens 10 Fotos angehängt werden.",
   "officialChannel.error.translationFailed":
     "Automatische Übersetzung fehlgeschlagen. Bitte erneut versuchen.",
 

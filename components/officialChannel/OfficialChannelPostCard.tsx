@@ -1,7 +1,6 @@
 "use client";
 
 import { ExternalLink } from "lucide-react";
-import OfficialChannelPostCarousel from "@/components/officialChannel/OfficialChannelPostCarousel";
 import OfficialChannelPostImage from "@/components/officialChannel/OfficialChannelPostImage";
 import { useI18n } from "@/components/I18nProvider";
 import {
@@ -85,10 +84,7 @@ export default function OfficialChannelPostCard({
 
       <p className="mt-2 whitespace-pre-wrap text-[15px] leading-6 text-slate-200">{localized.body}</p>
 
-      {post.media && post.media.length > 0 ? (
-        <OfficialChannelPostCarousel media={post.media} alt={localized.title ?? localized.body} />
-      ) : post.image_path ? (
-        // Legacy posts published before official_channel_post_media existed.
+      {post.image_path ? (
         <OfficialChannelPostImage imagePath={post.image_path} alt={localized.title ?? localized.body} />
       ) : null}
 

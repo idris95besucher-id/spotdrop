@@ -19,25 +19,14 @@ export const OFFICIAL_CHANNEL_ALLOWED_IMAGE_TYPES = [
 export const OFFICIAL_CHANNEL_MAX_TITLE_LENGTH = 200;
 export const OFFICIAL_CHANNEL_MAX_BODY_LENGTH = 4000;
 export const OFFICIAL_CHANNEL_MAX_LINK_LABEL_LENGTH = 80;
-/** 1-10 photos per post — see database/add-official-channel-post-media.sql. */
-export const OFFICIAL_CHANNEL_MAX_PHOTOS = 10;
 
 export type OfficialChannelPostStatus = "draft" | "published";
-
-/** One row from official_channel_post_media, ordered by sort_order. */
-export type OfficialChannelPostMediaItem = {
-  image_path: string;
-  sort_order: number;
-};
 
 export type OfficialChannelPostRow = OfficialChannelLocaleSource & {
   id: string;
   author_id: string;
   status: OfficialChannelPostStatus;
-  /** @deprecated Legacy single-image posts only — new posts use `media`. */
   image_path: string | null;
-  /** 1-10 photos, ordered — empty for legacy posts published before this existed. */
-  media: OfficialChannelPostMediaItem[];
   link_url: string | null;
   client_request_id: string | null;
   published_at: string | null;
@@ -51,9 +40,6 @@ export type OfficialChannelPublishInput = {
   title?: string | null;
   body: string;
   linkLabel?: string | null;
-  /** 1-10 image paths, in display order. Preferred over `imagePath`. */
-  imagePaths?: string[] | null;
-  /** @deprecated Prefer `imagePaths` — accepted for older clients (treated as a single-item array). */
   imagePath?: string | null;
   linkUrl?: string | null;
   /** @deprecated Prefer `title` — accepted for older clients. */
@@ -71,15 +57,7 @@ export type OfficialChannelPublishResult = {
 };
 
 const POST_SELECT =
-  "id, author_id, status, source_locale, title_en, body_en, title_ru, body_ru, title_de, body_de, image_path, link_url, link_label_en, link_label_ru, link_label_de, client_request_id, published_at, created_at, updated_at, media:official_channel_post_media(image_path, sort_order)";
-
-/** PostgREST doesn't guarantee embedded-resource order — sort client-side. */
-function sortPostMedia<T extends { media?: OfficialChannelPostMediaItem[] | null }>(post: T): T {
-  return {
-    ...post,
-    media: [...(post.media ?? [])].sort((a, b) => a.sort_order - b.sort_order),
-  };
-}
+  "id, author_id, status, source_locale, title_en, body_en, title_ru, body_ru, title_de, body_de, image_path, link_url, link_label_en, link_label_ru, link_label_de, client_request_id, published_at, created_at, updated_at";
 
 export function officialChannelMediaApiPath(imagePath: string | null | undefined): string | null {
   if (!imagePath?.trim()) {
@@ -284,9 +262,7 @@ export async function fetchOfficialChannelPosts(limit = 50) {
     return { posts: [] as OfficialChannelPostRow[], error: error.message };
   }
 
-  const posts = ((data ?? []) as OfficialChannelPostRow[]).map(sortPostMedia);
-
-  return { posts, error: null as string | null };
+  return { posts: (data ?? []) as OfficialChannelPostRow[], error: null as string | null };
 }
 
 export async function fetchOfficialChannelLastReadAt(userId: string) {
@@ -405,26 +381,14 @@ export function validatePublishInput(input: OfficialChannelPublishInput) {
   const body = input.body ?? input.bodyEn ?? "";
   const linkLabel = input.linkLabel ?? input.linkLabelEn ?? null;
 
-  // Prefer imagePaths (1-10, in order); fall back to the legacy single
-  // imagePath as a one-item array for older callers.
-  const rawImagePaths = Array.isArray(input.imagePaths)
-    ? input.imagePaths
-    : typeof input.imagePath === "string" && input.imagePath.trim()
-      ? [input.imagePath]
-      : [];
-  const imagePaths = rawImagePaths
-    .map((path) => (typeof path === "string" ? path.trim() : ""))
-    .filter((path) => path.length > 0);
-
-  if (imagePaths.length > OFFICIAL_CHANNEL_MAX_PHOTOS) {
-    throw new Error("TOO_MANY_PHOTOS");
-  }
-
   return {
     client_request_id: clientRequestId,
     title: trimOptionalText(title, OFFICIAL_CHANNEL_MAX_TITLE_LENGTH),
     body: requireAnnouncementBody(body, OFFICIAL_CHANNEL_MAX_BODY_LENGTH),
-    image_paths: imagePaths,
+    image_path:
+      typeof input.imagePath === "string" && input.imagePath.trim()
+        ? input.imagePath.trim()
+        : null,
     link_url: normalizeOptionalHttpsUrl(input.linkUrl ?? null),
     link_label: trimOptionalText(linkLabel, OFFICIAL_CHANNEL_MAX_LINK_LABEL_LENGTH),
   };
@@ -491,7 +455,7 @@ export async function publishOfficialChannelPost(
         clientRequestId: input.clientRequestId,
         title: input.title ?? input.titleEn ?? null,
         body: input.body ?? input.bodyEn ?? "",
-        imagePaths: input.imagePaths ?? (input.imagePath ? [input.imagePath] : null),
+        imagePath: input.imagePath ?? null,
         linkUrl: input.linkUrl ?? null,
         linkLabel: input.linkLabel ?? input.linkLabelEn ?? null,
       }),

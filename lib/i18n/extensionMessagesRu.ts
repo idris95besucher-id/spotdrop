@@ -1020,8 +1020,7 @@ export const EXTENSION_RU: Record<ExtensionKey, string> = {
   "officialChannel.publishing": "Публикация…",
   "officialChannel.published": "Опубликовано",
   "officialChannel.preview": "Предпросмотр",
-  "officialChannel.previewHasImage": "Включает фото: {count}.",
-  "officialChannel.photoLabel": "Фото {number}",
+  "officialChannel.previewHasImage": "Включает изображение.",
   "officialChannel.confirmTitle": "Подтвердите публикацию",
   "officialChannel.confirmBody":
     "Опубликовать это объявление для всех пользователей SpotDrop? Английская, русская и немецкая версии будут созданы автоматически из вашего текста.",
@@ -1069,7 +1068,6 @@ export const EXTENSION_RU: Record<ExtensionKey, string> = {
   "officialChannel.error.networkFailed":
     "Нет соединения с сетью. Попробуйте ещё раз.",
   "officialChannel.error.publishFailed": "Не удалось опубликовать. Попробуйте ещё раз.",
-  "officialChannel.error.tooManyPhotos": "Можно прикрепить не более 10 фото.",
   "officialChannel.error.translationFailed":
     "Автоматический перевод не удался. Попробуйте ещё раз.",
 
